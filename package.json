@@ -1,0 +1,14 @@
+{
+  "name": "sisnerling",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sistem Pengolahan Input Output Data - Node.js + MySQL + React",
+  "scripts": {
+    "dev": "node scripts/dev.js",
+    "install:all": "npm --prefix server install && npm --prefix client install",
+    "build": "npm --prefix client run build",
+    "start": "node server/server.js",
+    "server": "npm --prefix server run dev",
+    "client": "npm --prefix client run dev"
+  }
+}
