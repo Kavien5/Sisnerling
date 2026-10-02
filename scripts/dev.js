@@ -1,4 +1,4 @@
-const { spawn } = require("child_process");
+﻿const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
@@ -8,10 +8,6 @@ if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
 
 const isWin = process.platform === "win32";
 const npmCmd = isWin ? "npm.cmd" : "npm";
-
-// ini komen yang seharusnya
-
-// tambah lagi fiturnya
 
 const children = [];
 let cleaning = false;
@@ -26,10 +22,10 @@ function cleanup() {
       } else {
         child.kill();
       }
-    } catch (_) { }
+    } catch (_) {}
     try {
       out.end();
-    } catch (_) { }
+    } catch (_) {}
   });
   setTimeout(() => process.exit(0), 300);
 }
@@ -95,7 +91,7 @@ console.log("  - Client     : http://localhost:5174");
 function probePort(port, host) {
   return new Promise((resolve) => {
     const sock = require("net").connect({ port, host });
-    const done = (v) => { try { sock.destroy(); } catch (_) { } resolve(v); };
+    const done = (v) => { try { sock.destroy(); } catch (_) {} resolve(v); };
     sock.setTimeout(800);
     sock.once("connect", () => done(true));
     sock.once("timeout", () => done(false));
@@ -129,7 +125,7 @@ async function preflight() {
           ),
         ];
         if (pids.length) console.error(`          Port ${port} dipegang PID: ${pids.join(", ")}`);
-      } catch (_) { }
+      } catch (_) {}
     }
     console.error(`          Hentikan dulu, contoh (PowerShell):`);
     console.error(`            Get-NetTCPConnection -LocalPort ${busy[0]} -State Listen | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }\n`);
@@ -142,7 +138,7 @@ preflight().then(() => {
 
   waitServerReady(server).then(() => {
     run("client", npmCmd, ["run", "dev"], path.join(root, "client"), path.join(logDir, "client.log"), {
-      shell: isWin,
+      
     });
   }).catch((err) => {
     console.error("[startup] Server tidak siap:", err.message);
@@ -150,3 +146,8 @@ preflight().then(() => {
     cleanup();
   });
 });
+
+
+
+
+

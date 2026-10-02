@@ -1,3 +1,4 @@
+
 import React from "react";
 import * as XLSX from "xlsx-js-style";
 import {
@@ -263,8 +264,8 @@ export default function ExcelResult({ importedData, allFiles, activeFileId, onSe
             <div key={f.id} className={`file-tab${f.id === activeFileId ? " active" : ""}`}>
               <button className="file-tab-name" onClick={() => onSelectFile(f.id)} title={f.fileName}>
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
-                  <path d="M3 1h6l4 4v9a1 1 0 01-1 1H3a1 1 0 01-1-1V2a1 1 0 011-1z" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-                  <path d="M9 1v4h4" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+                  <path d="M3 1h6l4 4v9a1 1 0 01-1 1H3a1 1 0 01-1-1V2a1 1 0 011-1z" stroke="currentColor" strokeWidth="1.5" fill="none" />
+                  <path d="M9 1v4h4" stroke="currentColor" strokeWidth="1.5" fill="none" />
                 </svg>
                 <span className="file-tab-label">{f.fileName}</span>
               </button>
