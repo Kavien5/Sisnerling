@@ -11,6 +11,8 @@ const npmCmd = isWin ? "npm.cmd" : "npm";
 
 // ini komen yang seharusnya
 
+// tambah lagi fiturnya
+
 const children = [];
 let cleaning = false;
 
