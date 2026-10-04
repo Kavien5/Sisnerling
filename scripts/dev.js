@@ -84,7 +84,7 @@ function waitServerReady(child, timeout = 30000) {
 
 console.log("Menjalankan SISNERLING...");
 console.log("  - Server API : http://localhost:3000");
-console.log("  - Client     : http://localhost:5174");
+console.log("  - Client     : http://localhost:5175");
 
 // Pastikan port belum dipakai proses lain. Tanpa ini, server anak akan mati
 // dengan EADDRINUSE dan script hanya menggantung sampai batas waktu 30 detik.
@@ -107,7 +107,7 @@ async function portInUse(port) {
 
 async function preflight() {
   const busy = [];
-  for (const port of [3000, 5174]) {
+  for (const port of [3000, 5175]) {
     if (await portInUse(port)) busy.push(port);
   }
   if (busy.length) {
