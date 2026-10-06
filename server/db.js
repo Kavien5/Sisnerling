@@ -200,6 +200,17 @@ async function initDatabase() {
     "ALTER TABLE admin_table_permissions ADD COLUMN asal ENUM('manual','scope') NOT NULL DEFAULT 'manual' AFTER baris_izin");
   await ensureCol("spreadsheet", "sumber_file",
     "ALTER TABLE spreadsheet ADD COLUMN sumber_file VARCHAR(255) NULL AFTER nama");
+  // Kolom yang dipakai /api/import/workbook tapi belum pernah didefinisikan di
+  // schema.sql. Tanpa ini, instalasi baru (databasefresh) gagal saat import.
+  await ensureCol("spreadsheet", "worksheet_index",
+    "ALTER TABLE spreadsheet ADD COLUMN worksheet_index INT NULL AFTER kolom");
+  await ensureCol("spreadsheet", "hidden",
+    "ALTER TABLE spreadsheet ADD COLUMN hidden TINYINT(1) NOT NULL DEFAULT 0 AFTER worksheet_index");
+  // Kolom untuk serialisasi struktur sheet (merge, ukuran kolom/baris, format)
+  await ensureCol("spreadsheet", "struktur",
+    "ALTER TABLE spreadsheet ADD COLUMN struktur JSON NULL AFTER hidden");
+  await ensureCol("spreadsheet", "workbook_id",
+    "ALTER TABLE spreadsheet ADD COLUMN workbook_id VARCHAR(32) NULL AFTER struktur");
 
   // Perluas indeks unik agar satu penugasan per (user, tipe, tabel, section).
   const [[uqRow]] = await admin.query(
@@ -242,6 +253,176 @@ async function initDatabase() {
     KEY idx_scope_wb (workbook_key(191)),
     KEY idx_scope_level (level)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+
+  // ---- Persistensi workbook: pastikan tabel ada (idempoten, tanpa DROP) ----
+  // Definisi lengkap ada di schema.sql. Disalin di sini juga supaya instalasi
+  // lama yang belum pernah menjalankan schema.sql terbaru tetap aman.
+  await admin.query(`CREATE TABLE IF NOT EXISTS workbook_files (
+    id INT NOT NULL AUTO_INCREMENT,
+    workbook_code VARCHAR(32) NOT NULL,
+    nama_file VARCHAR(255) NOT NULL,
+    original_name VARCHAR(255) NULL,
+    stored_path VARCHAR(500) NULL,
+    original_path VARCHAR(500) NULL,
+    reconstructed TINYINT(1) NOT NULL DEFAULT 0,
+    size_bytes BIGINT NOT NULL DEFAULT 0,
+    mime VARCHAR(120) NULL,
+    sha256 CHAR(64) NULL,
+    jumlah_sheet INT NOT NULL DEFAULT 0,
+    status ENUM('aktif','arsip') NOT NULL DEFAULT 'aktif',
+    uploaded_by INT NULL,
+    legacy_id VARCHAR(191) NULL,
+    tanggal_import TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_wf_code (workbook_code),
+    UNIQUE KEY uq_wf_legacy (legacy_id),
+    KEY idx_wf_status (status),
+    KEY idx_wf_name (nama_file(191))
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+
+  await admin.query(`CREATE TABLE IF NOT EXISTS workbook_sheets (
+    id INT NOT NULL AUTO_INCREMENT,
+    workbook_id INT NOT NULL,
+    sheet_code VARCHAR(32) NOT NULL,
+    nama_sheet VARCHAR(255) NOT NULL,
+    sheet_index INT NOT NULL DEFAULT 0,
+    hidden TINYINT(1) NOT NULL DEFAULT 0,
+    row_count INT NULL,
+    col_count INT NULL,
+    merges JSON NULL,
+    struktur JSON NULL,
+    spreadsheet_id INT NULL,
+    status ENUM('aktif','hilang') NOT NULL DEFAULT 'aktif',
+    created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_ws_code (sheet_code),
+    UNIQUE KEY uq_ws_wb_index (workbook_id, sheet_index),
+    KEY idx_ws_wb (workbook_id),
+    KEY idx_ws_spreadsheet (spreadsheet_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+
+  // ---- Migrasi workbook: tambah kolom baru ke tabel yang SUDAH ada ----
+  // Hanya ADD COLUMN (tidak DROP/TRUNCATE), jadi data lama tetap utuh.
+  // original_path: byte asli hasil import, dipisah dari byte hasil edit supaya
+  // file asli tidak pernah tertimpa re-serialisasi editor.
+  await ensureCol("workbook_files", "original_path",
+    "ALTER TABLE workbook_files ADD COLUMN original_path VARCHAR(500) NULL AFTER stored_path");
+  await ensureCol("workbook_files", "reconstructed",
+    "ALTER TABLE workbook_files ADD COLUMN reconstructed TINYINT(1) NOT NULL DEFAULT 0 AFTER original_path");
+  // status di workbook_sheets: sheet yang dihapus di editor diarsipkan
+  // (status='hilang'), barisnya tidak dihapus dan sheet_code tidak dipakai ulang.
+  await ensureCol("workbook_sheets", "status",
+    "ALTER TABLE workbook_sheets ADD COLUMN status ENUM('aktif','hilang') NOT NULL DEFAULT 'aktif' AFTER spreadsheet_id");
+  // Workbook yang byte-nya belum tersimpan (dari versi lama) ditandai agar UI
+  // tahu isinya perlu dibangun ulang dari baris data yang sudah ada.
+  try {
+    await admin.query(
+      "UPDATE workbook_files SET reconstructed = 1 WHERE (stored_path IS NULL OR stored_path = '') AND (original_path IS NULL OR original_path = '')"
+    );
+  } catch (err) {
+    console.error("[MIGRATE] tandai workbook rekonstruksi dilewati:", err.message);
+  }
+
+  // ---- Backfill workbook dari sheet yang SUDAH ADA (tidak menghapus apa pun) ----
+  // Sheet hasil import versi lama sudah tersimpan di tabel `spreadsheet` dengan
+  // sumber_file sebagai penanda file. Data lama tidak boleh hilang, jadi setiap
+  // sumber_file dijadikan satu workbook dengan ID permanen, lalu sheet-nya
+  // ditautkan. Sheet yang sudah punya row_count dari file asli tetap memakai
+  // angka aslinya; baris/kolom kosong tidak di-trim.
+  try {
+    const [existing] = await admin.query(
+      `SELECT DISTINCT sumber_file FROM spreadsheet
+       WHERE sumber_file IS NOT NULL AND sumber_file <> '' AND workbook_id IS NULL
+       ORDER BY sumber_file`
+    );
+    for (const row of existing) {
+      const legacyId = String(row.sumber_file || "").slice(0, 191);
+      if (!legacyId) continue;
+      const [[dupWf]] = await admin.query(
+        "SELECT id FROM workbook_files WHERE legacy_id = ?",
+        [legacyId]
+      );
+      let workbookId = dupWf ? dupWf.id : null;
+      let workbookCode = "";
+      if (workbookId) {
+        const [[codeRow]] = await admin.query(
+          "SELECT workbook_code FROM workbook_files WHERE id = ?",
+          [workbookId]
+        );
+        workbookCode = (codeRow && codeRow.workbook_code) || "";
+      }
+      if (!workbookId) {
+        const [[maxRow]] = await admin.query(
+          "SELECT workbook_code FROM workbook_files ORDER BY id DESC LIMIT 1"
+        );
+        const n = maxRow && maxRow.workbook_code
+          ? Number(String(maxRow.workbook_code).replace(/\D/g, "")) + 1
+          : 1;
+        workbookCode = `WB_${String(n).padStart(3, "0")}`;
+        const [ins] = await admin.query(
+          `INSERT INTO workbook_files (workbook_code, nama_file, original_name, legacy_id, jumlah_sheet, status)
+           VALUES (?, ?, ?, ?, 0, 'aktif')`,
+          [workbookCode, legacyId, legacyId, legacyId]
+        );
+        workbookId = ins.insertId;
+        console.log(`[BACKFILL] workbook ${workbookCode} ← "${legacyId}"`);
+      }
+
+      const [sheets] = await admin.query(
+        `SELECT id, nama, worksheet_index, hidden, kolom, struktur
+         FROM spreadsheet
+         WHERE sumber_file = ? AND (workbook_id IS NULL OR workbook_id = ?)
+         ORDER BY worksheet_index IS NULL, worksheet_index, id`,
+        [legacyId, workbookId]
+      );
+      let idx = 0;
+      for (const s of sheets) {
+        const [[dupWs]] = await admin.query(
+          "SELECT id FROM workbook_sheets WHERE spreadsheet_id = ?",
+          [s.id]
+        );
+        if (!dupWs) {
+          const [[maxSheet]] = await admin.query(
+            "SELECT sheet_code FROM workbook_sheets ORDER BY id DESC LIMIT 1"
+          );
+          const sn = maxSheet && maxSheet.sheet_code
+            ? Number(String(maxSheet.sheet_code).replace(/\D/g, "")) + 1
+            : 1;
+          await admin.query(
+            `INSERT INTO workbook_sheets
+               (workbook_id, sheet_code, nama_sheet, sheet_index, hidden, merges, struktur, spreadsheet_id)
+             VALUES (?, ?, ?, ?, ?, NULL, ?, ?)`,
+            [
+              workbookId,
+              `SHEET_${String(sn).padStart(3, "0")}`,
+              s.nama || `Sheet ${idx + 1}`,
+              s.worksheet_index == null ? idx : s.worksheet_index,
+              s.hidden ? 1 : 0,
+              s.struktur ? JSON.stringify(s.struktur) : (s.kolom ? JSON.stringify(s.kolom) : null),
+              s.id,
+            ]
+          );
+        }
+        if (workbookCode) {
+          await admin.query("UPDATE spreadsheet SET workbook_id = ? WHERE id = ?", [
+            workbookCode,
+            s.id,
+          ]);
+        }
+        idx++;
+      }
+      await admin.query("UPDATE workbook_files SET jumlah_sheet = ? WHERE id = ?", [
+        sheets.length,
+        workbookId,
+      ]);
+    }
+  } catch (err) {
+    // Backfill hanya pelengkap: kegagalan tidak boleh menghentikan boot server.
+    console.error("[BACKFILL] workbook gagal (dilewati):", err.message);
+  }
 
   // ---- Backfill: data import lama (sheet_id NULL) dijadikan sheet otomatis ----
   // Data hasil import edisi lama tidak memiliki sheet. Agar tetap muncul di

@@ -13,14 +13,22 @@ logs/
 .env.*
 !.env.example
 
-# Build
+# Build output
+# Hasil `npm run build` (vite) TIDAK di-commit. Jalankan build sebelum
+# menjalankan server produksi (`npm start`), atau pakai `npm run dev`.
 client/dist/
-server/public/assets/*.map
+server/public/assets/
 
 # Uploads/runtime
 uploads/
 tmp/
 temp/
+# File Excel hasil import yang tersimpan permanen (byte asli + metadata ada di
+# MySQL). Ini data runtime, bukan kode — jangan di-commit.
+server/storage/
+
+# Script uji sementara (bukan bagian aplikasi)
+server/_tmp_*.js
 
 # OS/IDE
 .DS_Store

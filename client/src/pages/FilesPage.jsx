@@ -7,7 +7,10 @@ import { enrichWorkbookFromZip } from "../excelRawStyles.js";
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const ALLOWED_EXT = [".xlsx", ".xls"];
 
-function fmtSize(rawBase64) {
+function fmtSize(rawBase64, sizeBytes) {
+  // Utamakan ukuran yang dilaporkan server (dari metadata MySQL) karena itu
+  // angka sebenarnya; ukuran dari base64 hanya perkiraan saat cache lokal.
+  if (sizeBytes) return fmtBytes(Number(sizeBytes));
   if (!rawBase64) return "";
   return fmtBytes(Math.round((rawBase64.length * 3) / 4));
 }
@@ -25,7 +28,7 @@ function fmtDate(value) {
   return new Intl.DateTimeFormat("id-ID", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(d);
 }
 
-export default function FilesPage({ files = [], onOpen, onRemove, onRename, onImport, canImport = false }) {
+export default function FilesPage({ files = [], loadingFiles = false, onOpen, onRemove, onRename, onImport, canImport = false }) {
   const [confirmId, setConfirmId] = React.useState(null);
   const [renameId, setRenameId] = React.useState(null);
   const [renameValue, setRenameValue] = React.useState("");
@@ -91,8 +94,14 @@ export default function FilesPage({ files = [], onOpen, onRemove, onRename, onIm
   const target = files.find((f) => f.id === confirmId);
   const renameTarget = files.find((f) => f.id === renameId);
 
-  const totalBytes = files.reduce((n, f) => n + (f.rawBase64 ? Math.round((f.rawBase64.length * 3) / 4) : 0), 0);
-  const totalSheets = files.reduce((n, f) => n + (f.sheetNames ? f.sheetNames.length : 0), 0);
+  const totalBytes = files.reduce(
+    (n, f) => n + (f.sizeBytes || (f.rawBase64 ? Math.round((f.rawBase64.length * 3) / 4) : 0)),
+    0
+  );
+  const totalSheets = files.reduce(
+    (n, f) => n + (f.jumlahSheet || (f.sheetNames ? f.sheetNames.length : 0)),
+    0
+  );
 
   const startRename = (f) => {
     setRenameId(f.id);
@@ -147,7 +156,7 @@ export default function FilesPage({ files = [], onOpen, onRemove, onRename, onIm
               onDragOver={onDragOver}
               onDragLeave={onDragLeave}
             >
-              {loading ? (
+{loadingFiles ? (
                 <div className="dropzone-loading">
                   <div className="spinner"></div>
                   <p>Membaca file...</p>
@@ -237,29 +246,41 @@ export default function FilesPage({ files = [], onOpen, onRemove, onRename, onIm
                         {f.fileName || `File ${i + 1}`}
                       </span>
                       <span className="files-list-meta">
-                        {f.sheetNames ? `${f.sheetNames.length} sheet` : "- sheet"}
-                        {f.rawBase64 ? ` &middot; ${fmtSize(f.rawBase64)}` : ""}
-                        {" &middot; "}Updated {fmtDate(f.savedAt)}
+                        {f.jumlahSheet || (f.sheetNames ? f.sheetNames.length : 0)} sheet
+                        {f.sizeBytes || f.rawBase64 ? ` &middot; ${fmtSize(f.rawBase64, f.sizeBytes)}` : ""}
+                        {f.workbookCode ? ` &middot; ${f.workbookCode}` : ""}
+                        {" &middot; "}
+                        {f.punyaFile === false
+                          ? "menunggu dibaca dari server"
+                          : f.reconstructed
+                            ? `dibangun dari data import lama ${fmtDate(f.savedAt)}`
+                            : `Impor ${fmtDate(f.savedAt)}`}
                       </span>
                     </>
                   )}
                 </div>
                 <div className="files-list-actions">
-                  <button className="btn btn-outline btn-sm" onClick={() => startRename(f)} title="Ubah nama file">
-                    <IconEdit size={14} />
-                  </button>
+                  {canImport && (
+                    <button className="btn btn-outline btn-sm" onClick={() => startRename(f)} title="Ubah nama file">
+                      <IconEdit size={14} />
+                    </button>
+                  )}
                   <button className="btn btn-primary btn-sm" onClick={() => onOpen(f.id)} title="Buka file di Spreadsheet">
                     Buka
                   </button>
-                  <button
-                    className="btn btn-outline btn-sm"
-                    onClick={() => setConfirmId(f.id)}
-                    title="Hapus file"
-                    style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
-                  >
-                    <IconTrash size={13} />
-                    Hapus
-                  </button>
+                  {/* Hapus hanya untuk Super Admin: penghapusan permanen hanya
+                      boleh terjadi lewat tombol ini + konfirmasi. */}
+                  {canImport && (
+                    <button
+                      className="btn btn-outline btn-sm"
+                      onClick={() => setConfirmId(f.id)}
+                      title="Hapus file"
+                      style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+                    >
+                      <IconTrash size={13} />
+                      Hapus
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
@@ -269,10 +290,19 @@ export default function FilesPage({ files = [], onOpen, onRemove, onRename, onIm
         <div className="card">
           <div className="empty-state">
             <div className="big">&#128196;</div>
-            <p>Belum ada file yang diimport.</p>
-            <p className="text-muted">
-              {canImport ? "Gunakan kotak Import di atas untuk mengimport file Excel pertama Anda." : "Hubungi Super Admin untuk mengimport file Excel."}
-            </p>
+            {loading ? (
+              <>
+                <div className="spinner"></div>
+                <p>Memuat daftar file dari server...</p>
+              </>
+            ) : (
+              <>
+                <p>Belum ada file yang diimport.</p>
+                <p className="text-muted">
+                  {canImport ? "Gunakan kotak Import di atas untuk mengimport file Excel pertama Anda." : "Hubungi Super Admin untuk mengimport file Excel."}
+                </p>
+              </>
+            )}
           </div>
         </div>
       )}

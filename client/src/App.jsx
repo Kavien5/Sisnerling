@@ -1,6 +1,6 @@
 import React from "react";
 import Layout from "./components/Layout.jsx";
-import { ToastProvider } from "./components/Toast.jsx";
+import { ToastProvider, useToast } from "./components/Toast.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
 import KategoriPage from "./pages/KategoriPage.jsx";
 import Laporan from "./pages/Laporan.jsx";
@@ -12,13 +12,28 @@ import AuditLogs from "./pages/AuditLogs.jsx";
 import Login from "./pages/Login.jsx";
 import Register from "./pages/Register.jsx";
 import { AdminUsers, AdminTables, AdminMaintenance, AdminBackup, AdminSettings, MaintenancePage } from "./pages/AdminPages.jsx";
-import { loadFiles, saveFile, removeFile, generateId, clearAllFiles, hydrateFiles } from "./excelStorage.js";
+import { loadFiles, saveFile, saveFileToServer, removeFile, generateId, clearAllFiles, hydrateFiles, ensureFileLoaded } from "./excelStorage.js";
 import { api } from "./api.js";
 import { getToken, getUser, setAuth, clearAuth, updateStoredUser, isSuperAdmin, hasMaintenanceBypass, canEditData } from "./auth.js";
 
+// App hanya membungkus ToastProvider. Logika aplikasi ada di AppInner supaya
+// useToast() dipakai DI DALAM provider (kalau tidak, toast tidak tampil).
 export default function App() {
+  return (
+    <ToastProvider>
+      <AppInner />
+    </ToastProvider>
+  );
+}
+
+function AppInner() {
+  const toast = useToast();
   const [page, setPage] = React.useState("spreadsheet");
-  const [importedFiles, setImportedFiles] = React.useState(() => loadFiles());
+  // Dimulai kosong, lalu diisi dari server (GET /api/files). Daftar file TIDAK
+  // lagi diambil dari state browser, jadi tetap ada setelah refresh / logout /
+  // login ulang / restart backend.
+  const [importedFiles, setImportedFiles] = React.useState([]);
+  const [filesLoading, setFilesLoading] = React.useState(true);
   const [activeFileId, setActiveFileId] = React.useState(null);
 
   const [user, setUser] = React.useState(() => getUser());
@@ -86,26 +101,26 @@ export default function App() {
     };
   }, []);
 
-  // Pulihkan file terimport dari IndexedDB (kuota localStorage tidak cukup untuk
-  // file Excel berukuran besar) lalu segarkan daftar file di UI. Setelah ini,
-  // localStorage juga ikut disinkronkan sebagai cache kilat.
+  // Muat daftar file dari server. Ini sumber kebenaran tunggal untuk halaman
+  // File & Import maupun Spreadsheet — keduanya membaca workbook yang sama.
   React.useEffect(() => {
+    if (!user) return undefined;
     let alive = true;
+    setFilesLoading(true);
     hydrateFiles()
       .then(() => {
         if (alive) setImportedFiles(loadFiles());
       })
-      .catch(() => {});
+      .catch(() => {
+        if (alive) setImportedFiles(loadFiles());
+      })
+      .finally(() => {
+        if (alive) setFilesLoading(false);
+      });
     return () => {
       alive = false;
     };
-  }, []);
-
-  React.useEffect(() => {
-    if (importedFiles.length > 0) {
-      saveFile(importedFiles[importedFiles.length - 1]);
-    }
-  }, [importedFiles]);
+  }, [user]);
 
   const handleLogin = (token, u) => {
     setAuth(token, u);
@@ -137,6 +152,9 @@ export default function App() {
 
   const handleAccountDeleted = () => {
     clearAuth();
+    // Hanya cache lokal browser yang dibersihkan. File di server milik
+    // workspace dan TIDAK ikut terhapus — penghapusan file tetap harus lewat
+    // tombol Hapus + konfirmasi dari Super Admin.
     clearAllFiles();
     setUser(null);
     setImportedFiles([]);
@@ -144,22 +162,51 @@ export default function App() {
     setPage("spreadsheet");
   };
 
-  const handleImport = (data) => {
-    const id = generateId();
+  const handleImport = async (data) => {
     const entry = {
-      id,
+      id: generateId(),
       fileName: data.fileName,
       workbook: data.workbook,
       sheetNames: data.sheetNames,
       rawBase64: data.rawBase64 || "",
     };
-    setImportedFiles((prev) => [...prev, entry]);
-    setActiveFileId(id);
-    setPage("import-result");
+    // Simpan PERMANEN ke server terlebih dahulu. Byte asli .xlsx ditulis ke
+    // disk server dan metadata sheet-nya ke MySQL, sehingga file tetap ada
+    // setelah refresh, pindah halaman, logout/login, dan restart backend.
+    // Import dianggap gagal bila penyimpanan server gagal — supaya user
+    // tidak melihat file "berhasil" yang sebenarnya hilang saat refresh.
+    try {
+      const saved = await saveFileToServer(entry);
+      setImportedFiles(loadFiles());
+      setActiveFileId(saved.id);
+      setPage("import-result");
+      return saved;
+    } catch (err) {
+      const msg =
+        err && err.message
+          ? err.message
+          : "File gagal disimpan ke server. File TIDAK tersimpan permanen.";
+      toast(
+        `File "${data.fileName}" gagal disimpan permanen: ${msg}`,
+        "error"
+      );
+      return null;
+    }
   };
 
-  const handleRemoveFile = (fileId) => {
-    removeFile(fileId);
+  // Hapus file. File di server HANYA dihapus di sini karena pengguna menekan
+  // tombol Hapus lalu mengonfirmasi di UI (dan route server mewajibkan
+  // Super Admin). Tidak ada penghapusan otomatis saat refresh/logout/restart.
+  const handleRemoveFile = async (fileId) => {
+    try {
+      await removeFile(fileId);
+    } catch (err) {
+      toast(
+        `Gagal menghapus file: ${err && err.message ? err.message : "terjadi kesalahan"}`,
+        "error"
+      );
+      return;
+    }
     setImportedFiles((prev) => {
       const next = prev.filter((f) => f.id !== fileId);
       if (next.length === 0) {
@@ -172,21 +219,52 @@ export default function App() {
     });
   };
 
-  const handleRenameFile = (fileId, namaBaru) => {
+  const handleRenameFile = async (fileId, namaBaru) => {
     const entry = importedFiles.find((f) => f.id === fileId);
     if (!entry) return;
     const trimmed = String(namaBaru || "").trim();
     if (!trimmed) return;
+    // Rename menyentuh metadata di server; kode workbook (WB_xxx) sengaja
+    // tidak berubah sehingga relasi Sheet/Formula/Penugasan tetap utuh.
+    try {
+      if (entry.workbookCode) await api.renameFile(entry.workbookCode, { fileName: trimmed });
+    } catch (err) {
+      toast(
+        `Gagal mengganti nama file: ${err && err.message ? err.message : "terjadi kesalahan"}`,
+        "error"
+      );
+      return;
+    }
     saveFile({ id: entry.id, fileName: trimmed, workbook: entry.workbook, rawBase64: entry.rawBase64 });
     setImportedFiles(loadFiles());
   };
 
-  const handleSelectFile = (fileId) => {
+  // Pastikan byte asli file ada di memori sebelum dibuka. Kalau file berasal
+  // dari server (mis. di-import di browser lain / setelah restart backend),
+  // bytes-nya diunduh dari storage server lalu workbook ASLI dibangun dari
+  // file itu — bukan dari salinan terpisah.
+  const ensureFileReady = async (fileId) => {
+    const existing = importedFiles.find((f) => f.id === fileId);
+    if (existing && existing.workbook) return true;
+    const loaded = await ensureFileLoaded(fileId);
+    if (loaded) {
+      setImportedFiles(loadFiles());
+      return true;
+    }
+    toast("File tidak dapat dimuat dari server", "error");
+    return false;
+  };
+
+  const handleSelectFile = async (fileId) => {
+    // Jangan pindah halaman kalau byte aslinya gagal dimuat — Spreadsheet
+    // hanya boleh menampilkan workbook yang benar-benar ada di server.
+    if (!(await ensureFileReady(fileId))) return;
     setActiveFileId(fileId);
     setPage("import-result");
   };
 
-  const handleOpenFileInSpreadsheet = (fileId) => {
+  const handleOpenFileInSpreadsheet = async (fileId) => {
+    if (!(await ensureFileReady(fileId))) return;
     setActiveFileId(fileId);
     setPage("spreadsheet");
   };
@@ -196,39 +274,28 @@ export default function App() {
   // Tampilkan layar login/register selama belum selesai validasi sesi.
   if (!authReady) {
     return (
-      <ToastProvider>
-        <div className="auth-page">
-          <div className="auth-loading">Memuat...</div>
-        </div>
-      </ToastProvider>
+      <div className="auth-page">
+        <div className="auth-loading">Memuat...</div>
+      </div>
     );
   }
 
   if (!user) {
-    return (
-      <ToastProvider>
-        {authMode === "register" ? (
-          <Register onRegister={handleRegister} onSwitchToLogin={() => setAuthMode("login")} />
-        ) : (
-          <Login onLogin={handleLogin} onSwitchToRegister={() => setAuthMode("register")} />
-        )}
-      </ToastProvider>
+    return authMode === "register" ? (
+      <Register onRegister={handleRegister} onSwitchToLogin={() => setAuthMode("login")} />
+    ) : (
+      <Login onLogin={handleLogin} onSwitchToRegister={() => setAuthMode("register")} />
     );
   }
 
   // Saat maintenance aktif, User & Admin hanya melihat halaman maintenance.
   if (maintenanceBlocking) {
-    return (
-      <ToastProvider>
-        <MaintenancePage maintenance={maintenance} onLogout={handleLogout} />
-      </ToastProvider>
-    );
+    return <MaintenancePage maintenance={maintenance} onLogout={handleLogout} />;
   }
 
   return (
-    <ToastProvider>
-      <Layout
-        page={page}
+    <Layout
+      page={page}
         setPage={setPage}
         importedFiles={importedFiles}
         user={user}
@@ -248,6 +315,7 @@ export default function App() {
         {page === "files" && (
           <FilesPage
             files={importedFiles}
+            loadingFiles={filesLoading}
             onOpen={handleOpenFileInSpreadsheet}
             onRemove={handleRemoveFile}
             onRename={handleRenameFile}
@@ -274,7 +342,6 @@ export default function App() {
         {isSuperAdmin(user) && page === "admin-maintenance" && <AdminMaintenance />}
         {isSuperAdmin(user) && page === "admin-backup" && <AdminBackup />}
         {isSuperAdmin(user) && page === "admin-settings" && <AdminSettings />}
-      </Layout>
-    </ToastProvider>
+    </Layout>
   );
 }

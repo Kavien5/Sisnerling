@@ -19,13 +19,13 @@ import {
 import { Bar, Line, Pie, Doughnut } from "react-chartjs-2";
 import { colName, evaluateGrid, cellAddress, createExternalResolverHook } from "../spreadsheet.js";
 import { saveDraftSheets, loadDraftSheets } from "../excelDrafts.js";
-import { createEmptySheet, workbookToSheets, workbookToSheetsProgressive, firstSheetFromWorkbook, sheetsToWorkbook, autoFitSheet, insertColumnIntoSheet, insertRowIntoSheet, deleteRowsFromSheet, deleteColumnsFromSheet, applyBordersToSheet, debugImportFidelity } from "../excelImportUtil.js";
+import { createEmptySheet, workbookToSheets, workbookToSheetsProgressive, firstSheetFromWorkbook, sheetsToWorkbook, autoFitSheet, insertColumnIntoSheet, insertRowIntoSheet, deleteRowsFromSheet, deleteColumnsFromSheet, applyBordersToSheet, debugImportFidelity, bakeThemeColors } from "../excelImportUtil.js";
 import ExcelGrid from "../components/ExcelGrid.jsx";
 import ExcelToolbar from "../components/ExcelToolbar.jsx";
 import Modal from "../components/Modal.jsx";
 import PerbandinganData from "../components/PerbandinganData.jsx";
 import { sheetsToTables } from "../perbandinganUtils.js";
-import { saveFile, removeFile, generateId } from "../excelStorage.js";
+import { saveFile, removeFile, generateId, flushSync, ensureFileLoaded } from "../excelStorage.js";
 import { openFileZip, extractImagesFromZip } from "../excelImages.js";
 import { enrichWorkbookFromZip } from "../excelRawStyles.js";
 import {
@@ -102,10 +102,20 @@ export default function ExcelEditor({ importedFiles = [], onFilesChanged, readOn
   const [publishing, setPublishing] = React.useState(false);
   const gridRef = React.useRef(null);
   const prevFileIdRef = React.useRef(null);
+  // Workbook yang sudah dimuat ke grid, agar lazy-load tidak mengulang
+  // pemuatan yang sama setiap render.
+  const loadedWorkbookRef = React.useRef(null);
   const [activeFileId, setActiveFileId] = React.useState(() => openFileId || importedFiles[importedFiles.length - 1]?.id || null);
+  // Workbook awal hanya bisa dibangun bila byte file sudah ada di memori.
+// File dari server dimuat secara lazy (lihat loadFileWithDraft), jadi saat
+// daftar baru dimuat kita mulai dari sheet kosong lalu effector di bawah yang
+// mengisi grid begitu workbook-nya tersedia.
+  const [initialFile] = React.useState(
+    () => importedFiles.find((f) => f.id === openFileId) || importedFiles[importedFiles.length - 1] || null
+  );
   const [sheets, setSheets] = React.useState(() =>
-    importedFiles.length
-      ? [autoFitSheet(firstSheetFromWorkbook((importedFiles.find((f) => f.id === openFileId) || importedFiles[importedFiles.length - 1]).workbook, { native: true }))]
+    initialFile && initialFile.workbook
+      ? [autoFitSheet(firstSheetFromWorkbook(initialFile.workbook, { native: true }))]
       : [createEmptySheet("Sheet1")]
   );
   const sheetsRef = React.useRef(sheets);
@@ -295,10 +305,79 @@ export default function ExcelEditor({ importedFiles = [], onFilesChanged, readOn
     const file = importedFiles.find((f) => f.id === activeFileId);
     if (activeFileId !== prevFileIdRef.current && file) {
       prevFileIdRef.current = activeFileId;
+      loadedWorkbookRef.current = null;
       loadFileWithDraft(file);
     }
     if (activeFileId) { setVersions(listVersions(activeFileId)); setTrashedFiles(listTrashedFiles()); }
   }, [activeFileId, importedFiles]);
+
+  // Workbook file aktif bisa tiba SETELAH file dipilih: daftar dari server
+  // sengaja dimuat lazy (byte .xlsx diunduh saat file dibuka). Effect ini
+  // memuat grid begitu workbook-nya tersedia, supaya halaman Spreadsheet
+  // menampilkan workbook asli dari server, bukan sheet kosong.
+  const activeWorkbook = importedFiles.find((f) => f.id === activeFileId)?.workbook || null;
+  React.useEffect(() => {
+    if (!activeWorkbook) return;
+    if (loadedWorkbookRef.current === activeWorkbook) return;
+    loadedWorkbookRef.current = activeWorkbook;
+    loadFileWithDraft(importedFiles.find((f) => f.id === activeFileId));
+  }, [activeWorkbook]);
+
+  // Unduh byte file aktif bila belum ada di memori. Setelah refresh / restart
+  // backend / login ulang, daftar file dibaca dari server tanpa byte aslinya
+  // (lazy). Tanpa langkah ini, Spreadsheet akan menampilkan grid kosong walau
+  // file tersimpan permanen di server. Setelah byte tiba, daftar disegarkan
+  // sehingga workbook ASLI (bukan salinan) tampil di grid.
+  const fetchingFileRef = React.useRef(null);
+  React.useEffect(() => {
+    if (!activeFileId) return;
+    const file = importedFiles.find((f) => f.id === activeFileId);
+    if (!file || file.workbook) {
+      fetchingFileRef.current = null;
+      return;
+    }
+    if (fetchingFileRef.current === activeFileId) return;
+    fetchingFileRef.current = activeFileId;
+    let alive = true;
+    ensureFileLoaded(activeFileId).then((loaded) => {
+      if (!alive) return;
+      fetchingFileRef.current = null;
+      if (loaded) onFilesChanged?.();
+    });
+    return () => {
+      alive = false;
+    };
+  }, [activeFileId, importedFiles]);
+
+  // Muat byte SEMUA file di latar belakang (setelah file aktif tampil). Referensi
+  // formula ANTAR-FILE (mis. Neraca Aset!Oil!T12 -> Neraca Terintegrasi!B10)
+  // membutuhkan workbook file LAIN di memori. Tanpa langkah ini, setelah refresh
+  // hanya file aktif yang punya byte sehingga rumus lintas-file menjadi kosong.
+  // Dijaga dengan Set agar file yang gagal dimuat tidak memicu percobaan tak
+  // berujung; percobaan berikutnya terjadi saat halaman dibuka lagi.
+  const eagerLoadRef = React.useRef(new Set());
+  React.useEffect(() => {
+    const pending = importedFiles.filter(
+      (f) => f && f.workbookCode && !f.workbook && !eagerLoadRef.current.has(f.id)
+    );
+    if (!pending.length) return undefined;
+    for (const f of pending) eagerLoadRef.current.add(f.id);
+    let alive = true;
+    (async () => {
+      for (const f of pending) {
+        if (!alive) return;
+        try {
+          await ensureFileLoaded(f.id);
+        } catch (_) {
+          /* file individual gagal dimuat; file lain tetap diproses */
+        }
+      }
+      if (alive) onFilesChanged?.();
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [importedFiles]);
 
   // Saat ada file baru yang diimpor, langsung buka hasil import terbaru tersebut
   // (impor baru selalu ditambahkan di posisi paling akhir daftar file).
@@ -368,6 +447,9 @@ export default function ExcelEditor({ importedFiles = [], onFilesChanged, readOn
     if (!activeFile) return;
     saveFile({ id: activeFile.id, fileName: activeFile.fileName, workbook: sheetsToWorkbook(sheetsRef.current), rawBase64: activeFile.rawBase64 });
     saveDraftSheets(activeFile.id, sheetsRef.current);
+    // Unggahan ke server Normally tertunda; saat pindah file/keluar halaman
+    // kita paksa kirim sekarang supaya edit terakhir tidak tertinggal di server.
+    flushSync();
   };
 
   // Simpan otomatis saat halaman ditutup/di-refresh (pagehide/beforeunload)
@@ -380,6 +462,7 @@ export default function ExcelEditor({ importedFiles = [], onFilesChanged, readOn
         gridRef.current?.commitActive?.();
         saveFile({ id: activeFile.id, fileName: activeFile.fileName, workbook: sheetsToWorkbook(sheetsRef.current), rawBase64: activeFile.rawBase64 });
         saveDraftSheets(activeFile.id, sheetsRef.current);
+        flushSync();
       } catch (_) {
         // penulisan gagal (quota) — abaikan agar unload tidak tersendat
       }
@@ -603,7 +686,10 @@ export default function ExcelEditor({ importedFiles = [], onFilesChanged, readOn
         setDraftRevision((r) => r + 1);
         saveDraftSheets(file.id, fitted);
       } else {
-        loadWorkbookProgressive(file.workbook, { native: true });
+        // Workbook asli belum dimuat (file berasal dari server, byte-nya
+        // diunduh saat file dibuka). Tunggu sampai tersedia agar grid tidak
+        // menampilkan sheet kosong palsu.
+        if (file.workbook) loadWorkbookProgressive(file.workbook, { native: true });
       }
     });
   };
@@ -1464,17 +1550,32 @@ export default function ExcelEditor({ importedFiles = [], onFilesChanged, readOn
       return;
     }
     if (!window.confirm(`Publikasikan ${importedFiles.length} file ke server agar bisa ditugaskan ke admin di halaman Penugasan Tabel?`)) return;
+    // Pastikan edit terakhir sudah naik ke server sebelum dipublikasikan, supaya
+    // data yang ditugaskan Admin sama persis dengan isi file yang tersimpan.
+    flushSync();
     setPublishing(true);
     let ok = 0;
     let inserted = 0;
     const fails = [];
     for (const f of importedFiles) {
       try {
-        let b64 = "";
-        try {
-          b64 = f.rawBase64 || XLSX.write(f.workbook, { type: "base64", bookType: "xlsx" });
-        } catch (_err) {
-          b64 = "";
+        // File dari server bisa belum punya workbook di memori (dimuat lazy).
+        // Muat dulu lewat ensureFileLoaded agar tidak gagal saat publish.
+        let wb = f.workbook;
+        let b64 = f.rawBase64 || "";
+        if (!b64 && !wb) {
+          const loaded = await ensureFileLoaded(f.id);
+          if (loaded) {
+            wb = loaded.workbook;
+            b64 = loaded.rawBase64 || "";
+          }
+        }
+        if (!b64 && wb) {
+          try {
+            b64 = XLSX.write(bakeThemeColors(wb), { type: "base64", bookType: "xlsx" });
+          } catch (_err) {
+            b64 = "";
+          }
         }
         if (!b64) {
           fails.push(`"${f.fileName}" — workbook tidak bisa dikonversi (kosong/tidak valid)`);

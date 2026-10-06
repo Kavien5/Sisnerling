@@ -3,7 +3,7 @@ import { api, formatNumber, formatTanggal } from "../api.js";
 import { useToast } from "../components/Toast.jsx";
 import { roleLabel } from "../auth.js";
 import ExcelGrid from "../components/ExcelGrid.jsx";
-import { loadFiles } from "../excelStorage.js";
+import { loadFiles, ensureAllFilesLoaded } from "../excelStorage.js";
 import { workbookToSheetsProgressive, detectSheetLayout } from "../excelImportUtil.js";
 import { colName, evaluateGrid, createExternalResolverHook } from "../spreadsheet.js";
 import Dropdown from "../components/Dropdown.jsx";
@@ -989,7 +989,12 @@ export function AdminTables() {
       setScopes(Array.isArray(sc) ? sc : []);
       setAdmins(users.filter((u) => u.role === "admin"));
       setSpreadsheets(sp);
+      // Muat byte semua file supaya referensi formula ANTAR-FILE di pratinjau
+      // Penugasan Admin tetap bekerja (file dari server bersifat lazy).
       setFiles(loadFiles());
+      ensureAllFilesLoaded()
+        .then((fs) => setFiles(fs))
+        .catch(() => {});
     } catch (err) {
       toast(err.message, "error");
     } finally {

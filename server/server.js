@@ -8,6 +8,7 @@ const { authRouter, authRequired, requireRole, maintenanceGuard, isMaintenanceAc
 const { adminRouter } = require("./admin");
 const { auditRouter } = require("./audit");
 const { logAudit } = require("./auditLog");
+const { filesRouter, ensureStorageRoot, warmWorkbooksFromDatabase, nextCode, writeOriginalFile, normWorkbookName } = require("./files");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -108,6 +109,9 @@ app.use("/api", maintenanceGuard);
 app.use("/api/admin", adminRouter);
 // Audit log: dibaca Admin & Super Admin, route dalam sudah punya guard role.
 app.use("/api/audit", auditRouter);
+// File Excel terimport: penyimpanan permanen. Dipasang SETELAH authRequired +
+// maintenanceGuard di atas, sehingga otomatis mengikuti aturan yang sama.
+app.use("/api/files", filesRouter);
 
 // ===== Sambutan Dashboard (dapat diedit oleh Super Admin) =====
 // Judul & deskripsi kartu "Selamat Datang" disimpan di app_settings.
@@ -1641,6 +1645,61 @@ app.post("/api/import/workbook", requireRole("super_admin"), async (req, res, ne
     const fileStem = String(req.body.filename || "Spreadsheet").trim().replace(/\.[^.]+$/, "").slice(0, 120) || "Spreadsheet";
     const fileToken = fileStem.replace(/[^a-z0-9]/gi, "").slice(0, 12).toLowerCase() || "imp";
 
+    // Pastikan file ini TERDAFTAR sebagai workbook permanen, lalu pakai
+    // workbook_code itu untuk menandai setiap sheet. Dengan begitu halaman
+    // Spreadsheet, File & Import, dan Penugasan Admin semuanya menunjuk ke
+    // workbook yang sama — bukan tiga salinan terpisah.
+    const workbookName = String(req.body.filename || fileStem).trim().slice(0, 255);
+    let workbookCode = null;
+    try {
+      const [[wbRow]] = await pool.query(
+        "SELECT id, workbook_code FROM workbook_files WHERE nama_file = ? ORDER BY id DESC LIMIT 1",
+        [workbookName]
+      );
+      if (wbRow && wbRow.workbook_code) {
+        workbookCode = wbRow.workbook_code;
+      } else {
+        // Cocokkan tanpa ekstensi/spasi ganda agar file yang sudah pernah
+        // tercatat dari versi lama dipakai ulang (tidak jadi duplikat).
+        const wanted = normWorkbookName(workbookName);
+        const [candidates] = await pool.query(
+          "SELECT id, workbook_code, nama_file, legacy_id FROM workbook_files ORDER BY id DESC"
+        );
+        const hit = (candidates || []).find(
+          (w) => normWorkbookName(w.nama_file) === wanted || normWorkbookName(w.legacy_id) === wanted
+        );
+        workbookCode = hit ? hit.workbook_code : await nextCode(pool, "workbook_files", "workbook_code", "WB_");
+        await pool.query(
+          `INSERT INTO workbook_files (workbook_code, nama_file, original_name, legacy_id, size_bytes, mime, uploaded_by, jumlah_sheet, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'aktif')`,
+          [
+            workbookCode,
+            workbookName,
+            workbookName,
+            workbookName,
+            buffer.length,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            req.user.id,
+            wsList.length,
+          ]
+        ).catch(async (insErr) => {
+          // Kode bentrok (mis. dipakai proses lain bersamaan) -> ambil ulang.
+          if (insErr && insErr.code === "ER_DUP_ENTRY") {
+            const [[again]] = await pool.query(
+              "SELECT workbook_code FROM workbook_files WHERE nama_file = ? ORDER BY id DESC LIMIT 1",
+              [workbookName]
+            );
+            if (again && again.workbook_code) workbookCode = again.workbook_code;
+          } else {
+            throw insErr;
+          }
+        });
+      }
+    } catch (wbErr) {
+      // Gagal mendaftarkan workbook tidak boleh membatalkan publikasi lama.
+      console.error("[import/workbook] daftarkan workbook gagal:", wbErr.message);
+    }
+
     // ---- helper ringkas (selaras dengan /api/import/excel) ----
     const pad2 = (n) => String(n).padStart(2, "0");
     const fmtDate = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -1893,13 +1952,13 @@ app.post("/api/import/workbook", requireRole("super_admin"), async (req, res, ne
         [fileStem, sheetName]
       );
       if (existSp && existSp.id) {
-        await pool.query("UPDATE spreadsheet SET kolom = ?, worksheet_index = ?, hidden = ? WHERE id = ?", [kolomJsonPublish, wi, hiddenFlag, existSp.id]);
+        await pool.query("UPDATE spreadsheet SET kolom = ?, worksheet_index = ?, hidden = ?, workbook_id = COALESCE(?, workbook_id) WHERE id = ?", [kolomJsonPublish, wi, hiddenFlag, workbookCode, existSp.id]);
         spRow = { id: existSp.id };
       } else {
         try {
           const [r] = await pool.query(
-            "INSERT INTO spreadsheet (nama, sumber_file, kolom, worksheet_index, hidden) VALUES (?, ?, ?, ?, ?)",
-            [sheetName, fileStem, kolomJsonPublish, wi, hiddenFlag]
+            "INSERT INTO spreadsheet (nama, sumber_file, kolom, worksheet_index, hidden, workbook_id) VALUES (?, ?, ?, ?, ?, ?)",
+            [sheetName, fileStem, kolomJsonPublish, wi, hiddenFlag, workbookCode]
           );
           spRow = { id: r.insertId };
         } catch (err) {
@@ -1909,7 +1968,7 @@ app.post("/api/import/workbook", requireRole("super_admin"), async (req, res, ne
               [fileStem, sheetName]
             );
             if (dup && dup.id) {
-              await pool.query("UPDATE spreadsheet SET kolom = ?, worksheet_index = ?, hidden = ? WHERE id = ?", [kolomJsonPublish, wi, hiddenFlag, dup.id]);
+              await pool.query("UPDATE spreadsheet SET kolom = ?, worksheet_index = ?, hidden = ?, workbook_id = COALESCE(?, workbook_id) WHERE id = ?", [kolomJsonPublish, wi, hiddenFlag, workbookCode, dup.id]);
               spRow = { id: dup.id };
             } else {
               throw err;
@@ -2002,6 +2061,72 @@ app.post("/api/import/workbook", requireRole("super_admin"), async (req, res, ne
       }
 
       results.sheets.push({ sheetId, sheetName, rows: ins });
+
+      // Berikan ID permanen SHEET_xxx untuk sheet ini dan tautkan ke workbook,
+      // supaya fitur Sheet → Row → Column → Cell → Formula → Penugasan Admin
+      // tetap merujuk ke workbook & sheet yang benar.
+      if (workbookCode) {
+        try {
+          const [[wbIdRow]] = await pool.query(
+            "SELECT id FROM workbook_files WHERE workbook_code = ?",
+            [workbookCode]
+          );
+          if (wbIdRow && wbIdRow.id) {
+            const wbId = wbIdRow.id;
+            const [[dupWs]] = await pool.query(
+              "SELECT id FROM workbook_sheets WHERE workbook_id = ? AND sheet_index = ?",
+              [wbId, wi]
+            );
+            const sheetCode = dupWs
+              ? ((await pool.query("SELECT sheet_code FROM workbook_sheets WHERE id = ?", [dupWs.id]))[0][0] || {}).sheet_code
+              : await nextCode(pool, "workbook_sheets", "sheet_code", "SHEET_");
+            const wsRowCount = Number(ws.rowCount) || 0;
+            const wsColCount = Number(ws.columnCount) || 0;
+            if (dupWs) {
+              await pool.query(
+                "UPDATE workbook_sheets SET nama_sheet = ?, hidden = ?, row_count = ?, col_count = ?, spreadsheet_id = ? WHERE id = ?",
+                [sheetName, hiddenFlag, wsRowCount, wsColCount, sheetId, dupWs.id]
+              );
+            } else {
+              await pool.query(
+                `INSERT INTO workbook_sheets (workbook_id, sheet_code, nama_sheet, sheet_index, hidden, row_count, col_count, spreadsheet_id, struktur)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [wbId, sheetCode, sheetName, wi, hiddenFlag, wsRowCount, wsColCount, sheetId, kolomJsonPublish]
+              );
+            }
+            results.sheets[results.sheets.length - 1].sheetCode = sheetCode;
+            results.sheets[results.sheets.length - 1].workbookCode = workbookCode;
+          }
+        } catch (wsErr) {
+          console.error("[import/workbook] daftar sheet gagal:", wsErr.message);
+        }
+      }
+    }
+
+    // ---- Simpan byte file ASLI ke storage permanen ----
+    // Tanpa ini, file hanya hidup di browser dan hilang saat refresh. File
+    // ditulis apa adanya (tidak di-rebuild dari grid) sehingga formula, merge,
+    // format, gambar, dan baris/kolom kosong tetap utuh seperti aslinya.
+    if (workbookCode) {
+      try {
+        const stored = await writeOriginalFile(workbookCode, buffer, "original");
+        await pool.query(
+          `UPDATE workbook_files
+           SET stored_path = ?, original_path = COALESCE(original_path, ?), size_bytes = ?,
+               sha256 = ?, original_name = ?, reconstructed = 0
+           WHERE workbook_code = ?`,
+          [
+            stored.storedPath,
+            stored.storedPath,
+            stored.sizeBytes,
+            stored.sha256,
+            workbookName,
+            workbookCode,
+          ]
+        );
+      } catch (storeErr) {
+        console.error("[import/workbook] simpan file gagal:", storeErr.message);
+      }
     }
 
     if (!results.sheets.length) {
@@ -2015,7 +2140,7 @@ app.post("/api/import/workbook", requireRole("super_admin"), async (req, res, ne
       newData: { filename: (req.body && req.body.filename) || fileStem, ...results },
       req,
     });
-    res.json({ message: "Publikasi ke server selesai", ...results });
+    res.json({ message: "Publikasi ke server selesai", workbookCode, fileName: workbookName, ...results });
   } catch (err) {
     next(err);
   }
@@ -3356,9 +3481,16 @@ app.use((err, _req, res, _next) => {
 
 initDatabase()
   .then(() => {
+    // Folder penyimpanan file Excel asli. Dibuat saat boot agar upload pertama
+    // tidak gagal karena folder belum ada. Isinya TIDAK pernah dihapus otomatis.
+    ensureStorageRoot();
     app.listen(PORT, () => {
       console.log(`Server API berjalan di http://localhost:${PORT}`);
     });
+    // Workbook lama yang byte aslinya belum pernah tersimpan dibangun di
+    // latar belakang lalu disimpan permanen ke disk. Tidak di-await supaya
+    // server langsung siap melayani.
+    warmWorkbooksFromDatabase();
   })
   .catch((err) => {
     console.error("Gagal inisialisasi database:", err.message);

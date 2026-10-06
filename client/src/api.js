@@ -1,5 +1,32 @@
 import { getToken, clearAuth } from "./auth.js";
 
+// Versi request yang mengembalikan objek Response apa adanya (dipakai untuk
+// unduh file biner). Error ditangani sama seperti request() di bawah.
+async function requestRaw(url, options = {}) {
+  const token = getToken();
+  const headers = {
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(options.headers || {}),
+  };
+  try {
+    const res = await fetch(url, { ...options, headers });
+    if (res.status === 401) clearAuth();
+    if (!res.ok) {
+      const err = new Error("Gagal mengunduh file");
+      err.status = res.status;
+      throw err;
+    }
+    return res;
+  } catch (cause) {
+    if (cause && cause.status) throw cause;
+    const err = new Error(
+      "Tidak dapat terhubung ke server. Pastikan server API sedang berjalan."
+    );
+    err.network = true;
+    throw err;
+  }
+}
+
 async function request(url, options = {}) {
   const token = getToken();
   const headers = {
@@ -109,6 +136,50 @@ export const api = {
     return `/api/export/${type}${suffix}`;
   },
   exportTemplateUrl: () => "/api/export/template",
+  // ===== File Excel terimport (penyimpanan permanen di server) =====
+  // Daftar file diambil dari database, bukan dari state browser, sehingga file
+  // tetap muncul setelah refresh / logout / login / restart backend.
+  getFiles: () => request("/api/files"),
+  getFile: (workbookCode) => request(`/api/files/${encodeURIComponent(workbookCode)}`),
+  // Unduh byte file ASLI (base64) untuk membangun workbook di halaman Spreadsheet.
+  getFileContent: (workbookCode) =>
+    request(`/api/files/${encodeURIComponent(workbookCode)}/content`),
+  uploadFile: (body) =>
+    request("/api/files", { method: "POST", body: JSON.stringify(body) }),
+  renameFile: (workbookCode, body) =>
+    request(`/api/files/${encodeURIComponent(workbookCode)}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+// Simpan ulang byte workbook hasil edit di halaman Spreadsheet. Kode workbook
+// tidak berubah, jadi draft/history/penugasan tetap menunjuk file yang sama.
+saveFileContent: (workbookCode, body) =>
+    request(`/api/files/${encodeURIComponent(workbookCode)}/content`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  deleteFile: (workbookCode) =>
+    request(`/api/files/${encodeURIComponent(workbookCode)}`, { method: "DELETE" }),
+  // Unduh file asli. Memakai fetch + token (bukan <a href>) supaya endpoint
+  // yang dilindungi authRequired tetap bisa diakses.
+  downloadFile: async (workbookCode) => {
+    const res = await requestRaw(
+      `/api/files/${encodeURIComponent(workbookCode)}/download`
+    );
+    const blob = await res.blob();
+    const name = decodeURIComponent(
+      (res.headers.get("Content-Disposition") || "").match(/filename="?([^";]+)"?/)?.[1] ||
+        "file.xlsx"
+    );
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
   getSpreadsheet: () => request("/api/spreadsheet"),
   createSpreadsheet: (body) =>
     request("/api/spreadsheet", { method: "POST", body: JSON.stringify(body) }),

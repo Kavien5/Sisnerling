@@ -29,6 +29,75 @@ CREATE TABLE IF NOT EXISTS spreadsheet (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
+-- ===== Persistensi workbook Excel (WAJIB PERMANEN) =====
+-- Setiap file Excel yang berhasil di-import tersimpan DI SERVER, bukan hanya di
+-- browser. File asli (byte .xlsx) ditulis ke folder storage/workbooks, sedangkan
+-- metadata & daftar sheet-nya ada di MySQL. Karena itu file tetap tersedia
+-- setelah refresh, pindah halaman, logout/login, dan restart backend.
+--
+-- workbook_files  = 1 baris = 1 file Excel (satu workbook utuh)
+-- workbook_sheets = 1 baris = 1 sheet ASLI di dalam workbook tersebut
+--
+-- Kolom legacy_id dipakai untuk menjembatani file yang sudah ada sebelumnya
+-- (datanya tetap utuh, tidak di-reset).
+CREATE TABLE IF NOT EXISTS workbook_files (
+  id INT NOT NULL AUTO_INCREMENT,
+  -- ID permanen & stabil, mis. WB_001. Tidak berubah seumur hidup file.
+  workbook_code VARCHAR(32) NOT NULL,
+  nama_file VARCHAR(255) NOT NULL,
+  original_name VARCHAR(255) NULL,
+  -- Byte workbook yang SERVED ke klien (hasil import, atau hasil edit terakhir).
+  stored_path VARCHAR(500) NULL,
+  -- Byte ASLI hasil import, TIDAK PERNAH ditimpa oleh hasil edit editor.
+  -- Dipakai untuk mengunduh kembali file asli apa adanya (struktur utuh).
+  original_path VARCHAR(500) NULL,
+  -- 1 = byte workbook dibangun ulang dari baris data_barang (file yang sudah ada
+  -- dari versi lama, sebelum penyimpanan file diaktifkan). 0 = byte asli import.
+  reconstructed TINYINT(1) NOT NULL DEFAULT 0,
+  size_bytes BIGINT NOT NULL DEFAULT 0,
+  mime VARCHAR(120) NULL,
+  sha256 CHAR(64) NULL,
+  jumlah_sheet INT NOT NULL DEFAULT 0,
+  status ENUM('aktif','arsip') NOT NULL DEFAULT 'aktif',
+  uploaded_by INT NULL,
+  legacy_id VARCHAR(191) NULL,
+  tanggal_import TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_wf_code (workbook_code),
+  UNIQUE KEY uq_wf_legacy (legacy_id),
+  KEY idx_wf_status (status),
+  KEY idx_wf_name (nama_file(191))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS workbook_sheets (
+  id INT NOT NULL AUTO_INCREMENT,
+  workbook_id INT NOT NULL,
+  -- ID permanen & stabil untuk sheet, mis. SHEET_001.
+  sheet_code VARCHAR(32) NOT NULL,
+  nama_sheet VARCHAR(255) NOT NULL,
+  sheet_index INT NOT NULL DEFAULT 0,
+  hidden TINYINT(1) NOT NULL DEFAULT 0,
+  row_count INT NULL,
+  col_count INT NULL,
+merges JSON NULL,
+  -- kolom JSON berisi informasi merge, format, dan ukuran baris/kolom
+  struktur JSON NULL,
+  -- Relasi ke tabel spreadsheet (tetap dipakai Penugasan & progres)
+  spreadsheet_id INT NULL,
+  -- 'hilang' = sheet dihapus di editor. BARISNYA TETAP ADA (tidak di-DROP) dan
+  -- sheet_code tetap direservasi supaya ID lama tidak pernah dipakai ulang.
+  status ENUM('aktif','hilang') NOT NULL DEFAULT 'aktif',
+  created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_ws_code (sheet_code),
+  UNIQUE KEY uq_ws_wb_index (workbook_id, sheet_index),
+  KEY idx_ws_wb (workbook_id),
+  KEY idx_ws_spreadsheet (spreadsheet_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Bagian/sub-tabel: pecahan dari satu spreadsheet (sheet) berbentuk VIEW.
 -- Tidak menduplikasi data: baris_awal/baris_akhir mengacu ke posisi baris data
 -- pada data_barang (diurutkan berdasarkan id) di sheet tsb, dan kolom (JSON)
