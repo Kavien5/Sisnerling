@@ -275,8 +275,7 @@ export default function Panduan({ user }) {
               <ol className="pd-ol">
                 <Step n="1">Buka menu <b>User &amp; Admin</b> (di kelompok "Pengelolaan").</Step>
                 <Step n="2"><b>Membuat akun:</b> isi nama, email, password, pilih peran (User/Admin/Super Admin), lalu <b>Simpan</b>.</Step>
-                <Step n="3"><b>Mengubah peran:</b> pilih role di dropdown baris akun, atau gunakan tombol cepat
-                  <b> &rarr; Admin</b> / <b>&rarr; User</b> untuk memindahkan role.</Step>
+                <Step n="3"><b>Mengubah peran:</b> gunakan dropdown di kolom Role pada baris akun (User / Admin / Super Admin). Perubahan ke/dari Super Admin meminta konfirmasi.</Step>
                 <Step n="4"><b>Mengedit:</b> ubah nama/email/password lalu simpan. <b>Menghapus:</b> klik hapus; akun yang sedang dipakai
                   tidak dapat dihapus/diturunkan sendiri.</Step>
               </ol>

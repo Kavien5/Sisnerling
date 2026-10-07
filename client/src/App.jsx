@@ -216,7 +216,7 @@ export default function App() {
     );
   }
 
-  // Saat maintenance aktif: User lihat halaman lama, Admin lihat halaman khusus.
+  // Saat maintenance aktif: User & Admin lihat halaman blokir baru per-role.
   // Super Admin tidak diblokir (lihat banner di halaman utama via Layout).
   if (maintenanceBlocking) {
     const isAdmin = user?.role === "admin";
@@ -225,7 +225,7 @@ export default function App() {
         {isAdmin ? (
           <AdminMaintenanceBlockedPage maintenance={maintenance} user={user} onLogout={handleLogout} />
         ) : (
-          <MaintenancePage maintenance={maintenance} onLogout={handleLogout} />
+          <MaintenancePage maintenance={maintenance} user={user} onLogout={handleLogout} />
         )}
       </ToastProvider>
     );

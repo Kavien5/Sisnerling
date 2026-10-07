@@ -561,7 +561,25 @@ export function AdminUsers({ user: currentUser }) {
                     </div>
                   </td>
                   <td className="text-muted">{u.email}</td>
-                  <td><RoleBadge role={u.role} /></td>
+                  <td>
+                    <RoleBadge role={u.role} />
+                    {!isSelf(u) ? (
+                      <Dropdown
+                        value={u.role}
+                        onChange={(next) => {
+                          if (next !== u.role) requestRoleChange(u, next);
+                        }}
+                        className="role-row-select"
+                        options={[
+                          { value: "user", label: "User" },
+                          { value: "admin", label: "Admin" },
+                          { value: "super_admin", label: "Super Admin" },
+                        ]}
+                      />
+                    ) : (
+                      <span className="role-self-note">Akun Anda</span>
+                    )}
+                  </td>
                   <td><PasswordCell value={u.password_plain} /></td>
                   <td className="th-center">
                     <span className={"chip " + ((u.jumlah_tugas || 0) > 0 ? "chip-tugas" : "chip-tugas is-zero")}>
@@ -570,60 +588,6 @@ export function AdminUsers({ user: currentUser }) {
                   </td>
                   <td className="text-muted">{formatTanggal(u.created_at)}</td>
                   <td className="td-actions">
-                    {!isSelf(u) && u.role === "user" && (
-                      <span className="act-group">
-                        <button
-                          className="btn btn-sm act act-role"
-                          title="Jadikan pengguna ini sebagai Admin (bisa menginput & mengedit data di tabel yang ditugaskan)"
-                          onClick={() => quickRole(u, "admin")}
-                        >
-                          &rarr; Admin
-                        </button>
-                        <button
-                          className="btn btn-sm act act-role act-role-strong"
-                          title="Jadikan sebagai Super Admin (akses penuh ke seluruh sistem)"
-                          onClick={() => requestRoleChange(u, "super_admin")}
-                        >
-                          &rarr; Super Admin
-                        </button>
-                      </span>
-                    )}
-                    {!isSelf(u) && u.role === "admin" && (
-                      <span className="act-group">
-                        <button
-                          className="btn btn-sm act act-role"
-                          title="Turunkan kembali menjadi User biasa (hanya bisa melihat)"
-                          onClick={() => quickRole(u, "user")}
-                        >
-                          &rarr; User
-                        </button>
-                        <button
-                          className="btn btn-sm act act-role act-role-strong"
-                          title="Jadikan sebagai Super Admin (akses penuh ke seluruh sistem)"
-                          onClick={() => requestRoleChange(u, "super_admin")}
-                        >
-                          &rarr; Super Admin
-                        </button>
-                      </span>
-                    )}
-                    {!isSelf(u) && u.role === "super_admin" && (
-                      <span className="act-group">
-                        <button
-                          className="btn btn-sm act act-role act-role-strong"
-                          title="Turunkan menjadi Admin (entry sesuai tugas)"
-                          onClick={() => requestRoleChange(u, "admin")}
-                        >
-                          &rarr; Admin
-                        </button>
-                        <button
-                          className="btn btn-sm act act-role"
-                          title="Turunkan menjadi User biasa (hanya bisa melihat)"
-                          onClick={() => requestRoleChange(u, "user")}
-                        >
-                          &rarr; User
-                        </button>
-                      </span>
-                    )}
                     <span className="act-group">
                       <button
                         className="btn btn-sm act act-pw"
@@ -2341,30 +2305,104 @@ export function AdminSettings() {
   );
 }
 
-// ====== Halaman maintenance untuk User (tampilan lama, tidak diubah) ======
+// ====== Halaman maintenance untuk User (tampilan baru) ======
 
-export function MaintenancePage({ maintenance, onLogout }) {
+function useCountdown(target) {
+  const [now, setNow] = React.useState(() => Date.now());
+  React.useEffect(() => {
+    if (!target) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [target]);
+  if (!target) return null;
+  const diff = new Date(target).getTime() - now;
+  if (Number.isNaN(diff) || diff <= 0) return null;
+  const h = Math.floor(diff / 3600000);
+  const m = Math.floor((diff % 3600000) / 60000);
+  const s = Math.floor((diff % 60000) / 1000);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${pad(h)}:${pad(m)}:${pad(s)}`;
+}
+
+function formatTanggalPanjang(v) {
+  try {
+    return new Date(v).toLocaleString("id-ID", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return "";
+  }
+}
+
+export function MaintenancePage({ maintenance, user, onLogout }) {
+  const countdown = useCountdown(maintenance?.end_at);
+  const endText = maintenance?.end_at ? formatTanggalPanjang(maintenance.end_at) : null;
+
   return (
-    <div className="auth-page">
-      <div className="auth-wrap">
-        <div className="auth-hero" />
-        <div className="auth-col">
-          <div className="auth-card" style={{ textAlign: "center" }}>
-            <div className="brand-logo" style={{ margin: "0 auto 14px", width: 52, height: 52, fontSize: 24 }}>S</div>
-            <h1 className="auth-title">{maintenance?.title || "Sedang Maintenance"}</h1>
-            <p className="auth-subtitle" style={{ whiteSpace: "pre-line" }}>
-              {maintenance?.message || "Sistem sedang dalam perawatan. Silakan kembali beberapa saat lagi."}
-            </p>
-            {maintenance?.end_at && (
-              <p className="text-muted" style={{ fontSize: 13 }}>
-                Diperkirakan selesai: {new Date(maintenance.end_at).toLocaleString("id-ID")}
-              </p>
-            )}
-            <button className="btn btn-primary btn-block" onClick={onLogout}>
-              Keluar / Ganti Akun
-            </button>
-          </div>
+    <div className="maint-user-page">
+      <div className="maint-user-card">
+        <div className="maint-user-illu" aria-hidden="true">
+          <span className="gear g1">
+            <svg width="44" height="44" viewBox="0 0 24 24" fill="none">
+              <path d="M12 8.5A3.5 3.5 0 1 0 12 15.5 3.5 3.5 0 0 0 12 8.5z" fill="#fff" />
+              <path d="M12 1.8l1.2 2.4 2.6-.6 1 2.5 2.7.4-.3 2.7 2 1.8-2 1.8.3 2.7-2.7.4-1 2.5-2.6-.6L12 22.2l-1.2-2.4-2.6.6-1-2.5-2.7-.4.3-2.7-2-1.8 2-1.8-.3-2.7 2.7-.4 1-2.5 2.6.6L12 1.8z" fill="#c7d2fe" opacity="0.9" />
+              <circle cx="12" cy="12" r="3.2" fill="#4f46e5" />
+              <circle cx="12" cy="12" r="1.3" fill="#fff" />
+            </svg>
+          </span>
+          <span className="gear g2">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="3" fill="#fff" />
+              <path d="M12 2l1 2.2 2.4-.5.9 2.3 2.5.4-.3 2.5 1.9 1.6-1.9 1.6.3 2.5-2.5.4-.9 2.3-2.4-.5L12 22l-1-2.2-2.4.5-.9-2.3-2.5-.4.3-2.5L2.6 12l1.9-1.6-.3-2.5 2.5-.4.9-2.3 2.4.5L12 2z" fill="#e0e7ff" />
+              <circle cx="12" cy="12" r="2.4" fill="#6366f1" />
+            </svg>
+          </span>
+          <span className="brand-mini">S</span>
         </div>
+
+        <span className="maint-user-badge">
+          <span className="dot" />
+          Pemberitahuan sistem
+        </span>
+        <h1>{maintenance?.title || "Sistem Sedang Maintenance"}</h1>
+        {user?.nama && (
+          <p className="maint-user-hi">
+            Halo, <strong>{user.nama}</strong> — terima kasih atas pengertiannya.
+          </p>
+        )}
+        <p className="maint-user-msg">
+          {maintenance?.message || "SISNERLING sedang dalam perawatan berkala untuk meningkatkan kualitas layanan. Akses dihentikan sementara dan akan kembali normal setelah selesai."}
+        </p>
+
+        <div className="maint-user-schedule">
+          <div className="row">
+            <span>Perkiraan selesai</span>
+            <strong>{endText || "Menyusul — pantau berkala"}</strong>
+          </div>
+          {countdown && (
+            <div className="row countdown">
+              <span>Sisa waktu</span>
+              <strong className="timer">{countdown}</strong>
+            </div>
+          )}
+          <div className="bar"><span /></div>
+        </div>
+
+        <div className="maint-user-actions">
+          <button className="btn btn-outline" onClick={() => window.location.reload()}>
+            Muat Ulang
+          </button>
+          <button className="btn btn-primary" onClick={onLogout}>
+            Keluar / Ganti Akun
+          </button>
+        </div>
+        <p className="maint-user-foot">
+          Halaman ini akan kembali normal otomatis setelah maintenance selesai. Tidak perlu menghubungi admin kecuali keadaan mendesak.
+        </p>
       </div>
     </div>
   );
@@ -2375,24 +2413,9 @@ export function MaintenancePage({ maintenance, onLogout }) {
 // role === "admin" dan maintenance aktif: info jadwal + status lebih jelas.
 
 export function AdminMaintenanceBlockedPage({ maintenance, user, onLogout }) {
-  const endText = maintenance?.end_at
-    ? new Date(maintenance.end_at).toLocaleString("id-ID", {
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      })
-    : null;
-  const startText = maintenance?.start_at
-    ? new Date(maintenance.start_at).toLocaleString("id-ID", {
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      })
-    : null;
+  const endText = maintenance?.end_at ? formatTanggalPanjang(maintenance.end_at) : null;
+  const startText = maintenance?.start_at ? formatTanggalPanjang(maintenance.start_at) : null;
+  const countdown = useCountdown(maintenance?.end_at);
 
   return (
     <div className="maint-admin-page">
@@ -2430,6 +2453,7 @@ export function AdminMaintenanceBlockedPage({ maintenance, user, onLogout }) {
           <div className="maint-admin-info">
             <span className="label">Perkiraan selesai</span>
             <strong>{endText || "Menunggu info Super Admin"}</strong>
+            {countdown && <span className="maint-countdown">Sisa {countdown}</span>}
           </div>
           <div className="maint-admin-info">
             <span className="label">Yang tetap aktif</span>
