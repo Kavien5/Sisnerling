@@ -11,7 +11,7 @@ import Panduan from "./pages/Panduan.jsx";
 import AuditLogs from "./pages/AuditLogs.jsx";
 import Login from "./pages/Login.jsx";
 import Register from "./pages/Register.jsx";
-import { AdminUsers, AdminTables, AdminMaintenance, AdminBackup, AdminSettings, MaintenancePage } from "./pages/AdminPages.jsx";
+import { AdminUsers, AdminTables, AdminMaintenance, AdminBackup, AdminSettings, MaintenancePage, AdminMaintenanceBlockedPage } from "./pages/AdminPages.jsx";
 import { loadFiles, saveFile, removeFile, generateId, clearAllFiles, hydrateFiles } from "./excelStorage.js";
 import { api } from "./api.js";
 import { getToken, getUser, setAuth, clearAuth, updateStoredUser, isSuperAdmin, hasMaintenanceBypass, canEditData } from "./auth.js";
@@ -216,11 +216,17 @@ export default function App() {
     );
   }
 
-  // Saat maintenance aktif, User & Admin hanya melihat halaman maintenance.
+  // Saat maintenance aktif: User lihat halaman lama, Admin lihat halaman khusus.
+  // Super Admin tidak diblokir (lihat banner di halaman utama via Layout).
   if (maintenanceBlocking) {
+    const isAdmin = user?.role === "admin";
     return (
       <ToastProvider>
-        <MaintenancePage maintenance={maintenance} onLogout={handleLogout} />
+        {isAdmin ? (
+          <AdminMaintenanceBlockedPage maintenance={maintenance} user={user} onLogout={handleLogout} />
+        ) : (
+          <MaintenancePage maintenance={maintenance} onLogout={handleLogout} />
+        )}
       </ToastProvider>
     );
   }
@@ -235,6 +241,7 @@ export default function App() {
         onLogout={handleLogout}
         onUserUpdated={handleUserUpdated}
         onAccountDeleted={handleAccountDeleted}
+        maintenance={maintenance}
       >
         {page === "dashboard" && <Dashboard user={user} onNavigate={setPage} />}
         {page === "spreadsheet" && (

@@ -594,7 +594,7 @@ function RoleChip({ role, style }) {
   );
 }
 
-export default function Layout({ page, setPage, children, importedFiles, user, onLogout, onUserUpdated, onAccountDeleted }) {
+export default function Layout({ page, setPage, children, importedFiles, user, onLogout, onUserUpdated, onAccountDeleted, maintenance }) {
   const toast = useToast();
   const [open, setOpen] = React.useState(false);
   const [profileOpen, setProfileOpen] = React.useState(false);
@@ -967,6 +967,23 @@ export default function Layout({ page, setPage, children, importedFiles, user, o
       </aside>
 
       <div className="main-area">
+        {maintenance?.active && isSuperAdmin(user) && (
+          <div className="maint-top-banner" role="alert">
+            <span className="maint-top-dot" />
+            <div className="maint-top-text">
+              <strong>Maintenance AKTIF{maintenance?.title ? `: ${maintenance.title}` : ""}</strong>
+              <span>
+                User &amp; Admin sedang diblokir.
+                {maintenance?.end_at
+                  ? ` Perkiraan selesai: ${new Date(maintenance.end_at).toLocaleString("id-ID")}.`
+                  : " Belum ada jadwal selesai."}
+              </span>
+            </div>
+            <button className="btn btn-sm maint-top-btn" onClick={() => setPage("admin-maintenance")}>
+              Kelola Maintenance
+            </button>
+          </div>
+        )}
         <header className="topbar">
           <button className="hamburger" onClick={() => setOpen((v) => !v)} aria-label="Menu">
             {open ? <IconX /> : <IconMenu />}

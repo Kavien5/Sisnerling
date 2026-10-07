@@ -2341,7 +2341,7 @@ export function AdminSettings() {
   );
 }
 
-// ====== Halaman maintenance untuk User/Admin ======
+// ====== Halaman maintenance untuk User (tampilan lama, tidak diubah) ======
 
 export function MaintenancePage({ maintenance, onLogout }) {
   return (
@@ -2365,6 +2365,90 @@ export function MaintenancePage({ maintenance, onLogout }) {
             </button>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ====== Halaman maintenance khusus Admin (tampilan baru, hanya Admin) ======
+// User tetap memakai MaintenancePage di atas. Komponen ini dipakai saat
+// role === "admin" dan maintenance aktif: info jadwal + status lebih jelas.
+
+export function AdminMaintenanceBlockedPage({ maintenance, user, onLogout }) {
+  const endText = maintenance?.end_at
+    ? new Date(maintenance.end_at).toLocaleString("id-ID", {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
+  const startText = maintenance?.start_at
+    ? new Date(maintenance.start_at).toLocaleString("id-ID", {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
+
+  return (
+    <div className="maint-admin-page">
+      <div className="maint-admin-card">
+        <div className="maint-admin-top">
+          <div className="maint-admin-icon" aria-hidden="true">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
+              <path d="M12 3L2.5 20h19L12 3z" fill="#f59e0b" />
+              <rect x="11" y="9" width="2" height="6" rx="1" fill="#fff" />
+              <circle cx="12" cy="17.2" r="1.2" fill="#fff" />
+            </svg>
+          </div>
+          <div>
+            <span className="maint-admin-badge">
+              <span className="dot" />
+              Maintenance aktif — mode Admin
+            </span>
+            <h1>{maintenance?.title || "Sistem Sedang Maintenance"}</h1>
+            <p className="maint-admin-user">
+              Halo, <strong>{user?.nama || "Admin"}</strong> ({user?.email || "admin"}). Akses
+              Admin dibatasi sementara oleh Super Admin.
+            </p>
+          </div>
+        </div>
+
+        <p className="maint-admin-msg">
+          {maintenance?.message || "Sistem sedang dalam perawatan. Seluruh akses Admin & User dihentikan sementara. Silakan kembali setelah maintenance selesai."}
+        </p>
+
+        <div className="maint-admin-grid">
+          <div className="maint-admin-info">
+            <span className="label">Mulai</span>
+            <strong>{startText || "Sekarang"}</strong>
+          </div>
+          <div className="maint-admin-info">
+            <span className="label">Perkiraan selesai</span>
+            <strong>{endText || "Menunggu info Super Admin"}</strong>
+          </div>
+          <div className="maint-admin-info">
+            <span className="label">Yang tetap aktif</span>
+            <strong>Super Admin tetap dapat masuk</strong>
+          </div>
+        </div>
+
+        <div className="maint-admin-actions">
+          <button className="btn btn-outline" onClick={() => window.location.reload()}>
+            Coba Lagi / Muat Ulang
+          </button>
+          <button className="btn btn-primary" onClick={onLogout}>
+            Keluar / Ganti Akun
+          </button>
+        </div>
+        <p className="maint-admin-foot">
+          Butuh akses darurat? Hubungi Super Admin. Halaman ini otomatis kembali normal
+          setelah maintenance dinonaktifkan.
+        </p>
       </div>
     </div>
   );
