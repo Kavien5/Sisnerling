@@ -5,7 +5,7 @@ const path = require("path");
 const root = path.resolve(__dirname, "..");
 const logDir = path.join(root, "logs");
 if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
-
+// komen
 // tes komen
 
 const isWin = process.platform === "win32";
