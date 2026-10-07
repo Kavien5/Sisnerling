@@ -310,10 +310,25 @@ function colLetter(n) {
  */
 async function buildWorkbookFromDatabase(workbookCode) {
   const [[file]] = await pool.query(
-    "SELECT id FROM workbook_files WHERE workbook_code = ?",
+    "SELECT id, nama_file FROM workbook_files WHERE workbook_code = ?",
     [workbookCode]
   );
   if (!file) return null;
+
+  // Nama sheet di DB hasil publish berbentuk "<fileStem>@<namaSheet>". Ambil
+  // bagian <namaSheet>-nya saja ketika membangun workbook, supaya nama sheet
+  // tidak terpotong 31 karakter dan berubah jadi " (2)", " (3)", dst.
+  // Catatan: hanya buang ekstensi spreadsheet yang dikenal. Nama file bisa
+  // mengandung titik (mis. "1. LK Neraca ...") yang BUKAN ekstensi.
+  const stemRaw = String(file.nama_file || "")
+    .trim()
+    .replace(/\.(xlsx|xlsm|xls|csv)$/i, "")
+    .trim();
+  const sheetDisplayName = (namaSheet, namaSp) => {
+    const raw = String(namaSheet || namaSp || "Sheet").trim() || "Sheet";
+    if (stemRaw && raw.startsWith(stemRaw + "@")) return raw.slice(stemRaw.length + 1) || "Sheet";
+    return raw;
+  };
 
   const [sheets] = await pool.query(
     `SELECT ws.sheet_code, ws.nama_sheet, ws.sheet_index, ws.hidden, ws.spreadsheet_id,
@@ -332,7 +347,7 @@ async function buildWorkbookFromDatabase(workbookCode) {
 
   const usedNames = new Set();
   for (const s of sheets) {
-    const safeName = uniqueSheetName(s.nama_sheet || s.nama_sp || "Sheet", usedNames);
+    const safeName = uniqueSheetName(sheetDisplayName(s.nama_sheet, s.nama_sp), usedNames);
     const ws = wb.addWorksheet(safeName, {
       state: s.hidden ? "hidden" : "visible",
     });
@@ -595,13 +610,19 @@ router.get("/:code/content", async (req, res, next) => {
         const generated = await buildWorkbookFromDatabase(code);
         if (generated) {
           const original = await writeOriginalFile(code, generated, "original");
+          // Pertahankan byte ASLI yang benar-benar ada; kalau file aslinya
+          // sudah tidak ada (mis. workbook rekonstruksi lama), arahkan
+          // original_path ke byte yang baru dibangun agar tidak menggantung.
+          const prevOriginal = await readOriginalFile(file.original_path);
+          const originalPath = prevOriginal ? file.original_path : original.storedPath;
           await pool.query(
-            "UPDATE workbook_files SET stored_path = ?, original_path = COALESCE(original_path, ?), size_bytes = ?, mime = ?, reconstructed = 1 WHERE workbook_code = ?",
+            "UPDATE workbook_files SET stored_path = ?, original_path = ?, size_bytes = ?, mime = ?, sha256 = ?, reconstructed = 1 WHERE workbook_code = ?",
             [
               original.storedPath,
-              original.storedPath,
+              originalPath,
               original.sizeBytes,
               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+              original.sha256 || null,
               code,
             ]
           );
@@ -856,6 +877,16 @@ router.post("/", requireRole("super_admin"), async (req, res, next) => {
         sheetResults.push({ sheetId: sheetCode, namaSheet: meta.namaSheet, sheetIndex: i });
       }
     }
+
+    // Sheet lama yang TIDAK ada lagi di file yang baru di-import diarsipkan
+    // (status='hilang'), bukan dihapus — supaya re-import file dengan jumlah
+    // sheet lebih sedikit tidak meninggalkan sheet "hantu" yang tampak seperti
+    // duplikat. Barisnya & sheet_code-nya tetap ada sehingga referensi lama
+    // (penugasan, progres, formula) tidak putus. Selaras dengan PUT /:code/content.
+    await pool.query(
+      "UPDATE workbook_sheets SET status = 'hilang' WHERE workbook_id = ? AND status = 'aktif' AND sheet_index >= ?",
+      [workbookId, sheetsMeta.length]
+    );
 
     logAudit({
       userId: req.user.id,
