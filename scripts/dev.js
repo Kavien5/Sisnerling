@@ -2,6 +2,8 @@ const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
+// tes
+
 const root = path.resolve(__dirname, "..");
 const logDir = path.join(root, "logs");
 if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
