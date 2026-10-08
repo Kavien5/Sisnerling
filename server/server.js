@@ -3361,6 +3361,13 @@ initDatabase()
     });
   })
   .catch((err) => {
-    console.error("Gagal inisialisasi database:", err.message);
+    const detail = (err && err.message) || (err && err.code) || String(err);
+    console.error("Gagal inisialisasi database:", detail);
+    if (err && (err.code === "ECONNREFUSED" || /ECONNREFUSED/.test(String(detail)))) {
+      console.error(
+        `Pastikan MySQL/MariaDB berjalan di ${process.env.DB_HOST || "localhost"}:${process.env.DB_PORT || 3306} ` +
+          `(Laragon: klik Start / Start MySQL), lalu jalankan ulang "npm run dev".`
+      );
+    }
     process.exit(1);
   });
