@@ -3,6 +3,7 @@ const bcrypt = require("bcryptjs");
 const { pool } = require("./db");
 const { requireRole } = require("./auth");
 const { logAudit } = require("./auditLog");
+const { getSecuritySettings, saveSecuritySettings, LIMITS: SECURITY_LIMITS } = require("./securitySettings");
 
 const router = express.Router();
 
@@ -40,8 +41,9 @@ router.post("/users", async (req, res, next) => {
 
     if (!nama || nama.length < 2) return res.status(400).json({ error: "Nama minimal 2 karakter" });
     if (!validateEmail(email)) return res.status(400).json({ error: "Format email tidak valid" });
-    if (!password || password.length < 6) {
-      return res.status(400).json({ error: "Password minimal 6 karakter" });
+    const { password_min_length } = await getSecuritySettings();
+    if (!password || password.length < password_min_length) {
+      return res.status(400).json({ error: `Password minimal ${password_min_length} karakter` });
     }
     const [[dup]] = await pool.query("SELECT id FROM users WHERE email = ?", [email]);
     if (dup) return res.status(409).json({ error: "Email sudah terdaftar" });
@@ -91,7 +93,10 @@ router.put("/users/:id", async (req, res, next) => {
     }
     if (req.body.password !== undefined && String(req.body.password) !== "") {
       const pw = String(req.body.password);
-      if (pw.length < 6) return res.status(400).json({ error: "Password minimal 6 karakter" });
+      const { password_min_length } = await getSecuritySettings();
+      if (pw.length < password_min_length) {
+        return res.status(400).json({ error: `Password minimal ${password_min_length} karakter` });
+      }
       const hash = await bcrypt.hash(pw, 10);
       sets.push("password_hash = ?");
       params.push(hash);
@@ -917,7 +922,8 @@ router.get("/settings", async (_req, res, next) => {
     if (allowReg && allowReg.svalue) {
       try { allowRegister = (typeof allowReg.svalue === "string" ? JSON.parse(allowReg.svalue) : allowReg.svalue) !== false; } catch {}
     }
-    res.json({ allow_register: allowRegister });
+    const security = await getSecuritySettings();
+    res.json({ allow_register: allowRegister, ...security });
   } catch (err) {
     next(err);
   }
@@ -931,15 +937,34 @@ router.put("/settings", async (req, res, next) => {
        ON DUPLICATE KEY UPDATE svalue = VALUES(svalue)`,
       [JSON.stringify(allowRegister)]
     );
+    // Keamanan & Sesi (opsional): validasi rentang sebelum disimpan.
+    const sec = {};
+    if (req.body.session_ttl_days !== undefined) {
+      const lim = SECURITY_LIMITS.session_ttl_days;
+      const n = Number(req.body.session_ttl_days);
+      if (!Number.isInteger(n) || n < lim.min || n > lim.max) {
+        return res.status(400).json({ error: `Durasi sesi harus ${lim.min}–${lim.max} hari` });
+      }
+      sec.session_ttl_days = n;
+    }
+    if (req.body.password_min_length !== undefined) {
+      const lim = SECURITY_LIMITS.password_min_length;
+      const n = Number(req.body.password_min_length);
+      if (!Number.isInteger(n) || n < lim.min || n > lim.max) {
+        return res.status(400).json({ error: `Panjang password minimal harus ${lim.min}–${lim.max} karakter` });
+      }
+      sec.password_min_length = n;
+    }
+    const security = await saveSecuritySettings(sec);
     logAudit({
       userId: req.user.id,
       action: "update",
       module: "settings",
       description: allowRegister ? "Mengizinkan pendaftaran terbuka" : "Menonaktifkan pendaftaran terbuka",
-      newData: { allow_register: allowRegister },
+      newData: { allow_register: allowRegister, ...security },
       req,
     });
-    res.json({ message: "Pengaturan berhasil disimpan", allow_register: allowRegister });
+    res.json({ message: "Pengaturan berhasil disimpan", allow_register: allowRegister, ...security });
   } catch (err) {
     next(err);
   }

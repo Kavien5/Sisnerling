@@ -5,8 +5,6 @@ import PerbandinganData from "../components/PerbandinganData.jsx";
 import { getSheets } from "../spreadsheetWorkbook.js";
 import { sheetsToTables } from "../perbandinganUtils.js";
 import { api } from "../api.js";
-import { useToast } from "../components/Toast.jsx";
-import { isSuperAdmin } from "../auth.js";
 
 const DEFAULT_GREETING = {
   title: "Selamat Datang di SISNERLING",
@@ -14,13 +12,9 @@ const DEFAULT_GREETING = {
     "Sistem ini digunakan untuk mengolah data input\u2013output secara terpusat. Anda dapat memasukkan atau mengimpor data spreadsheet, mengelolanya berdasarkan kategori (Hutan, Mineral, Energi, Uang, dan lainnya), lalu memantau statistik dan progres seluruh data melalui Dashboard ini.",
 };
 
-export default function Dashboard({ user }) {
-  const toast = useToast();
+export default function Dashboard() {
   const [showInfo, setShowInfo] = React.useState(false);
   const [greeting, setGreeting] = React.useState(DEFAULT_GREETING);
-  const [editOpen, setEditOpen] = React.useState(false);
-  const [form, setForm] = React.useState(DEFAULT_GREETING);
-  const [saving, setSaving] = React.useState(false);
   const [tables, setTables] = React.useState(() => sheetsToTables(getSheets()));
 
   React.useEffect(() => {
@@ -37,38 +31,13 @@ export default function Dashboard({ user }) {
     };
   }, []);
 
-  const openEdit = () => {
-    setForm({ title: greeting.title, description: greeting.description });
-    setEditOpen(true);
-  };
-
-  const saveGreeting = async (e) => {
-    e.preventDefault();
-    setSaving(true);
-    try {
-      const res = await api.setDashboardGreeting(form);
-      setGreeting(res.greeting || form);
-      setEditOpen(false);
-      toast("Sambutan berhasil diperbarui");
-    } catch (err) {
-      toast(err.message, "error");
-    } finally {
-      setSaving(false);
-    }
-  };
-
   return (
     <>
-      <div className="page-title" style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12 }}>
+      <div className="page-title">
         <div>
           <h2>Dashboard</h2>
           <p>Statistik dan progres seluruh data dari halaman Spreadsheet</p>
         </div>
-        {isSuperAdmin(user) && (
-          <button type="button" className="btn btn-outline btn-sm" onClick={openEdit}>
-            Edit Sambutan
-          </button>
-        )}
       </div>
 
       <button type="button" className="info-card" onClick={() => setShowInfo(true)}>
@@ -134,43 +103,6 @@ export default function Dashboard({ user }) {
         </Modal>
       )}
 
-      {editOpen && (
-        <Modal
-          title="Edit Sambutan Dashboard"
-          onClose={() => setEditOpen(false)}
-          footer={
-            <>
-              <button type="button" className="btn btn-outline" onClick={() => setEditOpen(false)}>Batal</button>
-              <button type="submit" className="btn btn-primary" form="form-greeting" disabled={saving}>
-                {saving ? "Menyimpan..." : "Simpan"}
-              </button>
-            </>
-          }
-        >
-          <form id="form-greeting" onSubmit={saveGreeting}>
-            <div className="form-group">
-              <label>Judul *</label>
-              <input
-                className="form-control"
-                value={form.title}
-                onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-                placeholder="Selamat Datang di SISNERLING"
-                required
-              />
-            </div>
-            <div className="form-group">
-              <label>Deskripsi</label>
-              <textarea
-                className="form-control"
-                rows="5"
-                value={form.description}
-                onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                placeholder="Tulis kalimat sambutan di sini..."
-              />
-            </div>
-          </form>
-        </Modal>
-      )}
     </>
   );
 }

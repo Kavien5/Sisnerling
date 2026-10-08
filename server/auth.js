@@ -3,11 +3,9 @@ const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 const { pool } = require("./db");
 const { logAudit } = require("./auditLog");
+const { getSecuritySettings } = require("./securitySettings");
 
 const router = express.Router();
-
-const SESSION_TTL_DAYS = 7;
-const SESSION_TTL_MS = SESSION_TTL_DAYS * 24 * 60 * 60 * 1000;
 
 const publicUser = (u) => ({
   id: u.id,
@@ -79,9 +77,11 @@ function hashToken(token) {
 
 async function createSession(userId) {
   // Buang sesi lama user yang sudah kedaluwarsa, lalu buat token baru.
+  // Durasi berlaku mengikuti pengaturan Super Admin (Keamanan & Sesi).
   await pool.query("DELETE FROM sessions WHERE expires_at < NOW()");
+  const { session_ttl_days } = await getSecuritySettings();
   const token = crypto.randomBytes(32).toString("hex");
-  const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+  const expiresAt = new Date(Date.now() + session_ttl_days * 24 * 60 * 60 * 1000);
   await pool.query(
     "INSERT INTO sessions (user_id, token, expires_at) VALUES (?, ?, ?)",
     [userId, token, expiresAt]
@@ -101,6 +101,10 @@ router.post("/register", async (req, res, next) => {
     if (nama.length < 2) return res.status(400).json({ error: "Nama terlalu pendek (minimal 2 karakter)" });
     if (!validateEmail(email)) return res.status(400).json({ error: "Format email tidak valid" });
     if (!password) return res.status(400).json({ error: "Password wajib diisi" });
+    const { password_min_length } = await getSecuritySettings();
+    if (password.length < password_min_length) {
+      return res.status(400).json({ error: `Password minimal ${password_min_length} karakter` });
+    }
     if (password !== konfirmasi) return res.status(400).json({ error: "Konfirmasi password tidak cocok" });
 
     // Jika Super Admin menonaktifkan registrasi terbuka, pendaftaran ditolak.

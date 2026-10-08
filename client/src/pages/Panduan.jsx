@@ -344,10 +344,15 @@ export default function Panduan({ user }) {
               {!isSuperAdmin(user) && <p className="pd-note">Bagian ini hanya untuk Super Admin.</p>}
               <ol className="pd-ol">
                 <Step n="1">Buka menu <b>Pengaturan</b>.</Step>
-                <Step n="2">Atur toggle <b>Izinkan pendaftaran terbuka (User baru)</b>.</Step>
-                <Step n="3">Bila dimatikan, halaman daftar tidak dipakai — semua akun dibuat oleh Super Admin lewat
+                <Step n="2"><b>Pendaftaran</b> — atur toggle <b>Izinkan pendaftaran terbuka (User baru)</b>.
+                  Bila dimatikan, halaman daftar tidak dipakai — semua akun dibuat oleh Super Admin lewat
                   <b> User &amp; Admin</b>.</Step>
-                <Step n="4">Klik <b>Simpan Pengaturan</b>.</Step>
+                <Step n="3"><b>Sambutan Dashboard</b> — ubah judul dan deskripsi kartu sambutan yang tampil
+                  di halaman Dashboard untuk semua pengguna.</Step>
+                <Step n="4"><b>Keamanan &amp; Sesi</b> — atur durasi sesi login (1–90 hari) dan panjang password
+                  minimal (4–32 karakter). Berlaku untuk pendaftaran baru, akun yang dibuat Super Admin,
+                  dan login berikutnya.</Step>
+                <Step n="5">Klik <b>Simpan Pengaturan</b>.</Step>
               </ol>
             </div>
           </div>

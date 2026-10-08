@@ -2258,18 +2258,43 @@ export function AdminBackup() {
 export function AdminSettings() {
   const toast = useToast();
   const [allowRegister, setAllowRegister] = React.useState(true);
+  const [sessionTtl, setSessionTtl] = React.useState(7);
+  const [passMin, setPassMin] = React.useState(6);
+  const [greetTitle, setGreetTitle] = React.useState("");
+  const [greetDesc, setGreetDesc] = React.useState("");
   const [saving, setSaving] = React.useState(false);
 
   React.useEffect(() => {
-    api.getAdminSettings().then((s) => setAllowRegister(s.allow_register !== false)).catch(() => {});
+    api.getAdminSettings().then((s) => {
+      setAllowRegister(s.allow_register !== false);
+      if (Number.isInteger(s.session_ttl_days)) setSessionTtl(s.session_ttl_days);
+      if (Number.isInteger(s.password_min_length)) setPassMin(s.password_min_length);
+    }).catch(() => {});
+    api.getDashboardGreeting().then((g) => {
+      setGreetTitle(g.title || "");
+      setGreetDesc(g.description || "");
+    }).catch(() => {});
   }, []);
 
   const submit = async (e) => {
     e.preventDefault();
+    const ttl = Math.min(90, Math.max(1, Number(sessionTtl) || 7));
+    const pmin = Math.min(32, Math.max(4, Number(passMin) || 6));
+    if (!greetTitle.trim()) {
+      toast("Judul sambutan wajib diisi", "error");
+      return;
+    }
     setSaving(true);
     try {
-      const res = await api.setAdminSettings({ allow_register: allowRegister });
-      toast(res.message);
+      const res = await api.setAdminSettings({
+        allow_register: allowRegister,
+        session_ttl_days: ttl,
+        password_min_length: pmin,
+      });
+      setSessionTtl(res.session_ttl_days);
+      setPassMin(res.password_min_length);
+      await api.setDashboardGreeting({ title: greetTitle.trim(), description: greetDesc.trim() });
+      toast(res.message || "Pengaturan berhasil disimpan");
     } catch (err) {
       toast(err.message, "error");
     } finally {
@@ -2284,9 +2309,13 @@ export function AdminSettings() {
         <p>Pengaturan umum aplikasi.</p>
       </div>
 
-      <div className="card" style={{ padding: 18, maxWidth: 640 }}>
-        <form onSubmit={submit}>
-          <div className="form-group">
+      <form onSubmit={submit} style={{ display: "grid", gap: 16, maxWidth: 640 }}>
+        <div className="card" style={{ padding: 18 }}>
+          <h3 style={{ margin: "0 0 4px" }}>Pendaftaran</h3>
+          <p className="text-muted" style={{ margin: "0 0 12px", fontSize: 13 }}>
+            Atur siapa saja yang bisa membuat akun baru.
+          </p>
+          <div className="form-group" style={{ marginBottom: 0 }}>
             <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
               <Toggle value={allowRegister} onChange={setAllowRegister} />
               <strong>Izinkan pendaftaran terbuka (User baru)</strong>
@@ -2296,11 +2325,74 @@ export function AdminSettings() {
               User &amp; Admin Management.
             </p>
           </div>
+        </div>
+
+        <div className="card" style={{ padding: 18 }}>
+          <h3 style={{ margin: "0 0 4px" }}>Sambutan Dashboard</h3>
+          <p className="text-muted" style={{ margin: "0 0 12px", fontSize: 13 }}>
+            Teks kartu sambutan yang tampil di halaman Dashboard untuk semua pengguna.
+          </p>
+          <div className="form-group">
+            <label>Judul *</label>
+            <input
+              className="form-control"
+              value={greetTitle}
+              onChange={(e) => setGreetTitle(e.target.value)}
+              placeholder="Selamat Datang di SISNERLING"
+              required
+            />
+          </div>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label>Deskripsi</label>
+            <textarea
+              className="form-control"
+              rows="4"
+              value={greetDesc}
+              onChange={(e) => setGreetDesc(e.target.value)}
+              placeholder="Tulis kalimat sambutan di sini..."
+            />
+          </div>
+        </div>
+
+        <div className="card" style={{ padding: 18 }}>
+          <h3 style={{ margin: "0 0 4px" }}>Keamanan &amp; Sesi</h3>
+          <p className="text-muted" style={{ margin: "0 0 12px", fontSize: 13 }}>
+            Berlaku untuk pendaftaran baru, akun yang dibuat Super Admin, dan sesi login berikutnya.
+          </p>
+          <div className="form-group">
+            <label>Durasi sesi login (hari)</label>
+            <input
+              className="form-control"
+              type="number"
+              min="1"
+              max="90"
+              value={sessionTtl}
+              onChange={(e) => setSessionTtl(e.target.value)}
+            />
+            <p className="text-muted" style={{ margin: "6px 0 0", fontSize: 13 }}>
+              Sesi login kedaluwarsa {sessionTtl || 7} hari setelah pengguna login. Perubahan hanya berlaku
+              untuk login berikutnya; sesi yang sedang aktif tidak terpengaruh.
+            </p>
+          </div>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label>Panjang password minimal (karakter)</label>
+            <input
+              className="form-control"
+              type="number"
+              min="4"
+              max="32"
+              value={passMin}
+              onChange={(e) => setPassMin(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div>
           <button className="btn btn-primary" type="submit" disabled={saving}>
             {saving ? "Menyimpan..." : "Simpan Pengaturan"}
           </button>
-        </form>
-      </div>
+        </div>
+      </form>
     </>
   );
 }
