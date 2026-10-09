@@ -43,20 +43,43 @@ export function saveDraftSheets(fileId, sheets) {
   // Referensi grid immutable (React) — aman ditahan lalu diserialisasi saat menulis.
   const timeout = setTimeout(() => {
     pendingWrites.delete(fileId);
-    writeToDB(fileId, sheets);
+    writeToDB(fileId, sheets).catch((err) => {
+      console.error("[excelDrafts] Gagal menyimpan draft spreadsheet:", err);
+    });
   }, DEBOUNCE_MS);
   pendingWrites.set(fileId, { timeout, sheets });
 }
 
 function writeToDB(fileId, sheets) {
-  openDB()
-    .then((db) => {
-      const tx = db.transaction(IDB_STORE, "readwrite");
-      tx.objectStore(IDB_STORE).put({ id: fileId, sheets, savedAt: new Date().toISOString() }, fileId);
-      tx.oncomplete = () => db.close();
-      tx.onerror = () => db.close();
-    })
-    .catch(() => {});
+  return openDB().then(
+    (db) =>
+      new Promise((resolve, reject) => {
+        const tx = db.transaction(IDB_STORE, "readwrite");
+        tx.objectStore(IDB_STORE).put({ id: fileId, sheets, savedAt: new Date().toISOString() }, fileId);
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        tx.onabort = () => {
+          db.close();
+          reject(tx.error || new Error("Penyimpanan draft dibatalkan"));
+        };
+        tx.onerror = () => {
+          db.close();
+          reject(tx.error || new Error("Gagal menyimpan draft"));
+        };
+      })
+  );
+}
+
+export function flushDraftSheets(fileId, sheets) {
+  if (!fileId) return Promise.resolve();
+  const pending = pendingWrites.get(fileId);
+  if (pending) {
+    clearTimeout(pending.timeout);
+    pendingWrites.delete(fileId);
+  }
+  return writeToDB(fileId, sheets || (pending && pending.sheets));
 }
 
 export function loadDraftSheets(fileId) {

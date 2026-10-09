@@ -292,12 +292,19 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
   const [rowResizing, setRowResizing] = React.useState(null);
   const [filterPopover, setFilterPopover] = React.useState(null);
   const [headH, setHeadH] = React.useState(26);
+  // Tinggi BARIS PERTAMA thead (banner / label) — dipakai sebagai offset
+  // sticky baris header kedua via CSS var --headrow-h (menggantikan 26px statis
+  // agar tepat saat ada banner / zoom berubah).
+  const [headRowH, setHeadRowH] = React.useState(26);
   const theadRef = React.useRef(null);
   React.useLayoutEffect(() => {
     const el = theadRef.current;
     if (!el) return;
     const h = el.offsetHeight;
     setHeadH((p) => (p === h ? p : h));
+    const first = el.querySelector("tr");
+    const fh = first ? first.offsetHeight : 26;
+    setHeadRowH((p) => (p === fh ? p : fh));
   });
   // Freeze pane file import (persis Excel): jumlah kolom (xSplit) & baris
   // (ySplit) pertama yang tetap terlihat saat di-scroll.
@@ -1051,7 +1058,8 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
     (ci, e) => {
       if (!rows.length || !columns.length || !allKeys[ci]) return;
       commit();
-      const key = allKeys[ci];
+      const anchor = resolveAnchor(0, ci);
+      const key = allKeys[anchor.ci];
       if (e && e.shiftKey && selRange) {
         setSelRange((prev) => ({
           r1: 0,
@@ -1059,16 +1067,16 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
           c1: Math.min(prev.c1, ci),
           c2: Math.max(prev.c2, ci),
         }));
-        setActiveState({ r: 0, key });
-        setDraft(raw(0, key));
+        setActiveState({ r: anchor.r, key });
+        setDraft(raw(anchor.r, key));
         return;
       }
-      setActiveState({ r: 0, key });
-      setDraft(raw(0, key));
+      setActiveState({ r: anchor.r, key });
+      setDraft(raw(anchor.r, key));
       setInline(false);
       setSelRange({ r1: 0, r2: rows.length - 1, c1: ci, c2: ci });
     },
-    [rows, allKeys, raw, commit, selRange]
+    [rows, columns, allKeys, raw, commit, selRange, resolveAnchor]
   );
 
   const selectAllCells = React.useCallback(() => {
@@ -1199,7 +1207,12 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
 
   const isInRange = (r, ci) => {
     if (!selRange) return false;
-    return r >= selRange.r1 && r <= selRange.r2 && ci >= selRange.c1 && ci <= selRange.c2;
+    const merged = mergeMap.get(`${r}:${ci}`);
+    const r1 = merged ? merged.r1 : r;
+    const r2 = merged ? merged.r2 : r;
+    const c1 = merged ? merged.c1 : ci;
+    const c2 = merged ? merged.c2 : ci;
+    return r1 <= selRange.r2 && r2 >= selRange.r1 && c1 <= selRange.c2 && c2 >= selRange.c1;
   };
 
   const onCellClick = (r, key) => {
@@ -1767,12 +1780,7 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
     // konsisten dengan header (col.hidden => null) — layout mengikuti Excel.
     if (col && col.hidden) return null;
     const occ = mergeMap.get(`${r}:${ci}`);
-    if (occ && occ.r1 !== r) {
-      return <td key={key} style={{ display: "none" }} />;
-    }
-    if (occ && occ.c1 !== ci) {
-      return null;
-    }
+    if (occ && (occ.r1 !== r || occ.c1 !== ci)) return null;
     const span =
       occ && (occ.r2 !== r || occ.c2 !== ci)
         ? { rowSpan: occ.r2 - occ.r1 + 1, colSpan: occ.c2 - occ.c1 + 1 }
@@ -1807,9 +1815,10 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
     let cellStyle = null;
     if (!cellStyleCacheRef.current) cellStyleCacheRef.current = { widths: null, map: new WeakMap() };
     const csc = cellStyleCacheRef.current;
-    if (csc.widths !== allColWidth) {
+    if (csc.widths !== allColWidth || csc.merges !== merges) {
       csc.map = new WeakMap();
       csc.widths = allColWidth;
+      csc.merges = merges;
     }
     let rowStyles = csc.map.get(rw);
     if (!rowStyles) {
@@ -1879,7 +1888,6 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
         // Tinggi baris dari metadata file (hpt) — inline menimpa min-height
         // CSS default agar baris pendek/tipis (separator) tetap setinggi Excel.
         ...(rh ? { minHeight: rh, height: rh } : undefined),
-        ...(span || {}),
         ...(cellBg ? { backgroundColor: cellBg } : undefined),
         ...(bold ? { fontWeight: 700 } : undefined),
         ...(italic ? { fontStyle: "italic" } : undefined),
@@ -1904,8 +1912,9 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
       const fBg = rw["__" + key] || "#ffffff";
       const sticky = {
         position: "sticky",
-        ...(frCol ? { left: cumW[ci] ?? 0, zIndex: frRow ? 3 : 2, backgroundColor: fBg } : {}),
-        ...(frRow ? { top: (headH || 26) + (visCumByRow.get(r) || 0), zIndex: frCol ? 3 : 2, backgroundColor: fBg } : {}),
+        ...(frCol ? { left: cumW[ci] ?? 0, backgroundColor: fBg } : {}),
+        ...(frRow ? { top: (headH || 26) + (visCumByRow.get(r) || 0), backgroundColor: fBg } : {}),
+        zIndex: ci < 2 ? (frRow ? 5 : 4) : frCol && frRow ? 3 : 2,
       };
       cellStyle = { ...cellStyle, ...sticky };
       rowStyles.set(key, cellStyle);
@@ -1925,7 +1934,9 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
       return (
         <td
           key={key}
-          className={`cell active editing${isNum ? " number" : ""}`}
+          rowSpan={span?.rowSpan}
+          colSpan={span?.colSpan}
+          className={`cell active editing${isNum ? " number" : ""}${ci === 0 ? " col-a" : ci === 1 ? " col-b" : ""}`}
           style={cellStyle}
         >
           <input
@@ -1952,11 +1963,13 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
     return (
       <td
         key={key}
+        rowSpan={span?.rowSpan}
+        colSpan={span?.colSpan}
         data-r={r}
         data-ci={ci}
         className={`cell${isActive ? " active" : ""}${inSel ? " in-range" : ""}${
           err ? " cell-error" : ""
-        }${isNum ? " number" : ""}${matched ? " cell-match" : ""}`}
+        }${isNum ? " number" : ""}${matched ? " cell-match" : ""}${ci === 0 ? " col-a" : ci === 1 ? " col-b" : ""}`}
         style={cellStyle}
         onMouseDown={(e) => onCellMouseDown(r, key, e)}
         onMouseOver={() => onCellMouseOver(r, key)}
@@ -2055,7 +2068,14 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
               })()
             ) : null}
             <div className="sheet-stick">
-              <table className={`sheet${frozen || freezeRows > 0 || freezeCols > 0 ? "" : " no-freeze"}`}>
+              <table
+                className={`sheet${frozen || freezeRows > 0 || freezeCols > 0 ? "" : " no-freeze"}`}
+                style={{
+                  "--stick-a": `${cumW[0] ?? RX_NUM * zoom}px`,
+                  "--stick-b": `${cumW[1] ?? RX_NUM * zoom}px`,
+                  "--headrow-h": `${headRowH || 26}px`,
+                }}
+              >
             <thead ref={theadRef}>
               {banner && banner.label ? (
                 <tr className="sheet-banner">
@@ -2078,15 +2098,15 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
                       key={key}
                       data-cidx={i}
                       colSpan={col && col.span && col.span > 1 ? col.span : undefined}
-                      className={`col-label${col && col.label ? "" : " empty"}${colActive ? " active" : ""}`}
+                      className={`col-label${col && col.label ? "" : " empty"}${colActive ? " active" : ""}${i === 0 ? " col-a" : i === 1 ? " col-b" : ""}`}
                       style={{
                         minWidth: w,
                         width: w,
-                        position: "relative",
+                        position: "sticky",
                         fontSize: Math.round(11.5 * zoom),
                         ...(col && col.bg ? { backgroundColor: col.bg } : undefined),
                         ...(freezeCols > 0 && i < freezeCols
-                          ? { position: "sticky", left: cumW[i] ?? 0, zIndex: 4 }
+                          ? { position: "sticky", left: cumW[i] ?? 0, zIndex: i < 2 ? 7 : 4 }
                           : undefined),
                       }}
                       title={col && col.label ? col.label : ""}

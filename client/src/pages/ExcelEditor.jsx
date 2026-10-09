@@ -18,7 +18,7 @@ import {
 } from "chart.js";
 import { Bar, Line, Pie, Doughnut } from "react-chartjs-2";
 import { colName, evaluateGrid, cellAddress, createExternalResolverHook } from "../spreadsheet.js";
-import { saveDraftSheets, loadDraftSheets } from "../excelDrafts.js";
+import { saveDraftSheets, flushDraftSheets, loadDraftSheets } from "../excelDrafts.js";
 import { createEmptySheet, workbookToSheets, workbookToSheetsProgressive, firstSheetFromWorkbook, sheetsToWorkbook, autoFitSheet, insertColumnIntoSheet, insertRowIntoSheet, deleteRowsFromSheet, deleteColumnsFromSheet, applyBordersToSheet, debugImportFidelity } from "../excelImportUtil.js";
 import ExcelGrid from "../components/ExcelGrid.jsx";
 import ExcelToolbar from "../components/ExcelToolbar.jsx";
@@ -367,7 +367,9 @@ export default function ExcelEditor({ importedFiles = [], onFilesChanged, readOn
   const persistActive = () => {
     if (!activeFile) return;
     saveFile({ id: activeFile.id, fileName: activeFile.fileName, workbook: sheetsToWorkbook(sheetsRef.current), rawBase64: activeFile.rawBase64 });
-    saveDraftSheets(activeFile.id, sheetsRef.current);
+    flushDraftSheets(activeFile.id, sheetsRef.current).catch((err) => {
+      console.error("[ExcelEditor] Gagal menyimpan draft sebelum berpindah file:", err);
+    });
   };
 
   // Simpan otomatis saat halaman ditutup/di-refresh (pagehide/beforeunload)
@@ -379,7 +381,9 @@ export default function ExcelEditor({ importedFiles = [], onFilesChanged, readOn
       try {
         gridRef.current?.commitActive?.();
         saveFile({ id: activeFile.id, fileName: activeFile.fileName, workbook: sheetsToWorkbook(sheetsRef.current), rawBase64: activeFile.rawBase64 });
-        saveDraftSheets(activeFile.id, sheetsRef.current);
+        flushDraftSheets(activeFile.id, sheetsRef.current).catch((err) => {
+          console.error("[ExcelEditor] Gagal menyimpan draft saat halaman ditutup:", err);
+        });
       } catch (_) {
         // penulisan gagal (quota) — abaikan agar unload tidak tersendat
       }
@@ -406,8 +410,15 @@ export default function ExcelEditor({ importedFiles = [], onFilesChanged, readOn
     return getVersion(activeFileId, versionId);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     flushGrid();
+    try {
+      if (activeFileId) await flushDraftSheets(activeFileId, sheetsRef.current);
+    } catch (err) {
+      toast("Draft spreadsheet gagal disimpan. Silakan coba lagi.", "error");
+      console.error("[ExcelEditor] Gagal menyimpan draft sebelum refresh:", err);
+      return;
+    }
     let id = activeFileId;
     if (activeFile) {
       // Simpan snapshot sebelum menimpa, supaya versi sebelumnya tetap ada.

@@ -1724,10 +1724,15 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--primary)
   width: max-content;
 }
 
-/* ExcelGrid: border-collapse agar garis tepi menyatu (tidak ada garis ganda) dan
-   border sel diambil dari properti impor/perataan. Garis grid ringan untuk sel
-   tanpa border impor diset inline dari sisi kanan/bawah cell. */
-.excel-grid .sheet { border-collapse: collapse; border-spacing: 0; }
+/* ExcelGrid: WAJIB border-collapse: separate (bukan collapse) karena
+   position:sticky pada th/td (header, kolom nomor baris, sel freeze pane)
+   TIDAK berfungsi di browser bila collapse — header & nomor baris jadi ikut
+   terscroll. Dengan spacing 0 + border kanan/bawah per sel, garis grid tetap
+   satu garis; hanya tepi impor yang ber-border di kedua sisi yang sama yang
+   tampak sedikit lebih tebal. Border sel tetap diambil dari properti
+   impor/perataan (inline), garis grid ringan sel tanpa border impor diset
+   inline dari sisi kanan/bawah cell. */
+.excel-grid .sheet { border-collapse: separate; border-spacing: 0; }
 .excel-grid .sheet td.cell { border: none; }
 
 .sheet th, .sheet td {
@@ -1764,7 +1769,7 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--primary)
 
 .sheet thead th.corner {
   left: 0;
-  z-index: 6;
+  z-index: 8;
 }
 
 .sheet tbody th.row-num {
@@ -1776,9 +1781,39 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--primary)
 
 .sheet thead tr:nth-child(2) th {
   position: sticky;
-  top: 26px;
+  /* Offset = tinggi baris thead pertama (banner/label) dari JS
+     (--headrow-h); 26px statis dulu membuat baris ini tumpang-tindih
+     saat ada banner atau zoom berubah. */
+  top: var(--headrow-h, 26px);
   z-index: 4;
 }
+
+/* Kolom data A dan B tetap berada di samping gutter nomor baris.
+   Header berada di atas sel saat scroll diagonal; corner menjadi lapisan
+   tertinggi. Offset berasal dari lebar kolom aktual agar mengikuti zoom. */
+.excel-grid .sheet thead th.col-a {
+  left: var(--stick-a, 40px);
+  z-index: 7;
+}
+.excel-grid .sheet thead th.col-b {
+  left: var(--stick-b, 40px);
+  z-index: 7;
+}
+.excel-grid .sheet tbody td.cell.col-a,
+.excel-grid .sheet tbody td.cell.col-b {
+  position: sticky;
+  z-index: 4;
+  background-color: #fff;
+}
+.excel-grid .sheet tbody td.cell.col-a { left: var(--stick-a, 40px); }
+.excel-grid .sheet tbody td.cell.col-b { left: var(--stick-b, 40px); }
+/* Pertahankan warna status seleksi & baris-aktif pada kolom A dan B */
+.excel-grid .sheet tbody tr.row-active td.cell.col-a,
+.excel-grid .sheet tbody tr.row-active td.cell.col-b { background-color: var(--primary-50); }
+.excel-grid .sheet td.cell.active.col-a,
+.excel-grid .sheet td.cell.active.col-b { background-color: var(--primary-50); }
+.excel-grid .sheet td.cell.in-range.col-a,
+.excel-grid .sheet td.cell.in-range.col-b { background-color: rgba(99, 102, 241, 0.16); }
 
 .sheet .col-letter {
   font-size: 11px;
@@ -3401,9 +3436,7 @@ td.cell.cell-match {
   box-shadow: inset 0 0 0 1px #f59e0b;
 }
 
-.sheet.no-freeze thead th,
-.sheet.no-freeze tbody th.row-num,
-.sheet.no-freeze .corner {
+.sheet.no-freeze tbody th.row-num {
   position: static !important;
 }
 
@@ -5782,6 +5815,5 @@ td.cell.cell-match {
 @media (max-width: 640px) {
   .maint-user-card { padding: 22px 18px; }
 }
-
 
 
