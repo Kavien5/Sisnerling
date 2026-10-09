@@ -408,6 +408,10 @@ function asDate(v) {
 }
 
 function toNum(v) {
+  if (Array.isArray(v)) {
+    if (v.length === 1) return toNum(v[0]);
+    throw new EvalError(ERR.VALUE);
+  }
   if (isErrorValue(v)) throw new EvalError(v);
   if (v instanceof Date) return toExcelSerial(v);
   if (typeof v === "number") return v;
@@ -477,6 +481,10 @@ function truthy(v) {
 }
 
 function toNumIfNum(v) {
+  if (Array.isArray(v)) {
+    if (v.length === 1) return toNumIfNum(v[0]);
+    throw new EvalError(ERR.VALUE);
+  }
   if (isErrorValue(v)) throw new EvalError(v);
   if (v instanceof Date) return toExcelSerial(v);
   if (typeof v === "number") return v;
@@ -486,10 +494,31 @@ function toNumIfNum(v) {
   return parseNumberText(s);
 }
 
+// Bentangkan argumen satu tingkat: rentang (array) menjadi nilai-nilai
+// penyusunnya. Dipakai fungsi agregat yang menerima banyak nilai/run.
+function flatVals(args) {
+  const out = [];
+  for (const v of args) {
+    if (Array.isArray(v)) out.push(...v);
+    else out.push(v);
+  }
+  return out;
+}
+
+// Ambil nilai skalar: rentang satu sel di-unwrap (irisan implisit seperti
+// Excel); rentang multi-sel → #VALUE!. Dipakai fungsi yang butuh satu nilai.
+function scalar(v) {
+  if (Array.isArray(v)) {
+    if (v.length === 1) return scalar(v[0]);
+    throw new EvalError(ERR.VALUE);
+  }
+  return v;
+}
+
 const FUNCS = {
   SUM: (args) => {
     let s = 0;
-    for (const v of args) {
+    for (const v of flatVals(args)) {
       const n = toNumIfNum(v);
       if (n !== null) s += n;
     }
@@ -498,7 +527,7 @@ const FUNCS = {
   SUMIF: (args) => {
     if (args.length < 2) throw new EvalError(ERR.VALUE);
     const range = Array.isArray(args[0]) ? args[0] : [args[0]];
-    const criteria = args[1];
+    const criteria = scalar(args[1]);
     const sumRange = args.length >= 3 ? (Array.isArray(args[2]) ? args[2] : [args[2]]) : range;
     let s = 0;
     for (let i = 0; i < range.length; i++) {
@@ -509,10 +538,30 @@ const FUNCS = {
     }
     return s;
   },
+  SUMIFS: (args) => {
+    if (args.length < 3 || args.length % 2 !== 1) throw new EvalError(ERR.VALUE);
+    const sumRange = Array.isArray(args[0]) ? args[0] : [args[0]];
+    const pairs = [];
+    for (let i = 1; i < args.length; i += 2) {
+      pairs.push({
+        range: Array.isArray(args[i]) ? args[i] : [args[i]],
+        criteria: scalar(args[i + 1]),
+      });
+    }
+    const n = Math.min(sumRange.length, ...pairs.map((p) => p.range.length));
+    let s = 0;
+    for (let i = 0; i < n; i++) {
+      if (pairs.every((p) => matchCriteria(p.range[i], p.criteria))) {
+        const v = toNumIfNum(sumRange[i]);
+        if (v !== null) s += v;
+      }
+    }
+    return s;
+  },
   AVERAGE: (args) => {
     let s = 0;
     let c = 0;
-    for (const v of args) {
+    for (const v of flatVals(args)) {
       const n = toNumIfNum(v);
       if (n !== null) {
         s += n;
@@ -522,16 +571,34 @@ const FUNCS = {
     return c ? s / c : 0;
   },
   AVG: (args) => FUNCS.AVERAGE(args),
+  AVERAGEIF: (args) => {
+    if (args.length < 2) throw new EvalError(ERR.VALUE);
+    const range = Array.isArray(args[0]) ? args[0] : [args[0]];
+    const criteria = scalar(args[1]);
+    const avgRange = args.length >= 3 ? (Array.isArray(args[2]) ? args[2] : [args[2]]) : range;
+    let s = 0;
+    let c = 0;
+    for (let i = 0; i < range.length; i++) {
+      if (matchCriteria(range[i], criteria)) {
+        const n = toNumIfNum(avgRange[i]);
+        if (n !== null) {
+          s += n;
+          c++;
+        }
+      }
+    }
+    return c ? s / c : 0;
+  },
   COUNT: (args) => {
     let c = 0;
-    for (const v of args) {
+    for (const v of flatVals(args)) {
       if (toNumIfNum(v) !== null) c++;
     }
     return c;
   },
   COUNTA: (args) => {
     let c = 0;
-    for (const v of args) {
+    for (const v of flatVals(args)) {
       if (isErrorValue(v)) throw new EvalError(v);
       if (v !== null && v !== undefined && String(v).trim() !== "") c++;
     }
@@ -540,16 +607,32 @@ const FUNCS = {
   COUNTIF: (args) => {
     if (args.length < 2) throw new EvalError(ERR.VALUE);
     const range = Array.isArray(args[0]) ? args[0] : [args[0]];
-    const criteria = args[1];
+    const criteria = scalar(args[1]);
     let c = 0;
     for (const v of range) {
       if (matchCriteria(v, criteria)) c++;
     }
     return c;
   },
+  COUNTIFS: (args) => {
+    if (args.length < 2 || args.length % 2 !== 0) throw new EvalError(ERR.VALUE);
+    const pairs = [];
+    for (let i = 0; i < args.length; i += 2) {
+      pairs.push({
+        range: Array.isArray(args[i]) ? args[i] : [args[i]],
+        criteria: scalar(args[i + 1]),
+      });
+    }
+    const n = Math.min(...pairs.map((p) => p.range.length));
+    let c = 0;
+    for (let i = 0; i < n; i++) {
+      if (pairs.every((p) => matchCriteria(p.range[i], p.criteria))) c++;
+    }
+    return c;
+  },
   MAX: (args) => {
     let m = null;
-    for (const v of args) {
+    for (const v of flatVals(args)) {
       const n = toNumIfNum(v);
       if (n !== null && (m === null || n > m)) m = n;
     }
@@ -557,74 +640,80 @@ const FUNCS = {
   },
   MIN: (args) => {
     let m = null;
-    for (const v of args) {
+    for (const v of flatVals(args)) {
       const n = toNumIfNum(v);
       if (n !== null && (m === null || n < m)) m = n;
     }
     return m ?? 0;
   },
   ROUND: (args) => {
-    const x = toNum(args[0]);
-    const d = toNum(args[1] ?? 0);
+    const x = toNum(scalar(args[0]));
+    const d = toNum(args[1] !== undefined ? scalar(args[1]) : 0);
     const f = Math.pow(10, Math.trunc(d));
     return Math.round(x * f) / f;
   },
-  ABS: (args) => Math.abs(toNum(args[0])),
-  INT: (args) => Math.trunc(toNum(args[0])),
+  ABS: (args) => Math.abs(toNum(scalar(args[0]))),
+  INT: (args) => Math.trunc(toNum(scalar(args[0]))),
   SQRT: (args) => {
-    const n = toNum(args[0]);
+    const n = toNum(scalar(args[0]));
     if (n < 0) throw new EvalError(ERR.VALUE);
     return Math.sqrt(n);
   },
-  POWER: (args) => Math.pow(toNum(args[0]), toNum(args[1])),
+  POWER: (args) => Math.pow(toNum(scalar(args[0])), toNum(scalar(args[1]))),
   MOD: (args) => {
-    const x = toNum(args[0]);
-    const y = toNum(args[1]);
+    const x = toNum(scalar(args[0]));
+    const y = toNum(scalar(args[1]));
     if (y === 0) throw new EvalError(ERR.DIV0);
     return x - y * Math.trunc(x / y);
   },
-  UPPER: (args) => String(args[0] ?? "").toUpperCase(),
-  LOWER: (args) => String(args[0] ?? "").toLowerCase(),
-  TRIM: (args) => String(args[0] ?? "").trim(),
-  LEN: (args) => String(args[0] ?? "").length,
+  UPPER: (args) => String(scalar(args[0]) ?? "").toUpperCase(),
+  LOWER: (args) => String(scalar(args[0]) ?? "").toLowerCase(),
+  TRIM: (args) => String(scalar(args[0]) ?? "").trim(),
+  LEN: (args) => String(scalar(args[0]) ?? "").length,
   LEFT: (args) => {
-    const s = String(args[0] ?? "");
-    const n = toNum(args[1] ?? 1);
+    const s = String(scalar(args[0]) ?? "");
+    const n = toNum(args[1] !== undefined ? scalar(args[1]) : 1);
     return s.substring(0, Math.max(0, Math.trunc(n)));
   },
   RIGHT: (args) => {
-    const s = String(args[0] ?? "");
-    const n = toNum(args[1] ?? 1);
+    const s = String(scalar(args[0]) ?? "");
+    const n = toNum(args[1] !== undefined ? scalar(args[1]) : 1);
     return s.substring(s.length - Math.max(0, Math.trunc(n)));
   },
   MID: (args) => {
-    const s = String(args[0] ?? "");
-    const start = Math.trunc(toNum(args[1])) - 1;
-    const len = Math.trunc(toNum(args[2]));
+    const s = String(scalar(args[0]) ?? "");
+    const start = Math.trunc(toNum(scalar(args[1]))) - 1;
+    const len = Math.trunc(toNum(scalar(args[2])));
     return s.substring(Math.max(0, start), Math.max(0, start + len));
   },
   CONCAT: (args) =>
-    args
+    flatVals(args)
       .filter((v) => v !== null && v !== undefined && String(v) !== "")
       .map((v) => String(v))
       .join(""),
   CONCATENATE: (args) => FUNCS.CONCAT(args),
-  IF: (args) => (truthy(args[0]) ? args[1] : args[2]),
+  IF: (args) => {
+    const branch = truthy(scalar(args[0]))
+      ? (args[1] !== undefined ? args[1] : true)
+      : (args[2] !== undefined ? args[2] : false);
+    // Cabang berupa rentang: irisan implisit (satu sel) atau #VALUE!.
+    return Array.isArray(branch) ? scalar(branch) : branch;
+  },
   IFERROR: (args) => {
-    const v = args[0];
+    const v = scalar(args[0]);
     if (isErrorValue(v)) return args.length >= 2 ? args[1] : "";
     return v;
   },
-  ISERROR: (args) => isErrorValue(args[0]),
-  ISERR: (args) => isErrorValue(args[0]) && !String(args[0]).startsWith("#N/A"),
-  ISNA: (args) => String(args[0]).startsWith("#N/A"),
+  ISERROR: (args) => isErrorValue(scalar(args[0])),
+  ISERR: (args) => isErrorValue(scalar(args[0])) && !String(scalar(args[0])).startsWith("#N/A"),
+  ISNA: (args) => String(scalar(args[0])).startsWith("#N/A"),
   ISBLANK: (args) => {
-    const v = args[0];
+    const v = scalar(args[0]);
     return v === null || v === undefined || v === "";
   },
   TEXT: (args) => {
-    const v = args[0];
-    const fmt = String(args.length >= 2 ? args[1] : "General");
+    const v = scalar(args[0]);
+    const fmt = String(args.length >= 2 ? scalar(args[1]) : "General");
     if (v === null || v === undefined) return "";
     if (v instanceof Date) return formatCellDateText(v, fmt);
     if (/[dmy]/i.test(fmt) && !/[#0%]/.test(fmt)) {
@@ -639,18 +728,18 @@ const FUNCS = {
     return String(v);
   },
   AND: (args) => {
-    for (const v of args) {
+    for (const v of flatVals(args)) {
       if (!truthy(v)) return false;
     }
     return true;
   },
   OR: (args) => {
-    for (const v of args) {
+    for (const v of flatVals(args)) {
       if (truthy(v)) return true;
     }
     return false;
   },
-  NOT: (args) => !truthy(args[0]),
+  NOT: (args) => !truthy(scalar(args[0])),
   NOW: () => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
@@ -662,7 +751,7 @@ const FUNCS = {
   PI: () => Math.PI,
   MAXA: (args) => {
     let m = null;
-    for (const v of args) {
+    for (const v of flatVals(args)) {
       if (isErrorValue(v)) throw new EvalError(v);
       const n = toNumIfNum(v);
       if (n !== null) {
@@ -675,7 +764,7 @@ const FUNCS = {
   },
   MINA: (args) => {
     let m = null;
-    for (const v of args) {
+    for (const v of flatVals(args)) {
       if (isErrorValue(v)) throw new EvalError(v);
       const n = toNumIfNum(v);
       if (n !== null) {
@@ -689,7 +778,7 @@ const FUNCS = {
   AVERAGEA: (args) => {
     let s = 0;
     let c = 0;
-    for (const v of args) {
+    for (const v of flatVals(args)) {
       if (isErrorValue(v)) throw new EvalError(v);
       const n = toNumIfNum(v);
       if (n !== null) { s += n; c++; }
@@ -734,36 +823,21 @@ function tryEval(node, ctx) {
 function applyFunc(name, args, ctx) {
   const fn = FUNCS[name];
   if (!fn) throw new EvalError(ERR.NAME);
-  const expanded = [];
+  // PENTING: argumen rentang (range/sheetRange/fileSheetRange) diteruskan
+  // sebagai ARRAY agar fungsi bersyarat (COUNTIF/SUMIF/COUNTIFS/SUMIFS/
+  // AVERAGEIF) menerima batas rentangnya. Fungsi agregat sederhana
+  // membentangkan sendiri via flatVals; fungsi skalar memakai scalar().
+  const resolveArg = (a) => {
+    if (a.type === "range") return ctx.resolveRangeCells(a.from, a.to);
+    if (a.type === "sheetRange") return ctx.resolveSheetRangeCells(a.sheet, a.from, a.to);
+    if (a.type === "fileSheetRange") return ctx.resolveFileSheetRangeCells(a.file, a.sheet, a.from, a.to);
+    return evaluateAST(a, ctx);
+  };
   if (GUARDED_FUNCS.has(name) && args.length > 0) {
     const first = tryEval(args[0], ctx);
-    expanded.push(first.v);
-    for (let i = 1; i < args.length; i++) {
-      const a = args[i];
-      if (a.type === "range") {
-        expanded.push(...ctx.resolveRangeCells(a.from, a.to));
-      } else if (a.type === "sheetRange") {
-        expanded.push(...ctx.resolveSheetRangeCells(a.sheet, a.from, a.to));
-      } else if (a.type === "fileSheetRange") {
-        expanded.push(...ctx.resolveFileSheetRangeCells(a.file, a.sheet, a.from, a.to));
-      } else {
-        expanded.push(evaluateAST(a, ctx));
-      }
-    }
-    return fn(expanded);
+    return fn([first.v, ...args.slice(1).map(resolveArg)]);
   }
-  for (const a of args) {
-    if (a.type === "range") {
-      expanded.push(...ctx.resolveRangeCells(a.from, a.to));
-    } else if (a.type === "sheetRange") {
-      expanded.push(...ctx.resolveSheetRangeCells(a.sheet, a.from, a.to));
-    } else if (a.type === "fileSheetRange") {
-      expanded.push(...ctx.resolveFileSheetRangeCells(a.file, a.sheet, a.from, a.to));
-    } else {
-      expanded.push(evaluateAST(a, ctx));
-    }
-  }
-  return fn(expanded);
+  return fn(args.map(resolveArg));
 }
 
 function evaluateAST(node, ctx) {
