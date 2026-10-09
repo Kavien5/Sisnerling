@@ -108,6 +108,10 @@ app.use("/api", maintenanceGuard);
 app.use("/api/admin", adminRouter);
 // Audit log: dibaca Admin & Super Admin, route dalam sudah punya guard role.
 app.use("/api/audit", auditRouter);
+// Kolaborasi multi-user (akses file, sel real-time, revisi). Berada di bawah
+// authRequired + maintenanceGuard sehingga otomatis terlindungi.
+const { createCollabRouter, setRowWriteChecker } = require("./collab");
+app.use("/api/collab", createCollabRouter());
 
 // ===== Sambutan Dashboard (dapat diedit oleh Super Admin) =====
 // Judul & deskripsi kartu "Selamat Datang" disimpan di app_settings.
@@ -3354,9 +3358,27 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: "Terjadi kesalahan pada server", detail: err.message });
 });
 
+// Pemeriksa izin baris untuk jalur kolaborasi: memakai aturan granular
+// sheet yang sama dengan PUT /api/data/:id (kunci scope + kolom/baris).
+setRowWriteChecker(async (user, row, changed) => {
+  const req = { user };
+  if (await scopeBlocksSheet(req, row.sheet_id)) {
+    return { ok: false, reason: "Sheet ini terkunci untuk akun Anda oleh Super Admin" };
+  }
+  const can = await adminCanWriteSpreadsheetRow(req, row.sheet_id, row.id, changed || [], "edit");
+  return can
+    ? { ok: true }
+    : { ok: false, reason: "Anda tidak memiliki izin edit pada bagian/kolom baris ini" };
+});
+
+const http = require("http");
+const { attachRealtime } = require("./realtime");
+
 initDatabase()
   .then(() => {
-    app.listen(PORT, () => {
+    const httpServer = http.createServer(app);
+    attachRealtime(httpServer);
+    httpServer.listen(PORT, () => {
       console.log(`Server API berjalan di http://localhost:${PORT}`);
     });
   })

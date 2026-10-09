@@ -343,6 +343,42 @@ async function initDatabase() {
   await ensureIndex("sessions", "idx_sessions_token", "token");
   await ensureIndex("sessions", "idx_sessions_user", "user_id");
 
+  // ---- Kolaborasi multi-user (Fase 1): hak akses per file, versioning baris,
+  // revisi snapshot per sheet. Idempoten, tidak mengubah tabel/baris lama. ----
+  // workbook_key = identitas file (spreadsheet.sumber_file / fileStem).
+  await admin.query(`CREATE TABLE IF NOT EXISTS file_shares (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    workbook_key VARCHAR(255) NOT NULL,
+    user_id INT NOT NULL,
+    peran ENUM('viewer','editor') NOT NULL DEFAULT 'viewer',
+    created_by INT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_share (workbook_key(191), user_id),
+    KEY idx_share_user (user_id),
+    CONSTRAINT fk_share_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+  // Optimistic locking per baris data: klien mengirim base_versi, server
+  // menolak (409) bila versi sudah berubah oleh pengguna lain.
+  await ensureCol("data_barang", "versi",
+    "ALTER TABLE data_barang ADD COLUMN versi INT NOT NULL DEFAULT 1");
+  await ensureCol("data_barang", "updated_by",
+    "ALTER TABLE data_barang ADD COLUMN updated_by INT NULL");
+  await ensureIndex("data_barang", "idx_data_sheet", "sheet_id");
+
+  // Snapshot isi sheet per revisi (untuk banding & pulihkan versi).
+  await admin.query(`CREATE TABLE IF NOT EXISTS sheet_revisions (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    sheet_id INT NOT NULL,
+    versi_no INT NOT NULL DEFAULT 1,
+    data MEDIUMTEXT NULL,
+    jumlah_baris INT NOT NULL DEFAULT 0,
+    created_by INT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_rev_sheet (sheet_id),
+    CONSTRAINT fk_rev_sheet FOREIGN KEY (sheet_id) REFERENCES spreadsheet(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
   await admin.end();
 }
 
