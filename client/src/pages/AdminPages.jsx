@@ -297,6 +297,7 @@ export function AdminUsers({ user: currentUser }) {
   const [roleTarget, setRoleTarget] = React.useState(null); // { u, role } untuk konfirmasi perubahan Super Admin
   const [pwTarget, setPwTarget] = React.useState(null); // user yang sedang diset password-nya
   const [pwValue, setPwValue] = React.useState("");
+  const [pwConfirmValue, setPwConfirmValue] = React.useState("");
   const [pwSaving, setPwSaving] = React.useState(false);
   const [roleDraft, setRoleDraft] = React.useState(null); // { next } menunggu konfirmasi role di form
 
@@ -381,6 +382,7 @@ export function AdminUsers({ user: currentUser }) {
   const openSetPassword = (u) => {
     setPwTarget(u);
     setPwValue("");
+    setPwConfirmValue("");
   };
 
   // Memilih role di form harus dikonfirmasi dulu (Ya / Tidak).
@@ -400,10 +402,14 @@ export function AdminUsers({ user: currentUser }) {
       toast("Password minimal 6 karakter", "error");
       return;
     }
+    if (pwValue !== pwConfirmValue) {
+      toast("Konfirmasi password tidak cocok", "error");
+      return;
+    }
     setPwSaving(true);
     try {
       await api.updateAdminUser(pwTarget.id, { password: pwValue });
-      toast(`Password ${pwTarget.nama} diset & kini ditampilkan`);
+      toast(`Password ${pwTarget.nama} berhasil diganti`);
       setPwTarget(null);
       await fetchAll();
     } catch (err) {
@@ -591,15 +597,14 @@ export function AdminUsers({ user: currentUser }) {
                     <span className="act-group">
                       <button
                         className="btn btn-sm act act-pw"
-                        title="Set password baru untuk akun ini (langsung tampil di kolom Password)"
-                        disabled={isSelf(u)}
+                        title="Ganti password akun ini"
                         onClick={() => openSetPassword(u)}
                       >
                         <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                           <rect x="4" y="10.5" width="16" height="10" rx="2" />
                           <path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" />
                         </svg>
-                        Password
+                        Ganti Password
                       </button>
                       <button
                         className="btn btn-sm act"
@@ -677,25 +682,30 @@ export function AdminUsers({ user: currentUser }) {
         >
           <div className="modal" style={{ maxWidth: 420, width: "100%", margin: 16 }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>Set Password - {pwTarget.nama}</h3>
+              <h3>Ganti Password - {pwTarget.nama}</h3>
               <button className="modal-close" onClick={() => setPwTarget(null)}>&times;</button>
             </div>
             <div className="modal-body">
               <p style={{ margin: "0 0 12px", fontSize: 13, color: "var(--ink-2)" }}>
-                Password lama akun ini tidak dapat ditampilkan (tersimpan sebagai hash satu arah).
-                Isi password baru &mdash; setelah disimpan akan terlihat di kolom Password dan bisa
-                diubah kapan saja.
+                Masukkan password baru untuk akun ini. Password lama tidak diperlukan.
               </p>
               <PasswordField
                 value={pwValue}
                 onChange={(e) => setPwValue(e.target.value)}
                 placeholder="Minimal 6 karakter"
               />
+              <div style={{ marginTop: 12 }}>
+                <PasswordField
+                  value={pwConfirmValue}
+                  onChange={(e) => setPwConfirmValue(e.target.value)}
+                  placeholder="Konfirmasi password baru"
+                />
+              </div>
             </div>
             <div className="modal-footer">
               <button className="btn" onClick={() => setPwTarget(null)} disabled={pwSaving}>Batal</button>
               <button className="btn btn-primary" onClick={submitSetPassword} disabled={pwSaving}>
-                {pwSaving ? "Menyimpan..." : "Set & Tampilkan"}
+                {pwSaving ? "Menyimpan..." : "Simpan Password Baru"}
               </button>
             </div>
           </div>
