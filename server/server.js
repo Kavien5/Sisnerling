@@ -1505,7 +1505,7 @@ app.get("/api/export/pdf", async (req, res, next) => {
   }
 });
 
-app.get("/api/export/template", async (_req, res, next) => {
+app.get("/api/export/template", async (req, res, next) => {
   try {
     const wb = new ExcelJS.Workbook();
     wb.creator = "SISNERLING";
@@ -2005,7 +2005,7 @@ app.post("/api/import/workbook", requireRole("super_admin"), async (req, res, ne
         }
       }
 
-      results.sheets.push({ sheetId, sheetName, rows: ins });
+      results.sheets.push({ sheetId, sheetName, rows: ins, kolom: kolomConfig });
     }
 
     if (!results.sheets.length) {
@@ -3360,10 +3360,25 @@ app.use((err, _req, res, _next) => {
 
 // Pemeriksa izin baris untuk jalur kolaborasi: memakai aturan granular
 // sheet yang sama dengan PUT /api/data/:id (kunci scope + kolom/baris).
-setRowWriteChecker(async (user, row, changed) => {
+setRowWriteChecker(async (user, row, changed, opts = {}) => {
   const req = { user };
-  if (await scopeBlocksSheet(req, row.sheet_id)) {
+  const sheetId = row ? row.sheet_id : opts.sheetId;
+  const mode = opts.entry ? "entry" : "edit";
+  if (await scopeBlocksSheet(req, sheetId, mode)) {
     return { ok: false, reason: "Sheet ini terkunci untuk akun Anda oleh Super Admin" };
+  }
+  if (!row) {
+    // Entry baris baru: posisi = jumlah berjalan + 1.
+    const [[{ n }]] = await pool.query(
+      "SELECT COUNT(*) AS n FROM data_barang WHERE sheet_id = ?",
+      [sheetId]
+    );
+    const can = await adminCanWriteSpreadsheetRow(req, sheetId, null, changed || [], "entry", {
+      rowPos: Number(n) + 1,
+    });
+    return can
+      ? { ok: true }
+      : { ok: false, reason: "Anda tidak memiliki izin entry pada bagian/kolom baris ini" };
   }
   const can = await adminCanWriteSpreadsheetRow(req, row.sheet_id, row.id, changed || [], "edit");
   return can

@@ -200,6 +200,12 @@ async function initDatabase() {
     "ALTER TABLE admin_table_permissions ADD COLUMN asal ENUM('manual','scope') NOT NULL DEFAULT 'manual' AFTER baris_izin");
   await ensureCol("spreadsheet", "sumber_file",
     "ALTER TABLE spreadsheet ADD COLUMN sumber_file VARCHAR(255) NULL AFTER nama");
+  // Kolom yang dipakai endpoint publish workbook tapi belum ada di schema.sql
+  // (tanpanya POST /api/import/workbook gagal dengan Unknown column).
+  await ensureCol("spreadsheet", "worksheet_index",
+    "ALTER TABLE spreadsheet ADD COLUMN worksheet_index INT NULL AFTER kolom");
+  await ensureCol("spreadsheet", "hidden",
+    "ALTER TABLE spreadsheet ADD COLUMN hidden TINYINT(1) NOT NULL DEFAULT 0 AFTER worksheet_index");
 
   // Perluas indeks unik agar satu penugasan per (user, tipe, tabel, section).
   const [[uqRow]] = await admin.query(

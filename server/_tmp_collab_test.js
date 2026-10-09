@@ -196,6 +196,25 @@ async function main() {
   const restored = check.json.data.find((d) => d.id === rowA);
   assert(restored && restored.nama !== "Berubah Setelah Revisi", "10d. Nilai kembali ke revisi");
 
+  // --- 11. Tambah/hapus baris + broadcast ---
+  const rowCreatedP = waitEvent(sockB, "row-created");
+  r = await api("POST", `/api/collab/sheets/${sheetId}/rows`, H(editor.token), {
+    kode: `KOL-C-${TAG}`, nama: "Baris C", jumlah: 7,
+  });
+  assert(r.status === 201 && r.json.row && r.json.row.versi === 1, "11a. Editor tambah baris", `HTTP ${r.status}`);
+  const newRowId = r.json.row && r.json.row.id;
+  const bc = await rowCreatedP;
+  assert(bc.row && bc.row.kode === `KOL-C-${TAG}`, "11b. row-created diterima B real-time");
+  r = await api("POST", `/api/collab/sheets/${sheetId}/rows`, H(viewer.token), { kode: `KOL-D-${TAG}`, nama: "x" });
+  assert(r.status === 403, "11c. Viewer tambah baris ditolak 403", `HTTP ${r.status}`);
+  const rowDeletedP = waitEvent(sockB, "row-deleted");
+  r = await api("DELETE", `/api/collab/rows/${newRowId}`, H(editor.token));
+  assert(r.status === 200, "11d. Editor hapus baris", `HTTP ${r.status}`);
+  const bd = await rowDeletedP;
+  assert(bd.row_id === newRowId, "11e. row-deleted diterima B real-time");
+  r = await api("DELETE", "/api/collab/rows/999999999", HA);
+  assert(r.status === 404, "11f. Hapus baris tak ada 404", `HTTP ${r.status}`);
+
   sockA.close();
   sockB.close();
   console.log(failures === 0 ? "\nSEMUA UJI LULUS" : `\n${failures} UJI GAGAL`);

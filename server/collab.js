@@ -228,7 +228,12 @@ async function applyCellOp(conn, { user, rowId, colKey, value, baseVersi = null 
 
   const currentVersi = Number(row.versi) || 1;
   if (baseVersi !== null && baseVersi !== undefined && Number(baseVersi) !== currentVersi) {
-    return { conflict: true, current: publicRow(row) };
+    let nm = null;
+    if (row.updated_by) {
+      const [[u]] = await conn.query("SELECT nama FROM users WHERE id = ?", [row.updated_by]);
+      if (u) nm = u.nama;
+    }
+    return { conflict: true, current: { ...publicRow(row), updated_by_nama: nm } };
   }
 
   const oldVal = isStandard ? row[key] : (parseJsonField(row.nilai) || {})[key] ?? "";
@@ -252,9 +257,22 @@ async function applyCellOp(conn, { user, rowId, colKey, value, baseVersi = null 
   );
   if (upd.affectedRows === 0) {
     const [[fresh]] = await conn.query("SELECT * FROM data_barang WHERE id = ?", [rowId]);
-    return { conflict: true, current: fresh ? publicRow(fresh) : null };
+    let nm = null;
+    if (fresh && fresh.updated_by) {
+      const [[u]] = await conn.query("SELECT nama FROM users WHERE id = ?", [fresh.updated_by]);
+      if (u) nm = u.nama;
+    }
+    return { conflict: true, current: fresh ? { ...publicRow(fresh), updated_by_nama: nm } : null };
   }
   const [[fresh]] = await conn.query("SELECT * FROM data_barang WHERE id = ?", [rowId]);
+
+  // Nama pengubah terakhir (untuk indikator "terakhir diubah oleh").
+  let updatedByNama = null;
+  if (fresh.updated_by) {
+    const [[u]] = await conn.query("SELECT nama FROM users WHERE id = ?", [fresh.updated_by]);
+    if (u) updatedByNama = u.nama;
+  }
+  const outRow = { ...publicRow(fresh), updated_by_nama: updatedByNama };
 
   logAudit({
     userId: user.id,
@@ -266,7 +284,7 @@ async function applyCellOp(conn, { user, rowId, colKey, value, baseVersi = null 
     newData: { kolom: key, nilai: coerced, versi: currentVersi + 1 },
   });
 
-  return { ok: true, row: publicRow(fresh) };
+  return { ok: true, row: outRow };
 }
 
 function publicRow(r) {
@@ -458,6 +476,127 @@ function createCollabRouter() {
       }
       await conn.commit();
       res.json({ results });
+    } catch (err) {
+      try {
+        await conn.rollback();
+      } catch { /* abaikan */ }
+      next(err);
+    } finally {
+      conn.release();
+    }
+  });
+
+  // Tambah baris baru ke sheet (butuh akses tulis). Kembalian: row baru.
+  router.post("/sheets/:id/rows", async (req, res, next) => {
+    const conn = await pool.getConnection();
+    try {
+      const sheetId = Number(req.params.id);
+      const [[sh]] = await conn.query("SELECT id, sumber_file FROM spreadsheet WHERE id = ?", [sheetId]);
+      if (!sh) return res.status(404).json({ error: "Sheet tidak ditemukan" });
+      const wbKey = sh.sumber_file || `sheet#${sh.id}`;
+      const access = await getWorkbookAccess(req.user, wbKey);
+      if (!access.write) return res.status(403).json({ error: "Anda tidak memiliki izin menambah baris file ini" });
+
+      const body = req.body || {};
+      const changed = Object.keys(body).filter((k) => !LOCKED_KEYS.has(k));
+      if (req.user.role === "admin" && rowWriteChecker) {
+        const chk = await rowWriteChecker(req.user, null, changed, { sheetId, entry: true });
+        if (!chk.ok) return res.status(403).json({ error: chk.reason || "Tidak ada izin entry pada file ini" });
+      }
+      if (typeof body.nilai === "string" && body.nilai.startsWith("=") && req.user.role !== "super_admin") {
+        return res.status(403).json({ error: "Rumus (formula) tidak boleh diubah selain oleh Admin utama" });
+      }
+
+      const std = {};
+      const custom = {};
+      for (const k of changed) {
+        if (EDITABLE_STANDARD.has(k)) std[k] = coerceCellValue(k, body[k]);
+        else if (/^kimport\d+$/i.test(k)) custom[k] = coerceCellValue(k, body[k]);
+        else return res.status(400).json({ error: `Kolom "${k}" tidak dikenal` });
+      }
+      if (std.kode === undefined) {
+        std.kode = `CLB-${Date.now().toString(36)}-${Math.floor(Math.random() * 1296).toString(36)}`.toUpperCase().slice(0, 50);
+      }
+      if (std.nama === undefined) std.nama = "Baris baru";
+      await conn.beginTransaction();
+      const [ins] = await conn.query(
+        `INSERT INTO data_barang (kode, nama, kategori_id, sub_kategori_id, sheet_id, jumlah, harga, tanggal, status, keterangan, nilai, updated_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          std.kode, std.nama, std.kategori_id ?? null, std.sub_kategori_id ?? null, sheetId,
+          std.jumlah ?? 0, std.harga ?? 0,
+          std.tanggal ?? new Date().toISOString().slice(0, 10),
+          std.status ?? "Pending", std.keterangan ?? null,
+          Object.keys(custom).length ? JSON.stringify(custom) : null, req.user.id,
+        ]
+      );
+      const [[fresh]] = await conn.query("SELECT * FROM data_barang WHERE id = ?", [ins.insertId]);
+      await conn.commit();
+      const outRow = publicRow(fresh);
+      logAudit({
+        userId: req.user.id, action: "create", module: "collab",
+        description: `Menambah baris "${outRow.nama}" (${outRow.kode}) pada sheet #${sheetId}`,
+        recordId: outRow.id, newData: outRow, req,
+      });
+      try {
+        require("./realtime").emitToFile(wbKey, "row-created", { row: outRow, by: { id: req.user.id, nama: req.user.nama } });
+      } catch { /* socket belum siap */ }
+      res.status(201).json({ message: "Baris ditambahkan", row: outRow });
+    } catch (err) {
+      try {
+        await conn.rollback();
+      } catch { /* abaikan */ }
+      if (err.code === "ER_DUP_ENTRY") {
+        return res.status(409).json({ error: "Kode baris sudah ada" });
+      }
+      if (err.message && /wajib diisi|harus|tidak valid/.test(err.message)) {
+        return res.status(400).json({ error: err.message });
+      }
+      next(err);
+    } finally {
+      conn.release();
+    }
+  });
+
+  // Hapus baris dari sheet (butuh akses tulis).
+  router.delete("/rows/:rowId", async (req, res, next) => {
+    const conn = await pool.getConnection();
+    try {
+      const rowId = Number(req.params.rowId);
+      await conn.beginTransaction();
+      const [[row]] = await conn.query("SELECT * FROM data_barang WHERE id = ? FOR UPDATE", [rowId]);
+      if (!row) {
+        await conn.rollback();
+        return res.status(404).json({ error: "Baris data tidak ditemukan" });
+      }
+      if (!row.sheet_id) {
+        await conn.rollback();
+        return res.status(403).json({ error: "Baris ini bukan bagian dari file kolaborasi" });
+      }
+      const wbKey = await resolveWorkbookKey({ sheetId: row.sheet_id });
+      const access = await getWorkbookAccess(req.user, wbKey);
+      if (!access.write) {
+        await conn.rollback();
+        return res.status(403).json({ error: "Anda tidak memiliki izin menghapus baris file ini" });
+      }
+      if (req.user.role === "admin" && rowWriteChecker) {
+        const chk = await rowWriteChecker(req.user, row, []);
+        if (!chk.ok) {
+          await conn.rollback();
+          return res.status(403).json({ error: chk.reason || "Tidak ada izin menghapus pada bagian baris ini" });
+        }
+      }
+      await conn.query("DELETE FROM data_barang WHERE id = ?", [rowId]);
+      await conn.commit();
+      logAudit({
+        userId: req.user.id, action: "delete", module: "collab",
+        description: `Menghapus baris "${row.nama}" (${row.kode})`,
+        recordId: rowId, oldData: { kode: row.kode, nama: row.nama }, req,
+      });
+      try {
+        require("./realtime").emitToFile(wbKey, "row-deleted", { row_id: rowId, sheet_id: row.sheet_id, by: { id: req.user.id, nama: req.user.nama } });
+      } catch { /* socket belum siap */ }
+      res.json({ message: "Baris dihapus" });
     } catch (err) {
       try {
         await conn.rollback();

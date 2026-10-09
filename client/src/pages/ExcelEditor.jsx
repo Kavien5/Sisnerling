@@ -26,6 +26,9 @@ import Modal from "../components/Modal.jsx";
 import PerbandinganData from "../components/PerbandinganData.jsx";
 import { sheetsToTables } from "../perbandinganUtils.js";
 import { saveFile, removeFile, generateId } from "../excelStorage.js";
+import { useCollab } from "../useCollab.js";
+import { getCollabLink, saveCollabLink, fileStemOf } from "../collabLinks.js";
+import { CollabBar, ConflictModal, ShareDialog, RevisionPanel } from "../components/CollabPanels.jsx";
 import { openFileZip, extractImagesFromZip } from "../excelImages.js";
 import { enrichWorkbookFromZip } from "../excelRawStyles.js";
 import {
@@ -132,6 +135,11 @@ export default function ExcelEditor({ importedFiles = [], onFilesChanged, readOn
     setFxState(st);
     setActiveCellIdx(st.activeColIdx ?? null);
     setActiveCellRow(st.activeRowIdx ?? null);
+    try {
+      if (st.activeRowIdx != null && st.activeColIdx != null) {
+        collab.sendCursor({ sheet: sheetsRef.current[activeSheetIdx]?.name || "", r: st.activeRowIdx, c: st.activeColIdx });
+      }
+    } catch (_) {}
   };
 
   const [canUndo, setCanUndo] = React.useState(false);
@@ -777,7 +785,11 @@ export default function ExcelEditor({ importedFiles = [], onFilesChanged, readOn
   };
 
   const handleRowsChange = (newRows) => {
+    const prevRows = sheetsRef.current[activeSheetIdx]?.rows;
     updateSheet(activeSheetIdx, (s) => ({ ...s, rows: newRows }));
+    try {
+      collab.onLocalRows(activeSheetIdx, prevRows, newRows);
+    } catch (_) {}
   };
 
   const handleMergeCells = (range) => {
@@ -911,7 +923,11 @@ export default function ExcelEditor({ importedFiles = [], onFilesChanged, readOn
         label: `Hapus baris ${r1 + 1}–${r2 + 1}`,
       });
     }
+    const deleted = (sheetsRef.current[activeSheetIdx]?.rows || []).slice(r1, r2 + 1);
     updateSheet(activeSheetIdx, (s) => deleteRowsFromSheet(s, r1, r2));
+    try {
+      collab.onRowsDeleted(activeSheetIdx, deleted);
+    } catch (_) {}
     refreshHistory();
   };
 
@@ -1467,6 +1483,59 @@ export default function ExcelEditor({ importedFiles = [], onFilesChanged, readOn
     toast("Sel ini terkunci oleh Super Admin", "error");
   }, [toast]);
 
+  // ===== Kolaborasi multi-user (Fase 2) =====
+  const applySilent = React.useCallback(
+    (idx, updater) => updateSheet(idx, updater, false),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+  const activeCellInfo = React.useMemo(() => {
+    if (activeCellRow == null || activeCellIdx == null || !activeSheet) return null;
+    return {
+      sheetIdx: activeSheetIdx,
+      ri: activeCellRow,
+      localKey: activeSheet.columns?.[activeCellIdx]?.key || null,
+    };
+  }, [activeCellRow, activeCellIdx, activeSheet, activeSheetIdx]);
+  const collab = useCollab({
+    activeFile,
+    getSheet: (i) => sheetsRef.current[i],
+    activeSheetIdx,
+    activeCell: activeCellInfo,
+    applySilent,
+    toast,
+  });
+  // readOnly global (peran user) dibuka untuk file kolaborasi yang boleh ditulis.
+  const effectiveReadOnly = readOnly && !collab.canWrite;
+  // Sorotan kursor pengguna lain di sheet aktif (indeks kolom lokal).
+  const cursorHighlights = React.useMemo(() => {
+    if (!activeSheet) return [];
+    const out = [];
+    for (const c of Object.values(collab.cursors || {})) {
+      const sel = c.sel;
+      if (!sel || String(sel.sheet || "").toUpperCase() !== String(activeSheet.name || "").toUpperCase()) continue;
+      if (sel.r == null || sel.c == null) continue;
+      if (sel.r < 0 || sel.c < 0 || sel.r >= activeSheet.rows.length || sel.c >= (activeSheet.columns || []).length) continue;
+      out.push({ r1: sel.r, r2: sel.r, c1: sel.c, c2: sel.c, lock: false });
+    }
+    return out;
+  }, [collab.cursors, activeSheet]);
+  const mergedHighlights = React.useMemo(
+    () => (lockHighlights && lockHighlights.length ? [...lockHighlights, ...cursorHighlights] : cursorHighlights.length ? cursorHighlights : lockHighlights),
+    [lockHighlights, cursorHighlights]
+  );
+  const [showShare, setShowShare] = React.useState(false);
+  const [showRevisions, setShowRevisions] = React.useState(false);
+  const collabRole = getUser()?.role || "user";
+  const openShare = () => {
+    collab.refreshShares();
+    setShowShare(true);
+  };
+  const openRevisions = () => {
+    if (collab.activeSheetLink) collab.refreshRevisions(collab.activeSheetLink.sheetId);
+    setShowRevisions(true);
+  };
+
   // Publikasikan file browser ke server agar muncul di halaman Penugasan Tabel.
   const canPublish = !readOnly && isSuperAdmin(getUser());
   const handlePublish = async () => {
@@ -1495,6 +1564,15 @@ export default function ExcelEditor({ importedFiles = [], onFilesChanged, readOn
         if (res && typeof res.inserted === "number") {
           ok++;
           inserted += res.inserted || 0;
+          // Tautkan file lokal <-> sheet server untuk kolaborasi (kolom ikut
+          // disimpan agar pemetaan sel lokal<->server akurat).
+          try {
+            if (Array.isArray(res.sheets) && res.sheets.length) {
+              saveCollabLink(f.id, f.fileName, res.sheets);
+            } else {
+              saveCollabLink(f.id, f.fileName, []);
+            }
+          } catch (_) {}
         } else {
           fails.push(`"${f.fileName}" — respons server tidak lengkap`);
         }
@@ -1513,7 +1591,7 @@ export default function ExcelEditor({ importedFiles = [], onFilesChanged, readOn
     <div className="excel-editor">
       <ExcelToolbar
         collapsed={toolbarCollapsed}
-        readOnly={readOnly}
+        readOnly={effectiveReadOnly}
         onToggleCollapse={() => setToolbarCollapsed((v) => !v)}
         fileLabel={activeFile?.fileName || ""}
         activeFileId={activeFileId || ""}
@@ -1564,8 +1642,8 @@ export default function ExcelEditor({ importedFiles = [], onFilesChanged, readOn
         onApplyBorders={(sides, weight) => gridRef.current?.applyBorder(sides, weight)}
         borderWeight={borderWeight}
         onBorderWeight={setBorderWeight}
-        onSortAsc={readOnly ? null : () => handleSort("asc")}
-        onSortDesc={readOnly ? null : () => handleSort("desc")}
+          onSortAsc={effectiveReadOnly ? null : () => handleSort("asc")}
+          onSortDesc={effectiveReadOnly ? null : () => handleSort("desc")}
         filterOn={filterMode}
         onToggleFilter={toggleFilter}
         searchText={searchText}
@@ -1600,10 +1678,10 @@ onChart={() => setShowChart((v) => !v)}
           onChange={(e) => gridRef.current?.handleFxChange(e.target.value)}
           onKeyDown={(e) => gridRef.current?.handleFxKeyDown(e)}
           onFocus={() => gridRef.current?.handleFxFocus()}
-          disabled={readOnly || !fxState.hasActive}
+          disabled={effectiveReadOnly || !fxState.hasActive}
         />
         <span className="fx-ref">{fxState.fxRefText}</span>
-        {readOnly && <span className="fx-lock" title="Anda hanya dapat melihat spreadsheet ini">&#128272; Hanya bisa melihat</span>}
+        {effectiveReadOnly && <span className="fx-lock" title="Anda hanya dapat melihat spreadsheet ini">&#128272; Hanya bisa melihat</span>}
       </div>
 
       {fid && (
@@ -1787,9 +1865,108 @@ onChart={() => setShowChart((v) => !v)}
           zoom={zoom}
           onZoomChange={handleZoomChange}
           images={activeSheet.images || []}
-          readOnly={readOnly}
-          rangeHighlights={lockHighlights}
+          readOnly={effectiveReadOnly}
+          rangeHighlights={mergedHighlights}
           onLockedCell={handleLockedCell}
+        />
+      )}
+
+      {collab.linked ? (
+        <CollabBar
+          mode={collab.mode}
+          users={collab.users}
+          saveStatus={collab.saveStatus}
+          pendingCount={collab.pendingCount}
+          lastSavedAt={collab.lastSavedAt}
+          lastEdit={collab.lastEdit}
+          me={getUser()}
+          onShare={openShare}
+          onRevisions={openRevisions}
+          onResync={() => collab.resync()}
+        />
+      ) : (
+        activeFile && (
+          <div className="collab-bar" style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 12px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontSize: 12, color: "#64748b" }}>
+            <span>Kolaborasi: file ini belum tertaut ke server.</span>
+            <span style={{ flex: 1 }} />
+            <button
+              className="btn btn-outline btn-sm"
+              title="Cari sheet server dari hasil publikasi file ini lalu tautkan"
+              onClick={async () => {
+                try {
+                  const list = await api.getSpreadsheet();
+                  const stem = fileStemOf(activeFile.fileName);
+                  const match = (Array.isArray(list) ? list : []).filter(
+                    (s) => String(s.sumber_file || "") === stem
+                  );
+                  if (!match.length) {
+                    toast("Belum ada hasil publikasi file ini di server. Publikasikan dulu (khusus Admin utama).", "error");
+                    return;
+                  }
+                  saveCollabLink(
+                    activeFile.id,
+                    activeFile.fileName,
+                    match.map((s) => ({
+                      sheetName: s.nama && stem && String(s.nama).startsWith(`${stem}@`)
+                        ? String(s.nama).slice(stem.length + 1)
+                        : s.nama,
+                      sheetId: s.id,
+                      kolom: typeof s.kolom === "string" ? JSON.parse(s.kolom || "[]") : s.kolom || [],
+                    }))
+                  );
+                  collab.relink();
+                  toast(`Tertaut ke ${match.length} sheet server — kolaborasi aktif`, undefined);
+                } catch (e) {
+                  toast(`Gagal menautkan: ${e.message}`, "error");
+                }
+              }}
+            >
+              Tautkan kolaborasi
+            </button>
+          </div>
+        )
+      )}
+
+      <ConflictModal conflicts={collab.conflicts} onResolve={(key, choice) => collab.resolveConflict(key, choice)} />
+      {showShare && (
+        <ShareDialog
+          shares={collab.shares}
+          canManage={isSuperAdmin(getUser())}
+          onGrant={async (email, peran) => {
+            await api.collabGrant(collab.workbookKey, { email, peran });
+            await collab.refreshShares();
+          }}
+          onSet={async (userId, peran) => {
+            await api.collabSetShare(collab.workbookKey, userId, { peran });
+            await collab.refreshShares();
+          }}
+          onRevoke={async (userId) => {
+            await api.collabRevokeShare(collab.workbookKey, userId);
+            await collab.refreshShares();
+          }}
+          onClose={() => setShowShare(false)}
+        />
+      )}
+      {showRevisions && (
+        <RevisionPanel
+          sheetId={collab.activeSheetLink?.sheetId}
+          sheetName={activeSheet?.name}
+          revisions={collab.activeSheetLink ? collab.revisions : []}
+          canWrite={collab.canWrite}
+          canRestore={collab.canWrite && (collabRole === "admin" || collabRole === "super_admin")}
+          onCreate={async () => {
+            if (!collab.activeSheetLink) return;
+            await api.collabCreateRevision(collab.activeSheetLink.sheetId);
+            await collab.refreshRevisions(collab.activeSheetLink.sheetId);
+            toast("Revisi tersimpan", undefined);
+          }}
+          onRestore={async (revId) => {
+            await api.collabRestoreRevision(revId);
+            toast("Dipulihkan — sinkronisasi ulang…", undefined);
+            await collab.resync();
+            if (collab.activeSheetLink) await collab.refreshRevisions(collab.activeSheetLink.sheetId);
+          }}
+          onClose={() => setShowRevisions(false)}
         />
       )}
 

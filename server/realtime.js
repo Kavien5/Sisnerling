@@ -12,6 +12,15 @@ const { getWorkbookAccess, resolveWorkbookKey, applyCellOp } = require("./collab
 
 const roomOf = (workbookKey) => `file:${workbookKey}`;
 
+// Instance io untuk broadcast dari jalur REST (mis. row-created).
+let ioInstance = null;
+function getIO() {
+  return ioInstance;
+}
+function emitToFile(workbookKey, event, payload) {
+  if (ioInstance && workbookKey) ioInstance.to(roomOf(String(workbookKey))).emit(event, payload);
+}
+
 // presence: Map<room, Map<userId, { user, sockets: Set<socketId> }>>
 const presence = new Map();
 
@@ -68,6 +77,7 @@ function attachRealtime(httpServer) {
     path: "/socket.io",
     cors: { origin: true, credentials: true },
   });
+  ioInstance = io;
 
   io.use(async (socket, next) => {
     try {
@@ -199,4 +209,4 @@ function attachRealtime(httpServer) {
   return io;
 }
 
-module.exports = { attachRealtime };
+module.exports = { attachRealtime, getIO, emitToFile };

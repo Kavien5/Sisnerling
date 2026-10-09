@@ -184,6 +184,38 @@ export const api = {
   getDashboardGreeting: () => request("/api/dashboard/greeting"),
   setDashboardGreeting: (body) =>
     request("/api/dashboard/greeting", { method: "PUT", body: JSON.stringify(body) }),
+  // Kolaborasi multi-user (akses file, sel real-time, revisi)
+  collabAccess: (workbookKey) =>
+    request(`/api/collab/files/${encodeURIComponent(workbookKey)}/access`),
+  collabShares: (workbookKey) =>
+    request(`/api/collab/files/${encodeURIComponent(workbookKey)}/shares`),
+  collabGrant: (workbookKey, body) =>
+    request(`/api/collab/files/${encodeURIComponent(workbookKey)}/shares`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  collabSetShare: (workbookKey, userId, body) =>
+    request(`/api/collab/files/${encodeURIComponent(workbookKey)}/shares/${userId}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  collabRevokeShare: (workbookKey, userId) =>
+    request(`/api/collab/files/${encodeURIComponent(workbookKey)}/shares/${userId}`, {
+      method: "DELETE",
+    }),
+  collabPutCell: (body) =>
+    request("/api/collab/cells", { method: "PUT", body: JSON.stringify(body) }),
+  collabBatch: (ops) =>
+    request("/api/collab/cells/batch", { method: "PUT", body: JSON.stringify({ ops }) }),
+  collabCreateRow: (sheetId, body) =>
+    request(`/api/collab/sheets/${sheetId}/rows`, { method: "POST", body: JSON.stringify(body) }),
+  collabDeleteRow: (rowId) => request(`/api/collab/rows/${rowId}`, { method: "DELETE" }),
+  collabRevisions: (sheetId) => request(`/api/collab/sheets/${sheetId}/revisions`),
+  collabCreateRevision: (sheetId) =>
+    request(`/api/collab/sheets/${sheetId}/revisions`, { method: "POST", body: "{}" }),
+  collabRevisionDetail: (revId) => request(`/api/collab/revisions/${revId}`),
+  collabRestoreRevision: (revId) =>
+    request(`/api/collab/revisions/${revId}/pulihkan`, { method: "POST" }),
 };
 
 export const formatRupiah = (n) =>
