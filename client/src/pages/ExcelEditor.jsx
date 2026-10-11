@@ -1698,7 +1698,7 @@ onChart={() => setShowChart((v) => !v)}
             {fid.differences === 0 ? "&#10003;" : "&#10007;"} Importer
             {fid.differences === 0
               ? ` sesuai 1:1 (${fid.checked.toLocaleString("id-ID")} sel dicek, ${fid.sheets.length} sheet, posisi & nilai identik)`
-              : ` BEDA: ${fid.differences} sel berbeda dari file asli`}
+              : ` BEDA ${fid.differences} sel (nilai ${fid.valueDiff}, gaya ${fid.styleDiff}, angka ${fid.nfDiff}, merge ${fid.mergeDiff}, ukuran ${fid.dimDiff})`}
           </span>
           <button
             onClick={() => setFidOpen(true)}

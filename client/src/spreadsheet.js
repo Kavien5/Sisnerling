@@ -1248,9 +1248,22 @@ export function formatCellValue(value, col) {
   if (value === null || value === undefined || value === "") return "";
   if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
   col = col || {};
-  if (typeof value === "number") {
-    const fmt = typeof col.numFmt === "string" ? col.numFmt : "";
+if (typeof value === "number") {
+    // Token perataan Excel dalam format angka: `_x` = sisipkan lebar karakter x
+    // (pad), `*y` = isi ruang dengan y. Excel MENGHILANGKAN token ini dari teks
+    // tampilan (efeknya cuma spasi/pad). Sebelumnya token lolos utuh sehingga
+    // angka akuntansi tampil seperti "(* 2.618.947,30_)" (`*`/`_` nyasar) dan
+    // nilai melebar/keluar dari kotak sel. Kurung literal yang DI-ESCAPE (`\(`)
+    // dipertahankan — dipakai format akuntansi untuk angka negatif.
+    const _rawFmt = typeof col.numFmt === "string" ? col.numFmt : "";
+    const fmt = _rawFmt.replace(/_(.)/g, "").replace(/\*./g, "");
     if (col.format === "rupiah" || /rp|rupiah|idr/i.test(fmt)) return formatRupiah(value);
+    if (value === 0 && _rawFmt.indexOf(";") >= 0 && _rawFmt.replace(/[^;]/g, "").length >= 2) {
+      // Bagian ketiga format (nol): akuntansi memakai "-" (strip saja).
+      const zeroPart = _rawFmt.split(";")[2] || "";
+      const z = zeroPart.replace(/_(.)/g, "").replace(/\*./g, "").replace(/[\\"']/g, "").trim();
+      if (/^[-–—]?$/.test(z)) return "-";
+    }
     // Format kurung "(0)" / "(#,##0.00)": Excel menampilkan bilangan (termasuk
     // negatif) di dalam tanda kurung tanpa tanda minus — (1), (2), (3), dst.
     const posPart = (fmt.split(";")[0] || fmt).replace(/\[[^\]]*\]/g, "").trim();
@@ -1311,7 +1324,10 @@ export function formatCellValue(value, col) {
       const opts = { useGrouping: grouped, maximumFractionDigits: dec, minimumFractionDigits: dec };
       return value.toLocaleString(grouped ? "id-ID" : "en-US", opts);
     }
-    return value.toLocaleString("id-ID", { useGrouping: false });
+    // General (tanpa format angka): bulatkan "ekor" presisi float yang mengganggu
+    // (mis. 2618947.3000000003 → 2618947,3) seperti Excel menampilkan ~15 sigit,
+    // tanpa mengelompokkan ribuan dan tanpa pindah ke notasi ilmiah.
+    return Number(value.toPrecision(14)).toLocaleString("id-ID", { useGrouping: false, maximumFractionDigits: 14 });
   }
   if (value instanceof Date) {
     const fmt = typeof col.numFmt === "string" ? col.numFmt : "";
