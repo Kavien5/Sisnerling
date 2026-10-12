@@ -677,7 +677,7 @@ async function adminCanDeleteSpreadsheetRow(req, sheetId, dataId, mode) {
 // native sheet, sama dengan pratinjau). Jika Admin tidak punya aturan cakupan
 // untuk sheet tersebut, perilaku lama (admin_table_permissions) tetap berlaku.
 
-const { toRule, rulesForSheet, workbookAliases } = require("./assignmentScopes");
+const { toRule, rulesForSheet, workbookAliases, colToIndex, rangeLabel } = require("./assignmentScopes");
 
 async function loadScopeRules(adminId) {
   const [rows] = await pool.query(
@@ -3114,6 +3114,364 @@ app.get("/api/locks", async (req, res, next) => {
         r1: r.r1, c1: r.c1, r2: r.r2, c2: r.c2,
         colKeys: r.colKeys, canEntry: r.canEntry, canEdit: r.canEdit,
       })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// =====================================================================
+// Progres Penugasan (Dashboard)
+//
+// Menghitung progres dari DATA NYATA (data_barang) pada sheet yang ditugaskan
+// lewat aturan cakupan (admin_assignment_scopes) maupun izin manual lama
+// (admin_table_permissions, asal='manual'). Tidak ada angka simulasi.
+//
+// Model:
+//  - Satu BARIS DATA yang ditugaskan = satu tugas.
+//  - Baris "selesai" bila SEMUA kolom yang ditugaskan terisi, "sedang
+//    dikerjakan" bila sebagian terisi, "belum dikerjakan" bila kosong.
+//  - Kolom yang selalu terisi otomatis (kode/nama/tanggal/status) tidak
+//    dihitung pada penugasan seluruh sheet agar progres mencerminkan isian.
+//  - Bila satu sheet dikerjakan beberapa Admin, tiap Admin dihitung sendiri,
+//    sementara total keseluruhan TIDAK menggandakan baris yang sama.
+// =====================================================================
+
+const STANDARD_DATA_KEYS = new Set([
+  "kode", "nama", "kategori_id", "sub_kategori_id", "jumlah", "harga",
+  "tanggal", "status", "keterangan",
+]);
+const AUTO_FILLED_KEYS = new Set(["kode", "nama", "tanggal", "status"]);
+
+function parseKolomKeyList(kolom) {
+  let arr = kolom;
+  if (typeof arr === "string") { try { arr = JSON.parse(arr); } catch { arr = null; } }
+  if (!Array.isArray(arr)) return [];
+  return arr.map((c) => String(typeof c === "string" ? c : (c && c.key) || c)).filter(Boolean);
+}
+
+function parseNilaiField(v) {
+  if (v == null) return {};
+  if (typeof v === "object") return v;
+  try { return JSON.parse(v) || {}; } catch { return {}; }
+}
+
+function cellIsFilled(row, key) {
+  if (STANDARD_DATA_KEYS.has(key)) {
+    const v = row[key];
+    if (key === "kategori_id" || key === "sub_kategori_id") return v !== null && v !== undefined && v !== "";
+    if (v === null || v === undefined) return false;
+    if (typeof v === "number") return true;
+    return String(v).trim() !== "";
+  }
+  const v = (row.__nilai || {})[key];
+  if (v === null || v === undefined) return false;
+  if (typeof v === "number") return true;
+  return String(v).trim() !== "";
+}
+
+function emptyAssignmentProgress() {
+  return {
+    generatedAt: new Date().toISOString(),
+    totals: { tugas: 0, belum: 0, sedang: 0, selesai: 0, persen: 0 },
+    byAdmin: [], byFile: [], bySheet: [], details: [],
+  };
+}
+
+const pct = (selesai, tugas) => (tugas > 0 ? Math.round((selesai / tugas) * 100) : 0);
+
+// Utilitas indeks baris.
+const allRowIdx = (n) => { const a = []; for (let i = 0; i < n; i++) a.push(i); return a; };
+const rangeRowIdx = (from, to, n) => {
+  if (n <= 0) return [];
+  let a = Math.max(0, Math.min(Number(from) || 0, n - 1));
+  let b = Math.min(n - 1, Math.max(Number(to) || 0, 0));
+  if (a > b) [a, b] = [b, a];
+  const out = [];
+  for (let i = a; i <= b; i++) out.push(i);
+  return out;
+};
+
+// Kolom yang ditugaskan pada sebuah sheet (kunci kolom database).
+function assignedColumnsFor(rule, sheetKolomKeys) {
+  const contentCols = sheetKolomKeys.filter((k) => !AUTO_FILLED_KEYS.has(k));
+  const base = contentCols.length ? contentCols : sheetKolomKeys.slice();
+  if (rule.level === "workbook" || rule.level === "sheet" || rule.level === "row") return base;
+  if (rule.level === "column") {
+    const keys = [];
+    for (const letter of (rule.colKeys || [])) {
+      const idx = colToIndex(letter);
+      const k = idx != null ? sheetKolomKeys[idx] : null;
+      if (k) keys.push(k);
+    }
+    return keys.length ? keys : base;
+  }
+  // range / cell -> kolom native c1..c2
+  const keys = [];
+  if (rule.c1 != null && rule.c2 != null) {
+    for (let c = rule.c1; c <= rule.c2; c++) { const k = sheetKolomKeys[c]; if (k) keys.push(k); }
+  }
+  return keys.length ? keys : base;
+}
+
+app.get("/api/dashboard/assignment-progress", requireRole("admin", "super_admin"), async (req, res, next) => {
+  try {
+    const isSuper = req.user.role === "super_admin";
+
+    const scopeParams = [];
+    let scopeWhere = "";
+    if (!isSuper) { scopeWhere = "WHERE a.admin_id = ?"; scopeParams.push(req.user.id); }
+    const [scopeRows] = await pool.query(
+      `SELECT a.*, u.nama AS nama_admin
+       FROM admin_assignment_scopes a
+       LEFT JOIN users u ON u.id = a.admin_id
+       ${scopeWhere}
+       ORDER BY a.admin_id ASC, a.id ASC`,
+      scopeParams
+    );
+
+    const permParams = [];
+    let permWhere = "WHERE p.tipe = 'spreadsheet' AND (p.asal IS NULL OR p.asal <> 'scope')";
+    if (!isSuper) { permWhere += " AND p.user_id = ?"; permParams.push(req.user.id); }
+    const [permRows] = await pool.query(
+      `SELECT p.id, p.user_id, p.tabel_id, p.section_id, p.can_entry, p.can_edit,
+              p.kolom_izin, p.baris_izin, u.nama AS nama_admin,
+              s.nama AS section_nama, s.baris_awal, s.baris_akhir, s.kolom AS section_kolom,
+              sp.nama AS sheet_nama, sp.sumber_file
+       FROM admin_table_permissions p
+       JOIN users u ON u.id = p.user_id
+       LEFT JOIN spreadsheet_sections s ON s.id = p.section_id
+       LEFT JOIN spreadsheet sp ON sp.id = p.tabel_id
+       ${permWhere}
+       ORDER BY p.user_id ASC, p.id ASC`,
+      permParams
+    );
+
+    if (!scopeRows.length && !permRows.length) return res.json(emptyAssignmentProgress());
+
+    const [spreadsheets] = await pool.query(
+      "SELECT id, nama, sumber_file, kolom FROM spreadsheet ORDER BY id ASC"
+    );
+    const sheetById = new Map(spreadsheets.map((s) => [Number(s.id), s]));
+    const kolomCache = new Map();
+    const sheetKolomKeys = (sheetId) => {
+      const sid = Number(sheetId);
+      if (kolomCache.has(sid)) return kolomCache.get(sid);
+      const sh = sheetById.get(sid);
+      const keys = sh ? parseKolomKeyList(sh.kolom) : [];
+      kolomCache.set(sid, keys);
+      return keys;
+    };
+    const workbookSheetsOf = (workbookKey) => {
+      const aliases = workbookAliases(workbookKey);
+      if (!aliases.length) return [];
+      return spreadsheets.filter((s) => {
+        const sa = workbookAliases(s.sumber_file || s.nama);
+        return sa.some((x) => aliases.includes(x));
+      });
+    };
+
+    const involvedSheetIds = new Set();
+    const assignments = [];
+
+    for (const sr of scopeRows) {
+      const adminId = Number(sr.admin_id);
+      const nama = sr.nama_admin || `Admin #${adminId}`;
+      const rule = toRule(sr);
+      const wbKey = rule.workbookKey;
+      const wbName = sr.workbook_name || wbKey;
+      const common = {
+        adminId, nama_admin: nama,
+        workbookKey: wbKey, workbookName: wbName,
+        canEntry: rule.canEntry, canEdit: rule.canEdit, level: rule.level,
+      };
+      if (rule.level === "workbook") {
+        for (const sh of workbookSheetsOf(wbKey)) {
+          involvedSheetIds.add(Number(sh.id));
+          assignments.push({
+            ...common,
+            sheetId: Number(sh.id), sheetName: sh.nama,
+            bagian: "Seluruh file",
+            cols: assignedColumnsFor({ level: "workbook" }, sheetKolomKeys(sh.id)),
+            rowSel: { type: "all" },
+          });
+        }
+      } else {
+        if (rule.sheetId == null || !sheetById.has(Number(rule.sheetId))) continue;
+        const sh = sheetById.get(Number(rule.sheetId));
+        involvedSheetIds.add(Number(rule.sheetId));
+        const coarse = rule.level === "sheet" || rule.level === "column";
+        assignments.push({
+          ...common,
+          sheetId: Number(rule.sheetId),
+          sheetName: rule.sheetName || sh.nama || `Sheet #${rule.sheetId}`,
+          bagian: rangeLabel(rule),
+          cols: assignedColumnsFor(rule, sheetKolomKeys(rule.sheetId)),
+          rowSel: coarse
+            ? { type: "all" }
+            : { type: "native", r1: rule.r1, r2: rule.r2, dataStart: rule.dataStart },
+        });
+      }
+    }
+
+    for (const p of permRows) {
+      const sheetId = Number(p.tabel_id);
+      if (!sheetById.has(sheetId)) continue;
+      involvedSheetIds.add(sheetId);
+      const wbName = p.sumber_file || p.sheet_nama || `Sheet #${sheetId}`;
+      let cols = sheetKolomKeys(sheetId);
+      if (p.section_id && p.section_kolom) {
+        const sk = parseKolomKeyList(p.section_kolom);
+        if (sk.length) cols = sk;
+      }
+      if (p.kolom_izin) {
+        const ki = typeof p.kolom_izin === "string" ? (() => { try { return JSON.parse(p.kolom_izin); } catch { return null; } })() : p.kolom_izin;
+        if (Array.isArray(ki) && ki.length) cols = ki.map(String);
+      }
+      let rowSel = { type: "all" };
+      if (p.section_id) {
+        rowSel = { type: "dataPos", awal: p.baris_awal, akhir: p.baris_akhir };
+      } else if (p.baris_izin) {
+        const bi = typeof p.baris_izin === "string" ? (() => { try { return JSON.parse(p.baris_izin); } catch { return null; } })() : p.baris_izin;
+        if (bi && Array.isArray(bi.rows) && bi.rows.length) rowSel = { type: "dataList", rows: bi.rows };
+        else if (bi && (bi.awal != null || bi.akhir != null)) rowSel = { type: "dataPos", awal: bi.awal, akhir: bi.akhir };
+      }
+      assignments.push({
+        adminId: Number(p.user_id),
+        nama_admin: p.nama_admin || `Admin #${p.user_id}`,
+        workbookKey: wbName, workbookName: wbName,
+        sheetId, sheetName: p.sheet_nama || `Sheet #${sheetId}`,
+        level: "perm",
+        bagian: p.section_nama ? `Bagian: ${p.section_nama}` : "Seluruh sheet",
+        canEntry: Number(p.can_entry) !== 0, canEdit: Number(p.can_edit) !== 0,
+        cols, rowSel,
+      });
+    }
+
+    if (!assignments.length) return res.json(emptyAssignmentProgress());
+
+    const dataBySheet = new Map();
+    if (involvedSheetIds.size) {
+      const ids = [...involvedSheetIds];
+      const ph = ids.map(() => "?").join(",");
+      const [rows] = await pool.query(
+        `SELECT id, sheet_id, kode, nama, kategori_id, sub_kategori_id, jumlah, harga,
+                tanggal, status, keterangan, nilai
+         FROM data_barang WHERE sheet_id IN (${ph}) ORDER BY sheet_id ASC, id ASC`,
+        ids
+      );
+      for (const r of rows) {
+        const sid = Number(r.sheet_id);
+        if (!dataBySheet.has(sid)) dataBySheet.set(sid, []);
+        dataBySheet.get(sid).push({ ...r, __nilai: parseNilaiField(r.nilai) });
+      }
+    }
+
+    const rowIndicesFor = (a, n) => {
+      const sel = a.rowSel || { type: "all" };
+      if (sel.type === "native") {
+        const ds = sel.dataStart == null ? 1 : Number(sel.dataStart);
+        const from = sel.r1 == null ? 0 : Number(sel.r1) - ds;
+        const to = sel.r2 == null ? n - 1 : Number(sel.r2) - ds;
+        return rangeRowIdx(from, to, n);
+      }
+      if (sel.type === "dataPos") {
+        const from = sel.awal == null ? 0 : Number(sel.awal) - 1;
+        const to = sel.akhir == null ? n - 1 : Number(sel.akhir) - 1;
+        return rangeRowIdx(from, to, n);
+      }
+      if (sel.type === "dataList") {
+        const set = new Set(sel.rows.map((x) => Number(x) - 1));
+        return allRowIdx(n).filter((i) => set.has(i));
+      }
+      return allRowIdx(n);
+    };
+
+    const addCols = (inner, rowKey, rec) => {
+      let cur = inner.get(rowKey);
+      if (!cur) { cur = rec; inner.set(rowKey, cur); }
+      else for (const c of rec.cols) cur.cols.add(c);
+    };
+
+    const adminRowMaps = new Map();   // adminId -> Map(rowKey -> rec { sheetId, row, cols })
+    const globalRowMap = new Map();   // rowKey -> rec
+    const fileRowMaps = new Map();    // workbookKey -> Map(rowKey -> rec)
+    const sheetRowMaps = new Map();   // sheetId -> Map(rowKey -> rec)
+    const adminNames = new Map();
+    const fileNames = new Map();
+    const sheetNames = new Map();
+
+    const details = [];
+    for (const a of assignments) {
+      const rows = dataBySheet.get(a.sheetId) || [];
+      const idxs = rowIndicesFor(a, rows.length);
+      const cols = (a.cols && a.cols.length) ? a.cols : sheetKolomKeys(a.sheetId);
+      adminNames.set(a.adminId, a.nama_admin);
+      fileNames.set(a.workbookKey, a.workbookName);
+      sheetNames.set(a.sheetId, { sheetName: a.sheetName, workbookName: a.workbookName });
+
+      let belum = 0, sedang = 0, selesai = 0;
+      if (cols.length) {
+        if (!adminRowMaps.has(a.adminId)) adminRowMaps.set(a.adminId, new Map());
+        if (!fileRowMaps.has(a.workbookKey)) fileRowMaps.set(a.workbookKey, new Map());
+        if (!sheetRowMaps.has(a.sheetId)) sheetRowMaps.set(a.sheetId, new Map());
+        for (const i of idxs) {
+          const row = rows[i];
+          if (!row) continue;
+          let filled = 0;
+          for (const k of cols) if (cellIsFilled(row, k)) filled++;
+          const status = filled === 0 ? "belum" : filled >= cols.length ? "selesai" : "sedang";
+          if (status === "belum") belum++; else if (status === "sedang") sedang++; else selesai++;
+
+          const rowKey = `${a.sheetId}:${row.id}`;
+          const rec = { sheetId: a.sheetId, row, cols: new Set(cols) };
+          addCols(adminRowMaps.get(a.adminId), rowKey, { sheetId: a.sheetId, row, cols: new Set(cols) });
+          addCols(globalRowMap, rowKey, rec);
+          addCols(fileRowMaps.get(a.workbookKey), rowKey, rec);
+          addCols(sheetRowMaps.get(a.sheetId), rowKey, rec);
+        }
+      }
+      const tugas = belum + sedang + selesai;
+      details.push({
+        adminId: a.adminId, nama_admin: a.nama_admin,
+        workbookKey: a.workbookKey, workbookName: a.workbookName,
+        sheetId: a.sheetId, sheetName: a.sheetName,
+        level: a.level, bagian: a.bagian,
+        tugas, belum, sedang, selesai, persen: pct(selesai, tugas),
+        canEntry: a.canEntry, canEdit: a.canEdit,
+      });
+    }
+
+    const countMap = (inner) => {
+      let belum = 0, sedang = 0, selesai = 0;
+      for (const rec of inner.values()) {
+        let filled = 0;
+        for (const k of rec.cols) if (cellIsFilled(rec.row, k)) filled++;
+        const status = filled === 0 ? "belum" : filled >= rec.cols.size ? "selesai" : "sedang";
+        if (status === "belum") belum++; else if (status === "sedang") sedang++; else selesai++;
+      }
+      const tugas = belum + sedang + selesai;
+      return { tugas, belum, sedang, selesai, persen: pct(selesai, tugas) };
+    };
+
+    const totals = countMap(globalRowMap);
+    const byAdmin = [...adminRowMaps.entries()]
+      .map(([adminId, inner]) => ({ adminId, nama: adminNames.get(adminId) || `Admin #${adminId}`, ...countMap(inner) }))
+      .sort((a, b) => b.tugas - a.tugas || a.nama.localeCompare(b.nama));
+    const byFile = [...fileRowMaps.entries()]
+      .map(([workbookKey, inner]) => ({ workbookKey, workbookName: fileNames.get(workbookKey) || workbookKey, ...countMap(inner) }))
+      .sort((a, b) => b.tugas - a.tugas || String(a.workbookName).localeCompare(String(b.workbookName)));
+    const bySheet = [...sheetRowMaps.entries()]
+      .map(([sheetId, inner]) => {
+        const meta = sheetNames.get(sheetId) || {};
+        return { sheetId, sheetName: meta.sheetName || `Sheet #${sheetId}`, workbookName: meta.workbookName || "", ...countMap(inner) };
+      })
+      .sort((a, b) => b.tugas - a.tugas || String(a.sheetName).localeCompare(String(b.sheetName)));
+
+    res.json({
+      generatedAt: new Date().toISOString(),
+      scope: isSuper ? "all" : "own",
+      totals, byAdmin, byFile, bySheet, details,
     });
   } catch (err) {
     next(err);

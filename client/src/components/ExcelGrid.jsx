@@ -2149,6 +2149,12 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
     // konsisten dengan header (col.hidden => null) — layout mengikuti Excel.
     if (col && col.hidden) return null;
     const occ = mergeMap.get(`${r}:${ci}`);
+    // Bentang merge versi RENDER (kolom/baris yang benar-benar dirender saja).
+    // colSpan/rowSpan HARUS memakai hitungan visible ini: kolom hidden tidak
+    // punya slot <td>, sehingga colspan mentah dari file akan melebar melewati
+    // kolom visible sesudahnya dan menggeser seluruh tabel (mis. merge yang
+    // mencakup kolom D–K yang disembunyikan file).
+    const mspan = occ ? mergeSpanInfo.get(`${occ.r1}:${occ.c1}`) : null;
     if (occ && occ.r1 !== r) {
       return <td key={key} style={{ display: "none" }} />;
     }
@@ -2161,15 +2167,15 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
         : null;
     const isActive = active !== null && active.r === r && active.key === key;
     const inSel = isInRange(r, ci);
-    const rw = rows[dataRow] || rows[r] || {};
-    const cached = rw["__cv_" + dataKey];
+    const rw = rows[r] || {};
+    const cached = rw["__cv_" + key];
     const hasCached = cached !== undefined && cached !== "";
     // Format angka = numFmt SEL PER-SEL dari file (General bila tidak ada).
     // Tanpa fallback ke `col.numFmt`: kolom bisa berisi sel berformat akuntansi
     // DAN sel berformat General (mis. header tahun) — memakai format mayoritas
     // kolom membuat header "2014" tampil jadi "2.014,00" (beda dari file asli).
-    const cellFmt = rw["__nf_" + dataKey];
-    const rawVal = rw[dataKey];
+    const cellFmt = rw["__nf_" + key];
+    const rawVal = rw[key];
     let value = computed ? computed.get(`${r}:${key}`) : rawVal;
     const isFormula = typeof rawVal === "string" && rawVal.startsWith("=");
     const computedError =
@@ -2203,15 +2209,15 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
       rowStyles = new Map();
       csc.map.set(rw, rowStyles);
     }
-    cellStyle = rowStyles.get(dataKey);
+    cellStyle = rowStyles.get(key);
     if (!cellStyle) {
-      const cellBg = rw["__" + dataKey];
-      const bold = rw["__b_" + dataKey];
-      const italic = rw["__i_" + dataKey];
-      const underline = rw["__u_" + dataKey];
-      const sz = rw["__sz_" + dataKey];
-      const fn = rw["__fn_" + dataKey];
-      const fc = rw["__fc_" + dataKey];
+      const cellBg = rw["__" + key];
+      const bold = rw["__b_" + key];
+      const italic = rw["__i_" + key];
+      const underline = rw["__u_" + key];
+      const sz = rw["__sz_" + key];
+      const fn = rw["__fn_" + key];
+      const fc = rw["__fc_" + key];
       // Teks yang kontrasnya terlalu rendah terhadap latar (nyaris putih/nyaris
       // menyatu) ditimpa warna terbaca — sisanya dipertahankan apa adanya.
       let textColor = fc;
@@ -2220,9 +2226,9 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
         const ratio = colorContrastRatio(fc, effBg);
         if (ratio !== null && ratio < FONT_CONTRAST_MIN) textColor = readableColorOn(effBg);
       }
-      const ha = rw["__ha_" + dataKey];
-      const va = rw["__va_" + dataKey];
-      const wrap = rw["__wr_" + dataKey];
+      const ha = rw["__ha_" + key];
+      const va = rw["__va_" + key];
+      const wrap = rw["__wr_" + key];
       const rh = rows[r] && rows[r].height && rows[r].height > 0 ? rowPx(r) : 0;
       const baseW = { minWidth: allColWidth[ci] || DEFAULT_COL_WIDTH, width: allColWidth[ci] || DEFAULT_COL_WIDTH };
       // BORDER TIDAK lagi digambar di <td>. Semua garis data (border asli Excel
@@ -2250,7 +2256,7 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
         ...(va ? { verticalAlign: va } : undefined),
         ...(wrap ? { whiteSpace: "pre-wrap" } : undefined),
       };
-      rowStyles.set(dataKey, cellStyle);
+      rowStyles.set(key, cellStyle);
     }
     // Freeze pane (file impor): kolom &/atau baris pertama "beku" — pakai
     // position:sticky dengan offset asal (left = cumW[ci], top = headH +
@@ -2259,7 +2265,7 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
     const frCol = freezeCols > 0 && ci < freezeCols;
     const frRow = freezeRows > 0 && r < freezeRows;
     if (frCol || frRow) {
-      const fBg = rw["__" + dataKey] || "#ffffff";
+      const fBg = rw["__" + key] || "#ffffff";
       const sticky = {
         position: "sticky",
         ...(frCol ? { left: cumW[ci] ?? 0, backgroundColor: fBg } : {}),
@@ -2267,7 +2273,7 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
         zIndex: ci < 2 ? (frRow ? 5 : 4) : frCol && frRow ? 3 : 2,
       };
       cellStyle = { ...cellStyle, ...sticky };
-      rowStyles.set(dataKey, cellStyle);
+      rowStyles.set(key, cellStyle);
     }
     // Overlay Lock/Unlock (Penugasan Tabel): tint + outline di atas tampilan asli.
     const hl = highlights.get(`${r}:${ci}`);
@@ -2278,7 +2284,7 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
         outlineOffset: "-1px",
         boxShadow: `inset 0 0 0 1000px ${hl === "lock" ? "rgba(220,38,38,0.10)" : "rgba(5,150,105,0.10)"}`,
       };
-      rowStyles.set(dataKey, cellStyle);
+      rowStyles.set(key, cellStyle);
     }
     if (isActive && inline) {
       return (
@@ -2314,7 +2320,7 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
     // menimpa isi tetangga. Sel kosong di kanan dibiarkan agar label panjang
     // tampil utuh, persis Excel (bukan "keluar dari garis kotak").
     let clipText = false;
-    if (!isNum && !rw["__wr_" + dataKey] && !span && typeof display === "string" && display.length > 0) {
+    if (!isNum && !rw["__wr_" + key] && !span && typeof display === "string" && display.length > 0) {
       const occSet = occupiedByRow[r];
       if (occSet) {
         let nc = ci + 1;
@@ -2333,7 +2339,7 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
         data-ci={ci}
         {...(span ? { rowSpan: span.rowSpan, colSpan: span.colSpan } : {})}
         className={`cell${isActive ? " active" : ""}${inSel ? " in-range" : ""}${err ? " cell-error" : ""
-          }${isNum ? " number" : ""}${matched ? " cell-match" : ""}`}
+          }${isNum ? " number" : ""}${matched ? " cell-match" : ""}${clipText ? " cell-clip" : ""}`}
         style={cellStyle}
         onMouseDown={(e) => onCellMouseDown(r, key, e)}
         onMouseOver={() => onCellMouseOver(r, key)}
@@ -2474,7 +2480,7 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
                         <th
                           key={key}
                           data-cidx={i}
-                          colSpan={col && col.span && col.span > 1 ? col.span : undefined}
+                          colSpan={thSpan}
                           className={`col-label${col && col.label ? "" : " empty"}${colActive ? " active" : ""}`}
                           style={{
                             minWidth: w,

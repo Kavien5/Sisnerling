@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS admin_assignment_scopes (
   c1 INT NULL,
   r2 INT NULL,
   c2 INT NULL,
+  data_start INT NULL,
   col_keys JSON NULL,
   status ENUM('lock','unlock') NOT NULL DEFAULT 'lock',
   can_entry TINYINT(1) NOT NULL DEFAULT 1,

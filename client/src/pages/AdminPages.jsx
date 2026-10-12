@@ -1449,7 +1449,13 @@ export function AdminTables() {
     };
     if (level === "workbook") return base;
     if (!scopeCtx || scopeCtx.sheetId == null) return null;
-    const sheet = { sheetId: scopeCtx.sheetId, sheetName: scopeCtx.sheetName };
+    // Baris data pertama (0-based) pada sheet asli — dipakai Dashboard untuk
+    // menerjemahkan r1/r2 cakupan ke posisi baris data. pv (satu sheet) punya
+    // dataStart pasti; mode Seluruh File memakai perkiraan dari firstRow.
+    const dataStart = pv
+      ? Number(pv.dataStart || 0)
+      : (activeSheet && Number(activeSheet.firstRow) > 0 ? Number(activeSheet.firstRow) - 1 : 1);
+    const sheet = { sheetId: scopeCtx.sheetId, sheetName: scopeCtx.sheetName, dataStart };
     const rMax = Math.max(0, scopeCtx.rows - 1);
     const cMax = Math.max(0, scopeCtx.cols - 1);
     if (level === "sheet") return { ...base, ...sheet };

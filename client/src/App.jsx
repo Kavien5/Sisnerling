@@ -260,6 +260,7 @@ export default function App() {
             onRename={handleRenameFile}
             onImport={handleImport}
             canImport={isSuperAdmin(user)}
+            canPublish={isSuperAdmin(user)}
           />
         )}
         {page === "kategori" && <KategoriPage />}
