@@ -709,6 +709,46 @@ export default function ExcelEditor({ importedFiles = [], onFilesChanged, readOn
     [patchSelectedImage]
   );
 
+  // Sisipkan simbol / potongan rumus ke sel aktif (dipakai tab Insert >
+  // Simbol & Teks). Menempel di akhir isi sel agar tidak menghapus data;
+  // bila sel kosong, simbol menjadi isi sel. Memakai updateSheet yang sama
+  // dengan edit sel sehingga undo/collab/draft tetap konsisten.
+  const handleInsertSymbol = React.useCallback(
+    (sym) => {
+      const text = String(sym ?? "");
+      if (!text) return;
+      const s = sheetsRef.current[activeSheetIdx];
+      if (!s || activeCellRow == null || activeCellIdx == null) {
+        toast("Klik sebuah sel dulu, lalu sisipkan simbol", "error");
+        return;
+      }
+      const key = s.columns?.[activeCellIdx]?.key;
+      if (!key) {
+        toast("Klik sebuah sel dulu, lalu sisipkan simbol", "error");
+        return;
+      }
+      updateSheet(activeSheetIdx, (prev) => {
+        const rows = (prev.rows || []).map((row, ri) => {
+          if (ri !== activeCellRow) return row;
+          const cur = row[key];
+          const next = cur === "" || cur === null || cur === undefined ? text : `${cur}${text}`;
+          return { ...row, [key]: next };
+        });
+        return { ...prev, rows };
+      });
+    },
+    [activeSheetIdx, activeCellRow, activeCellIdx, toast]
+  );
+
+  // Pilih tipe bagan langsung dari tab Insert (ala Excel: Column/Line/Pie…).
+  // Panel bagan dibuka otomatis; fallback tombol Bagan lama tetap ada.
+  const handleChartType = React.useCallback((t) => {
+    if (!t) return;
+    setChartType(t);
+    setChartKey((k) => k + 1);
+    setShowChart(true);
+  }, []);
+
   // Sisipkan gambar (foto) dari komputer ke sheet aktif — skala otomatis agar
   // tidak lebih besar dari area wajar, tetap bisa digeser / dihapus.
   const handleAddImage = React.useCallback(
@@ -1002,6 +1042,46 @@ export default function ExcelEditor({ importedFiles = [], onFilesChanged, readOn
     gridRef.current?.applyStyle({ sz: next });
   };
   const handleToggleFreeze = () => setFrozen((v) => !v);
+
+  // Page Layout > Ukuran Sel: sesuaikan lebar kolom mengikuti isi (pakai
+  // util yang sama dengan saat import). Undo tercatat via updateSheet.
+  const handleAutoFit = () => {
+    if (!sheetsRef.current.length) return;
+    updateSheet(activeSheetIdx, (s) => autoFitSheet(s));
+    setSaveFlash("Lebar kolom disesuaikan (AutoFit)");
+    window.clearTimeout(handleAutoFit._t);
+    handleAutoFit._t = window.setTimeout(() => setSaveFlash(""), 1800);
+  };
+
+  // Data > Hapus Duplikat: buang baris yang seluruh nilainya identik
+  // (perbandingan per kolom, termasuk rumus sebagai teks). Baris pertama
+  // dipertahankan, pola mengikuti handleSort (tanpa snapshot versi).
+  const handleRemoveDuplicates = () => {
+    const s = sheetsRef.current[activeSheetIdx];
+    if (!s || !s.rows.length || !s.columns.length) {
+      setSaveFlash("Tidak ada data untuk diperiksa");
+      return;
+    }
+    const seen = new Set();
+    const kept = [];
+    let removed = 0;
+    for (const row of s.rows) {
+      const sig = JSON.stringify(s.columns.map((c) => row[c.key] ?? ""));
+      if (seen.has(sig)) { removed++; continue; }
+      seen.add(sig);
+      kept.push(row);
+    }
+    if (!removed) {
+      setSaveFlash("Tidak ada baris duplikat");
+      window.clearTimeout(handleRemoveDuplicates._t);
+      handleRemoveDuplicates._t = window.setTimeout(() => setSaveFlash(""), 1800);
+      return;
+    }
+    updateSheet(activeSheetIdx, (prev) => ({ ...prev, rows: kept }));
+    setSaveFlash(`${removed} baris duplikat dihapus`);
+    window.clearTimeout(handleRemoveDuplicates._t);
+    handleRemoveDuplicates._t = window.setTimeout(() => setSaveFlash(""), 1800);
+  };
 
   const handleSort = (dir) => {
     if (!activeSheet || !activeSheet.columns.length || !activeSheet.rows.length) {
@@ -1655,10 +1735,15 @@ export default function ExcelEditor({ importedFiles = [], onFilesChanged, readOn
         matchCount={matchCount}
         freezeOn={frozen}
         onToggleFreeze={handleToggleFreeze}
+        onAutoFit={handleAutoFit}
+        onRemoveDuplicates={handleRemoveDuplicates}
 onChart={() => setShowChart((v) => !v)}
+          chartType={chartType}
+          onChartType={handleChartType}
           onCompare={() => setShowCompare(true)}
           onAddShape={handleAddShape}
           onAddImage={handleAddImage}
+          onInsertSymbol={handleInsertSymbol}
           selShape={selShape}
           onShapeFill={handleShapeFill}
           onShapeTextColor={handleShapeTextColor}

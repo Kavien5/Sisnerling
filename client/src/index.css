@@ -3410,6 +3410,66 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--primary)
 /* Saat toolbar disembunyikan */
 .ee-top.collapsed .ee-top-row { padding: 6px; min-height: auto; }
 
+/* ===== Ribbon hangat (tema semula): selalu terlihat & responsif =====
+   Simbol/glyph gaya Excel dipakai pada tombol, tetapi warna & tata letak
+   kembali ke tema hangat semula (krem/oranye). Tab strip + panel bisa
+   horizontal-scroll di layar sempit. TIDAK menyentuh grid/freeze. */
+.ee-ribbon {
+  position: sticky;
+  top: 68px;
+  z-index: 35;
+  overflow: visible;
+  width: 100%;
+  max-width: 100%;
+  background: linear-gradient(180deg, #fff9ef, #fdf1dd);
+  border-bottom: 1px solid #eedbaf;
+  box-shadow: 0 1px 0 rgba(146, 64, 14, 0.06);
+  user-select: none;
+}
+.ee-ribbon-quick { overflow: visible; row-gap: 6px; }
+.ee-ribbon-collapsed-hint { font-size: 12px; color: #a1804f; white-space: nowrap; }
+.ee-ribbon-tabs {
+  display: flex; align-items: stretch; gap: 2px;
+  padding: 0 10px; background: #fffdf8;
+  border-top: 1px solid #f0e1bd; border-bottom: 1px solid #eedbaf;
+  overflow-x: auto; overflow-y: hidden; white-space: nowrap;
+  scrollbar-width: thin; -webkit-overflow-scrolling: touch; min-height: 36px;
+}
+.ee-ribbon-tabs::-webkit-scrollbar { height: 6px; }
+.ee-ribbon-tabs::-webkit-scrollbar-thumb { background: #e7c47c; border-radius: 3px; }
+.ee-ribbon-tabs::-webkit-scrollbar-track { background: transparent; }
+.ee-ribbon-tab {
+  flex: 0 0 auto; border: none; background: transparent;
+  padding: 8px 14px; font-size: 12.5px; font-weight: 600; color: #7c4a03;
+  border-bottom: 2px solid transparent; cursor: pointer; white-space: nowrap;
+}
+.ee-ribbon-tab:hover { background: #fff3d6; color: #92400e; }
+.ee-ribbon-tab.active { background: #fbeecb; color: #92400e; font-weight: 800; border-bottom-color: #f59e0b; }
+.ee-ribbon-tab:focus-visible { outline: 2px solid #7c3aed; outline-offset: -2px; }
+.ee-ribbon-body { background: linear-gradient(180deg, #fffdf8, #fdf1dd); border-bottom: 1px solid #eedbaf; overflow-x: auto; overflow-y: hidden; max-width: 100%; }
+.ee-rb-panel { display: flex; align-items: stretch; gap: 0; padding: 8px 10px 6px; min-height: 86px; width: max-content; min-width: 100%; box-sizing: border-box; }
+.ee-rb-group { display: flex; flex-direction: column; justify-content: space-between; padding: 0 12px; border-right: 1px solid #f0e1bd; flex: 0 0 auto; min-width: max-content; max-width: 100%; }
+.ee-rb-group:first-child { padding-left: 2px; }
+.ee-rb-group:last-child { border-right: none; }
+.ee-rb-group-body { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 2px 0; }
+.ee-rb-group-body.ee-rb-colors { max-width: 360px; }
+.ee-rb-group-label { font-size: 10.5px; font-weight: 700; color: #a9782b; text-transform: uppercase; letter-spacing: 0.4px; text-align: center; padding-top: 6px; margin-top: auto; white-space: nowrap; }
+.ee-rb-wide { min-width: 220px; max-width: 340px; }
+.ee-rb-wide .ee-mm-note { white-space: normal; line-height: 1.5; }
+.ee-mm-chip.ee-mm-danger { color: #b91c1c; border-color: #f3c1c1; }
+.ee-mm-chip.ee-mm-danger:hover { background: #fee2e2; }
+.ee-mm-chip:disabled { opacity: 0.45; cursor: not-allowed; }
+.ee-ribbon .ee-mm-pop { z-index: 90; }
+.ee-ribbon .ee-mm { flex-shrink: 0; }
+label.ee-mm-chip input[type="file"] { display: none; }
+
+@media (max-width: 900px) {
+  .ee-ribbon { top: 62px; }
+  .ee-ribbon-tab { padding: 8px 11px; font-size: 12px; }
+  .ee-rb-panel { min-height: 78px; }
+  .ee-top-file { display: none; }
+}
+
 @media (max-width: 700px) {
   .ee-top-file { display: none; }
 }

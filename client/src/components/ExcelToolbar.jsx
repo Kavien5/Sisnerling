@@ -15,19 +15,59 @@ const FONT_SWATCHES = [
   "#9ca3af", "#ffffff",
 ];
 
+// Galeri ala Excel untuk tab Insert: bentuk, bagan, simbol & potongan rumus.
+// Semuanya memakai handler yang sudah ada (tidak ada logika grid baru).
+const SHAPE_GALLERY = [
+  ["rect", "▢", "Kotak", "#e53935"],
+  ["rect", "▤", "Kotak Biru", "#3b6fd4"],
+  ["oval", "○", "Elips", "#e53935"],
+  ["oval", "⬤", "Lingkaran Biru", "#3b6fd4"],
+  ["triangle", "△", "Segitiga", "#f59e0b"],
+  ["diamond", "◇", "Wajik", "#8b5cf6"],
+  ["arrowR", "➡", "Panah kanan", "#2f9e44"],
+  ["arrowD", "⬇", "Panah bawah", "#e8590c"],
+];
+const CHART_GALLERY = [
+  ["bar", "📊", "Column"],
+  ["line", "📈", "Line"],
+  ["pie", "🥧", "Pie"],
+  ["doughnut", "🍩", "Doughnut"],
+  ["area", "⛰", "Area"],
+];
+const SYMBOL_GALLERY = ["★", "☆", "✓", "✗", "→", "←", "↑", "↓", "●", "◆", "▲", "■", "♥", "∑", "π", "√", "∞", "≠", "±", "°"];
+const FORMULA_SNIPPETS = ["=SUM()", "=AVERAGE()", "=IF()", "=COUNT()", "=MAX()", "=MIN()"];
+// Pustaka fungsi sesuai mesin rumus yang didukung (lihat spreadsheet.js FUNCS).
+const FN_MATH = ["=SUM()", "=AVERAGE()", "=COUNT()", "=COUNTA()", "=MAX()", "=MIN()", "=ROUND()", "=SUMIF()", "=COUNTIF()"];
+const FN_LOGIC = ["=IF()", "=IFERROR()", "=AND()", "=OR()", "=NOT()"];
+const FN_TEXT = ["=CONCAT()", "=TEXT()", "=UPPER()", "=LOWER()", "=TRIM()", "=LEN()", "=LEFT()", "=RIGHT()", "=MID()"];
+const FN_DATE = ["=TODAY()", "=NOW()"];
+const RIBBON_TABS = [
+  { id: "home", label: "Home" },
+  { id: "insert", label: "Insert" },
+  { id: "layout", label: "Page Layout" },
+  { id: "formulas", label: "Formulas" },
+  { id: "data", label: "Data" },
+  { id: "review", label: "Review" },
+  { id: "view", label: "View" },
+];
+
+const S = {
+  save: "▤", undo: "↶", redo: "↷", import: "⬆", export: "⬇",
+  filter: "⧩", find: "🔍", freeze: "🧊", chart: "📊", compare: "📈",
+  picture: "🖼", history: "🕘", rename: "✎", del: "🗑", clear: "⌫",
+  plus: "＋", minus: "－",
+};
+
 const ExcelToolbar = ({
   collapsed = false,
   onToggleCollapse,
   readOnly = false,
-
   fileLabel = "",
   activeFileId = "",
   importedFiles = [],
   onSelectFile,
-
   saveFlash = "",
   infoBadge = "",
-
   onSave,
   onImport,
   onExport,
@@ -39,12 +79,10 @@ const ExcelToolbar = ({
   onRenameFile,
   onDeleteFile,
   onClearAll,
-
   onUndo,
   onRedo,
   canUndo = false,
   canRedo = false,
-
   onBold,
   boldActive = false,
   onItalic,
@@ -55,25 +93,21 @@ const ExcelToolbar = ({
   onFontColor,
   onApplyFill,
   fillColor = "#fff2cc",
-
   onAlignH,
   alignH = null,
   onAlignV,
   onWrapToggle,
   wrapActive = false,
-
   onInsertRow,
   onDeleteRow,
   onInsertCol,
   onDeleteCol,
   onAddSheet,
-
   onMergeCells,
   onUnmergeCells,
   onApplyBorders,
   borderWeight = 1,
   onBorderWeight,
-
   onSortAsc,
   onSortDesc,
   filterOn = false,
@@ -82,409 +116,510 @@ const ExcelToolbar = ({
   onSearchChange,
   onFindNext,
   matchCount = null,
-
   freezeOn = true,
   onToggleFreeze,
-
+  onAutoFit = null,
+  onRemoveDuplicates = null,
   onChart,
   onCompare,
+  chartType = "bar",
+  onChartType = null,
   onAddShape = null,
   onAddImage = null,
+  onInsertSymbol = null,
   selShape = null,
   onShapeFill = null,
   onShapeTextColor = null,
   onShapeBold = null,
-
   zoom = 1,
   onZoomIn = null,
   onZoomOut = null,
   onZoomReset = null,
 }) => {
-  const [open, setOpen] = React.useState(null);
+  const [activeTab, setActiveTab] = React.useState("home");
+  const [fileOpen, setFileOpen] = React.useState(false);
   const rootRef = React.useRef(null);
+  const tabsRef = React.useRef(null);
 
   React.useEffect(() => {
     const onDocDown = (e) => {
-      if (rootRef.current && !rootRef.current.contains(e.target)) setOpen(null);
+      if (rootRef.current && !rootRef.current.contains(e.target)) setFileOpen(false);
     };
     document.addEventListener("mousedown", onDocDown);
     return () => document.removeEventListener("mousedown", onDocDown);
   }, []);
 
-  const toggle = (name) => setOpen((cur) => (cur === name ? null : name));
+  const selectTab = (id) => {
+    setActiveTab(id);
+    requestAnimationFrame(() => {
+      try {
+        tabsRef.current?.querySelector(`[data-tab="${id}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+      } catch (_) {}
+    });
+  };
 
-  const menuBtn = (name, label) => (
-    <div className={`ee-mm${open === name ? " open" : ""}`}>
-      <button
-        className="ee-top-btn ee-top-more"
-        type="button"
-        onClick={() => toggle(name)}
-      >
-        {label} <span className="ee-caret" />
+  const searchBox = (key) => (
+    <div className="ee-mm-search" key={key}>
+      <input
+        className="ee-mm-search-input"
+        type="text"
+        placeholder="Cari nilai di sheet …"
+        value={searchText}
+        onChange={(e) => onSearchChange && onSearchChange(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); onFindNext && onFindNext(); } }}
+      />
+      <button className="ee-mm-search-btn" type="button" onClick={onFindNext} title="Cari / lanjut ke hasil berikutnya">
+        {typeof matchCount === "number" ? `${S.find} (${matchCount})` : `${S.find} Cari`}
       </button>
-      {open === name && title(name)}
     </div>
   );
 
-  const title = (name) => {
-    if (name === "file") {
-      return (
-        <div className="ee-mm-pop">
-          {!readOnly && (
-            <button className={`ee-mm-item${filterOn ? "" : ""}`} type="button" onClick={() => { setOpen(null); onNewFile && onNewFile(); }}>
-              <span className="ee-mm-ic">&#10133;</span> File Baru
-            </button>
-          )}
-          <button className="ee-mm-item" type="button" onClick={() => { setOpen(null); onHistory && onHistory(); }}>
-            <span className="ee-mm-ic">&#128337;</span> Riwayat / Backup
-          </button>
-          {!readOnly && (
-            <button className="ee-mm-item" type="button" onClick={() => { setOpen(null); onRenameFile && onRenameFile(); }}>
-              <span className="ee-mm-ic">&#9998;</span> Ubah Nama
-            </button>
-          )}
-          {!readOnly && (
-            <React.Fragment>
-              <div className="ee-mm-sep" />
-              <button className="ee-mm-item danger" type="button" onClick={() => { setOpen(null); onDeleteFile && onDeleteFile(); }}>
-                <span className="ee-mm-ic">&#128465;</span> Hapus File Ini
-              </button>
-              <button className="ee-mm-item danger" type="button" onClick={() => { setOpen(null); onClearAll && onClearAll(); }}>
-                <span className="ee-mm-ic">&#10060;</span> Hapus Semua Isi
-              </button>
-            </React.Fragment>
-          )}
+  const renderHome = () => (
+    <div className="ee-rb-panel" role="tabpanel" aria-label="Home">
+      {readOnly ? (
+        <div className="ee-rb-group">
+          <div className="ee-rb-group-body"><span className="ee-mm-note">Mode hanya-lihat: pemformatan dinonaktifkan.</span></div>
+          <div className="ee-rb-group-label">Home</div>
         </div>
-      );
-    }
-    if (name === "format") {
-      return (
-        <div className="ee-mm-pop ee-mm-format">
-          <div className="ee-mm-label">Huruf</div>
-          <div className="ee-mm-row">
-            <button className={`ee-mm-chip${boldActive ? " active" : ""}`} type="button" onClick={onBold} title="Cetak tebal (Bold)">
-              <b>B</b>
-            </button>
-            <button className={`ee-mm-chip${italicActive ? " active" : ""}`} type="button" onClick={onItalic} title="Cetak miring (Italic)">
-              <i>I</i>
-            </button>
-            <button className={`ee-mm-chip${underlineActive ? " active" : ""}`} type="button" onClick={onUnderline} title="Garis bawah (Underline)">
-              <u>U</u>
-            </button>
-            <button className="ee-mm-chip" type="button" onClick={() => onFontSize && onFontSize(1)} title="Perbesar ukuran huruf">
-              A&nbsp;&plus;
-            </button>
-            <button className="ee-mm-chip" type="button" onClick={() => onFontSize && onFontSize(-1)} title="Perkecil ukuran huruf">
-              A&nbsp;&minus;
-            </button>
+      ) : (
+        <React.Fragment>
+          <div className="ee-rb-group">
+            <div className="ee-rb-group-body">
+              <button className={`ee-mm-chip${boldActive ? " active" : ""}`} type="button" onClick={onBold} title="Bold"><b>B</b></button>
+              <button className={`ee-mm-chip${italicActive ? " active" : ""}`} type="button" onClick={onItalic} title="Italic"><i>I</i></button>
+              <button className={`ee-mm-chip${underlineActive ? " active" : ""}`} type="button" onClick={onUnderline} title="Underline"><u>U</u></button>
+              <button className="ee-mm-chip" type="button" onClick={() => onFontSize && onFontSize(1)} title="Perbesar huruf">A＋</button>
+              <button className="ee-mm-chip" type="button" onClick={() => onFontSize && onFontSize(-1)} title="Perkecil huruf">A－</button>
+            </div>
+            <div className="ee-rb-group-label">Font</div>
           </div>
-
-          <div className="ee-mm-label">Perataan teks</div>
-          <div className="ee-mm-row">
-            <span className="ee-mm-alignkey">Mendatar:</span>
-            {[["left", "Kiri"], ["center", "Tengah"], ["right", "Kanan"]].map(([v, t]) => (
-              <button key={v} className={`ee-mm-chip${alignH === v ? " active" : ""}`} type="button" title={`Rata teks ke ${t.toLowerCase()}`} onClick={() => onAlignH && onAlignH(v)}>
-                {t}
-              </button>
-            ))}
+          <div className="ee-rb-group">
+            <div className="ee-rb-group-body ee-rb-colors">
+              <span className="ee-mm-alignkey">A Teks:</span>
+              {FONT_SWATCHES.slice(0, 10).map((c) => (
+                <button key={c} className="ee-mm-swatch" type="button" style={{ background: c }} title={c} onClick={() => onFontColor && onFontColor(c)} />
+              ))}
+            </div>
+            <div className="ee-rb-group-body ee-rb-colors">
+              <span className="ee-mm-alignkey">🪣 Latar:</span>
+              {FILL_SWATCHES.slice(0, 10).map((c) => (
+                <button key={c} className="ee-mm-swatch" type="button" style={{ background: c }} title={c} onClick={() => onApplyFill && onApplyFill(c)} />
+              ))}
+              <button className="ee-mm-swatch ee-mm-none" type="button" title="Hapus warna latar" onClick={() => onApplyFill && onApplyFill(null)} />
+              <label className="ee-mm-custom" title="Warna khusus">
+                <input type="color" value={fillColor} onChange={(e) => onApplyFill && onApplyFill(e.target.value)} />
+              </label>
+            </div>
+            <div className="ee-rb-group-label">Warna</div>
           </div>
-          <div className="ee-mm-row">
-            <span className="ee-mm-alignkey">Vertikal:</span>
-            {[["top", "Atas"], ["middle", "Tengah"], ["bottom", "Bawah"]].map(([v, t]) => (
-              <button key={v} className="ee-mm-chip" type="button" title={`Rata teks ke ${t.toLowerCase()}`} onClick={() => onAlignV && onAlignV(v)}>
-                {t}
-              </button>
-            ))}
-            <button className={`ee-mm-chip${wrapActive ? " active" : ""}`} type="button" title="Bungkus teks panjang di dalam sel (wrap)" onClick={onWrapToggle}>
-              Bungkus
-            </button>
+          <div className="ee-rb-group">
+            <div className="ee-rb-group-body">
+              <span className="ee-mm-alignkey">☰ Mendatar:</span>
+              {[["left", "☰ Kiri"], ["center", "≡ Tengah"], ["right", "☷ Kanan"]].map(([v, t]) => (
+                <button key={v} className={`ee-mm-chip${alignH === v ? " active" : ""}`} type="button" title={t} onClick={() => onAlignH && onAlignH(v)}>{t}</button>
+              ))}
+            </div>
+            <div className="ee-rb-group-body">
+              <span className="ee-mm-alignkey">↕ Vertikal:</span>
+              {[["top", "⬆ Atas"], ["middle", "⬌ Tengah"], ["bottom", "⬇ Bawah"]].map(([v, t]) => (
+                <button key={v} className="ee-mm-chip" type="button" title={t} onClick={() => onAlignV && onAlignV(v)}>{t}</button>
+              ))}
+              <button className={`ee-mm-chip${wrapActive ? " active" : ""}`} type="button" title="Wrap Text" onClick={onWrapToggle}>↵ Bungkus</button>
+            </div>
+            <div className="ee-rb-group-label">Perataan</div>
           </div>
-
-          <div className="ee-mm-label">Warna teks (huruf)</div>
-          <div className="ee-mm-ready">
-            {FONT_SWATCHES.map((c) => (
-              <button key={c} className="ee-mm-swatch" type="button" style={{ background: c }} title={c} onClick={() => onFontColor && onFontColor(c)} />
-            ))}
+          <div className="ee-rb-group">
+            <div className="ee-rb-group-body">
+              <button className="ee-mm-chip" type="button" title="Merge Cells" onClick={() => onMergeCells && onMergeCells()}>⊞ Gabung</button>
+              <button className="ee-mm-chip" type="button" title="Unmerge" onClick={() => onUnmergeCells && onUnmergeCells()}>⊟ Pisah</button>
+            </div>
+            <div className="ee-rb-group-body">
+              {[["outline", "▢"], ["all", "▦"], ["t", "￣"], ["b", "＿"], ["l", "▏"], ["r", "▕"]].map(([v, g]) => (
+                <button key={v} className="ee-mm-chip" type="button" title={`Border ${v}`} onClick={() => onApplyBorders && onApplyBorders([v], borderWeight)}>{g}</button>
+              ))}
+              <button className="ee-mm-chip" type="button" title="Hapus bingkai" onClick={() => onApplyBorders && onApplyBorders(["none"], 0)}>⌫</button>
+            </div>
+            <div className="ee-rb-group-label">Sel &amp; Bingkai</div>
           </div>
+        </React.Fragment>
+      )}
+    </div>
+  );
 
-          <div className="ee-mm-label">Warna latar sel</div>
-          <div className="ee-mm-ready">
-            {FILL_SWATCHES.map((c) => (
-              <button key={c} className="ee-mm-swatch" type="button" style={{ background: c }} title={c} onClick={() => onApplyFill && onApplyFill(c)} />
-            ))}
-            <button className="ee-mm-swatch ee-mm-none" type="button" title="Hapus warna latar" onClick={() => onApplyFill && onApplyFill(null)} />
-            <label className="ee-mm-custom" title="Pilih warna khusus">
-              <input type="color" value={fillColor} onChange={(e) => onApplyFill && onApplyFill(e.target.value)} />
-            </label>
-          </div>
-
-          <div className="ee-mm-gridsep" />
-          <div className="ee-mm-label">Gabung sel</div>
-          <div className="ee-mm-row">
-            <button className="ee-mm-chip" type="button" title="Gabungkan sel yang dipilih menjadi satu" onClick={() => { setOpen(null); onMergeCells && onMergeCells(); }}>
-              &#8862; Gabung
-            </button>
-            <button className="ee-mm-chip" type="button" title="Pisahkan kembali sel yang sudah digabung" onClick={() => { setOpen(null); onUnmergeCells && onUnmergeCells(); }}>
-              &#8863; Pisah
-            </button>
-          </div>
-
-          <div className="ee-mm-label">Bingkai sel</div>
-          <div className="ee-mm-row">
-            {[["outline", "Luar"], ["all", "Semua"], ["t", "Atas"], ["b", "Bawah"], ["l", "Kiri"], ["r", "Kanan"]].map(([v, label]) => (
-              <button key={v} className="ee-mm-chip" type="button" title={`Berikan bingkai ${label.toLowerCase()}`} onClick={() => onApplyBorders && onApplyBorders([v], borderWeight)}>
-                {label}
-              </button>
-            ))}
-            <button className="ee-mm-chip" type="button" title="Hapus semua bingkai di area terpilih" onClick={() => onApplyBorders && onApplyBorders(["none"], 0)}>
-              Hapus
-            </button>
-          </div>
-          <div className="ee-mm-row">
-            <span className="ee-mm-alignkey">Ketebalan:</span>
-            {[[1, "Tipis"], [2, "Sedang"], [3, "Tebal"]].map(([w, label]) => (
-              <button key={w} className={`ee-mm-chip${borderWeight === w ? " active" : ""}`} type="button" title={`Ketebalan bingkai ${label.toLowerCase()}`} onClick={() => onBorderWeight && onBorderWeight(w)}>
-                {label}
-              </button>
-            ))}
-          </div>
-
-          <div className="ee-mm-gridsep" />
-          <div className="ee-mm-label">Warna bentuk terpilih</div>
-          {selShape && selShape.type === "shape" ? (
-            <>
-              <div className="ee-mm-ready">
-                {FILL_SWATCHES.map((c) => (
-                  <button key={c} className="ee-mm-swatch" type="button" style={{ background: c }} title={c} onClick={() => onShapeFill && onShapeFill(c)} />
-                ))}
-                <button className="ee-mm-swatch ee-mm-none" type="button" title="Tanpa warna (transparan)" onClick={() => onShapeFill && onShapeFill(null)} />
-                <label className="ee-mm-custom" title="Warna khusus untuk bentuk">
-                  <input type="color" value={selShape.fill && selShape.fill !== "transparent" ? selShape.fill : "#e53935"} onChange={(e) => onShapeFill && onShapeFill(e.target.value)} />
-                </label>
-              </div>
-              <div className="ee-mm-row">
-                <span className="ee-mm-alignkey">Teks:</span>
-                <button className={`ee-mm-chip${selShape.bold ? " active" : ""}`} type="button" title="Cetak tebal pada teks bentuk" onClick={onShapeBold}>
-                  <b>T</b>
-                </button>
-                {FONT_SWATCHES.slice(0, 10).map((c) => (
-                  <button key={c} className="ee-mm-chip" type="button" style={{ width: 22, height: 22, minWidth: 0, padding: 0, background: c }} title={`Warna teks bentuk ${c}`} onClick={() => onShapeTextColor && onShapeTextColor(c)} />
-                ))}
-              </div>
-            </>
-          ) : selShape ? (
-            <span className="ee-mm-note">Gambar terpilih tidak memiliki warna latar.</span>
-          ) : (
-            <span className="ee-mm-note">Klik sebuah bentuk di sheet terlebih dahulu untuk mengatur warnanya di sini.</span>
-          )}
-
-          <div className="ee-mm-gridsep" />
-          <div className="ee-mm-row">
-            <button className={`ee-mm-chip${freezeOn ? " active" : ""}`} type="button" title="Kunci baris / kolom pertama agar tetap terlihat saat halaman digulir" onClick={onToggleFreeze}>
-              {freezeOn ? "Buka Kunci" : "Kunci Baris/Header"}
-            </button>
-          </div>
-        </div>
-      );
-    }
-    if (name === "data") {
-      return (
-        <div className="ee-mm-pop">
-          <div className="ee-mm-label">Urutan</div>
-          <button className="ee-mm-item" type="button" onClick={() => { setOpen(null); onSortAsc && onSortAsc(); }}>
-            <span className="ee-mm-ic">A&darr;Z</span> Urutkan Naik (A-Z)
-          </button>
-          <button className="ee-mm-item" type="button" onClick={() => { setOpen(null); onSortDesc && onSortDesc(); }}>
-            <span className="ee-mm-ic">Z&darr;A</span> Urutkan Turun (Z-A)
-          </button>
-
-          <div className="ee-mm-sep" />
-          <div className="ee-mm-label">Filter &amp; cari</div>
-          <button className={`ee-mm-item${filterOn ? " active" : ""}`} type="button" onClick={() => { onToggleFilter && onToggleFilter(); }} title="Tampilkan / sembunyikan tombol filter di header kolom">
-            <span className="ee-mm-ic">&#128269;</span> Filter Kolom {filterOn ? "(Aktif)" : "(Off)"}
-          </button>
-          <div className="ee-mm-search">
-            <input
-              className="ee-mm-search-input"
-              type="text"
-              placeholder="Cari nilai di sheet &hellip;"
-              value={searchText}
-              onChange={(e) => onSearchChange && onSearchChange(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  onFindNext && onFindNext();
-                }
-              }}
-            />
-            <button className="ee-mm-search-btn" type="button" onClick={onFindNext} title="Cari / lanjut ke hasil berikutnya">
-              {typeof matchCount === "number" ? `Cari (${matchCount})` : "Cari"}
-            </button>
-          </div>
-          <span className="ee-mm-note" style={{ marginTop: 6 }}>Tekan Enter sekali lagi untuk melompat ke hasil berikutnya.</span>
-        </div>
-      );
-    }
-    if (name === "insert") {
-      return (
-        <div className="ee-mm-pop">
-          <div className="ee-mm-label">Baris</div>
-          <button className="ee-mm-item" type="button" onClick={() => { setOpen(null); onInsertRow && onInsertRow(); }}>
-            <span className="ee-mm-ic">&#8681;</span> Sisip Baris &mdash; di atas sel aktif
-          </button>
-          <button className="ee-mm-item" type="button" onClick={() => { setOpen(null); onDeleteRow && onDeleteRow(); }}>
-            <span className="ee-mm-ic">&minus;&#8681;</span> Hapus Baris &mdash; baris berisi sel aktif
-          </button>
-
-          <div className="ee-mm-label">Kolom</div>
-          <button className="ee-mm-item" type="button" onClick={() => { setOpen(null); onInsertCol && onInsertCol(); }}>
-            <span className="ee-mm-ic">&#8680;</span> Sisip Kolom &mdash; di kiri sel aktif
-          </button>
-          <button className="ee-mm-item" type="button" onClick={() => { setOpen(null); onDeleteCol && onDeleteCol(); }}>
-            <span className="ee-mm-ic">&minus;&#8680;</span> Hapus Kolom &mdash; kolom berisi sel aktif
-          </button>
-
-          <div className="ee-mm-label">Lembar kerja (sheet)</div>
-          <button className="ee-mm-item" type="button" onClick={() => { setOpen(null); onAddSheet && onAddSheet(); }}>
-            <span className="ee-mm-ic">+</span> Tambah Sheet Baru
-          </button>
-
-          <div className="ee-mm-sep" />
-          <div className="ee-mm-label">Bentuk (Shape)</div>
-          <button className="ee-mm-item" type="button" onClick={() => { setOpen(null); onAddShape && onAddShape("rect", "#e53935"); }}>
-            <span className="ee-mm-icsw" style={{ background: "#e53935", borderRadius: 3 }} /> Kotak (Merah)
-          </button>
-          <button className="ee-mm-item" type="button" onClick={() => { setOpen(null); onAddShape && onAddShape("rect", "#3b6fd4"); }}>
-            <span className="ee-mm-icsw" style={{ background: "#3b6fd4", borderRadius: 3 }} /> Kotak (Biru)
-          </button>
-          <button className="ee-mm-item" type="button" onClick={() => { setOpen(null); onAddShape && onAddShape("oval", "#e53935"); }}>
-            <span className="ee-mm-icsw" style={{ background: "#e53935", borderRadius: "50%" }} /> Elips (Merah)
-          </button>
-          <button className="ee-mm-item" type="button" onClick={() => { setOpen(null); onAddShape && onAddShape("triangle", "#f59e0b"); }}>
-            <span className="ee-mm-icsw" style={{ background: "#f59e0b", clipPath: "polygon(50% 0, 100% 100%, 0 100%)", borderRadius: 0 }} /> Segitiga (Kuning)
-          </button>
-          <button className="ee-mm-item" type="button" onClick={() => { setOpen(null); onAddShape && onAddShape("diamond", "#8b5cf6"); }}>
-            <span className="ee-mm-icsw" style={{ background: "#8b5cf6", clipPath: "polygon(50% 0, 100% 50%, 50% 100%, 0 50%)", borderRadius: 0 }} /> Belah Ketupat (Ungu)
-          </button>
-          <button className="ee-mm-item" type="button" onClick={() => { setOpen(null); onAddShape && onAddShape("arrowR", "#2f9e44"); }}>
-            <span className="ee-mm-icsw" style={{ background: "#2f9e44", clipPath: "polygon(0 0, 55% 0, 55% 18%, 100% 50%, 55% 82%, 55% 100%, 0 100%)", borderRadius: 0 }} /> Panah Kanan (Hijau)
-          </button>
-          <button className="ee-mm-item" type="button" onClick={() => { setOpen(null); onAddShape && onAddShape("arrowD", "#e8590c"); }}>
-            <span className="ee-mm-icsw" style={{ background: "#e8590c", clipPath: "polygon(0 0, 100% 0, 100% 55%, 50% 100%, 0 55%)", borderRadius: 0 }} /> Panah Bawah (Oranye)
-          </button>
-
-          <div className="ee-mm-sep" />
-          <div className="ee-mm-label">Gambar</div>
-          <label className="ee-mm-item" style={{ cursor: "pointer" }} title="Pilih foto/gambar dari komputer untuk ditempatkan di sheet">
-            <span className="ee-mm-ic">&#128444;</span> Gambar dari Komputer
-            <input
-              type="file"
-              accept="image/*"
-              hidden
-              onChange={(e) => {
-                const f = e.target.files && e.target.files[0];
-                e.target.value = "";
-                setOpen(null);
-                if (f && onAddImage) onAddImage(f);
-              }}
-            />
-          </label>
-
-          <div className="ee-mm-sep" />
-          <div className="ee-mm-label">Analisis</div>
-          <button className="ee-mm-item" type="button" onClick={() => { setOpen(null); onChart && onChart(); }}>
-            <span className="ee-mm-ic">&#128201;</span> Buat Grafik (Chart)
-          </button>
-          <button className="ee-mm-item" type="button" onClick={() => { setOpen(null); onCompare && onCompare(); }}>
-            <span className="ee-mm-ic">&#8693;</span> Perbandingan Antar Periode
-          </button>
-        </div>
-      );
-    }
-    return null;
+  // Sisip simbol / potongan rumus ke sel aktif. Bila editor belum
+  // menyediakan onInsertSymbol (kompatibilitas), salin ke clipboard.
+  const insertSym = (sym) => {
+    if (onInsertSymbol) { onInsertSymbol(sym); return; }
+    try {
+      if (navigator?.clipboard?.writeText) navigator.clipboard.writeText(String(sym));
+    } catch (_) {}
+  };
+  const pickChart = (t) => {
+    if (onChartType) onChartType(t);
+    else if (onChart) onChart();
+  };
+  // Format seleksi sebagai tabel (header berwarna + tebal + bingkai),
+  // memakai handler seleksi yang sudah ada sehingga aman untuk readOnly.
+  const formatAsTable = () => {
+    if (onApplyFill) onApplyFill("#DDEBF7");
+    if (!boldActive && onBold) onBold();
+    if (onApplyBorders) onApplyBorders(["all"], 1);
+  };
+  // Jadikan seleksi terlihat seperti tautan (biru + garis bawah).
+  const markAsLink = () => {
+    if (onFontColor) onFontColor("#0563C1");
+    if (!underlineActive && onUnderline) onUnderline();
   };
 
-  return (
-    <div className={`ee-top${collapsed ? " collapsed" : ""}`} ref={rootRef}>
-      <div className="ee-top-row">
-        <button
-          className="ee-top-toggle"
-          type="button"
-          onClick={onToggleCollapse}
-          title={collapsed ? "Tampilkan menu alat" : "Sembunyikan menu alat"}
-        >
-          {collapsed ? "\u25B8" : "\u25BE"}
-        </button>
-
-        {!collapsed ? (
-          <React.Fragment>
-            {menuBtn("file", "File")}
-            {!readOnly && (
-              <button className="ee-top-btn primary" type="button" onClick={onSave} title="Simpan file (backup otomatis)">
-                <span className="ee-top-ic">&#128190;</span> Simpan
-              </button>
-            )}
-            {!readOnly && (
-              <button className="ee-top-btn" type="button" onClick={onImport} title="Impor file Excel">
-                &#11015; Impor
-              </button>
-            )}
-            {!readOnly && canPublish && (
-              <button className="ee-top-btn" type="button" onClick={onPublish} disabled={publishingPublish} title="Kirim file ke server agar muncul di Penugasan Tabel">
-                {publishingPublish ? "Menerbitkan..." : "\u2191\u2606 Publikasikan"}
-              </button>
-            )}
-            <button className="ee-top-btn" type="button" onClick={onExport} title="Ekspor ke file Excel">
-              &#11014; Ekspor
-            </button>
-            {!readOnly && (
-              <React.Fragment>
-                <span className="ee-top-sep" />
-                <button className="ee-top-btn" type="button" onClick={onUndo} disabled={!canUndo} title="Undo (Ctrl+Z)">
-                  &#8630; Undo
-                </button>
-                <button className="ee-top-btn" type="button" onClick={onRedo} disabled={!canRedo} title="Redo (Ctrl+Y)">
-                  &#8631; Redo
-                </button>
-              </React.Fragment>
-            )}
-            <span className="ee-top-sep" />
-            {!readOnly && menuBtn("format", "Format")}
-            {menuBtn("data", "Data")}
-            {!readOnly && menuBtn("insert", "Sisip")}
-          </React.Fragment>
-        ) : null}
-
-        <span className="ee-top-grow" />
-
-        <div className="ee-zoom" title="Perbesar/perkecil (Ctrl + roda mouse, Ctrl+= / Ctrl+- / Ctrl+0)">
-          <button className="ee-top-btn ee-zoom-btn" type="button" onClick={onZoomOut} title="Perkecil (Ctrl+-)">&#8722;</button>
-          <button className="ee-zoom-label" type="button" onClick={onZoomReset} title="Reset ke 100% (Ctrl+0)">
-            {Math.round(zoom * 100)}%
-          </button>
-          <button className="ee-top-btn ee-zoom-btn" type="button" onClick={onZoomIn} title="Perbesar (Ctrl+=)">&#43;</button>
+  const renderInsert = () => (
+    <div className="ee-rb-panel" role="tabpanel" aria-label="Insert">
+      {readOnly ? (
+        <div className="ee-rb-group">
+          <div className="ee-rb-group-body"><span className="ee-mm-note">Mode hanya-lihat.</span></div>
+          <div className="ee-rb-group-label">Insert</div>
         </div>
+      ) : (
+        <React.Fragment>
+          <div className="ee-rb-group">
+            <div className="ee-rb-group-body">
+              <button className="ee-mm-chip" type="button" title="Sisip baris" onClick={() => onInsertRow && onInsertRow()}>➕▤ Baris</button>
+              <button className="ee-mm-chip" type="button" title="Hapus baris" onClick={() => onDeleteRow && onDeleteRow()}>➖▤ Hapus</button>
+            </div>
+            <div className="ee-rb-group-body">
+              <button className="ee-mm-chip" type="button" title="Sisip kolom" onClick={() => onInsertCol && onInsertCol()}>➕▥ Kolom</button>
+              <button className="ee-mm-chip" type="button" title="Hapus kolom" onClick={() => onDeleteCol && onDeleteCol()}>➖▥ Hapus</button>
+              <button className="ee-mm-chip" type="button" title="Sheet baru" onClick={() => onAddSheet && onAddSheet()}>＋ Sheet</button>
+            </div>
+            <div className="ee-rb-group-label">Baris, Kolom &amp; Sheet</div>
+          </div>
+          <div className="ee-rb-group">
+            <div className="ee-rb-group-body">
+              <button className="ee-mm-chip" type="button" title="Format seleksi sebagai tabel (header biru + bingkai)" onClick={formatAsTable}>📋 Tabel</button>
+              <button className={`ee-mm-chip${filterOn ? " active" : ""}`} type="button" title="Slicer: tampil/sembunyi filter kolom" onClick={() => onToggleFilter && onToggleFilter()}>⧩ Slicer</button>
+            </div>
+            <div className="ee-rb-group-body"><span className="ee-mm-note">Tabel = warna + bingkai seleksi.</span></div>
+            <div className="ee-rb-group-label">Tabel</div>
+          </div>
+          <div className="ee-rb-group">
+            <div className="ee-rb-group-body">
+              {SHAPE_GALLERY.map(([kind, g, t, fill], i) => (
+                <button key={`${kind}-${i}`} className="ee-mm-chip" type="button" title={`${t} — klik lalu geser di sheet, klik 2x untuk ketik`} onClick={() => onAddShape && onAddShape(kind, fill)}>{g}</button>
+              ))}
+              <label className="ee-mm-chip" style={{ cursor: "pointer" }} title="Gambar dari komputer (Pictures)">{S.picture} Gambar
+                <input type="file" accept="image/*" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f && onAddImage) onAddImage(f); }} />
+              </label>
+            </div>
+            <div className="ee-rb-group-body"><span className="ee-mm-note">Bentuk bisa digeser &amp; diketik (klik 2x).</span></div>
+            <div className="ee-rb-group-label">Ilustrasi</div>
+          </div>
+          <div className="ee-rb-group">
+            <div className="ee-rb-group-body">
+              {CHART_GALLERY.map(([t, g, label]) => (
+                <button key={t} className={`ee-mm-chip${chartType === t ? " active" : ""}`} type="button" title={`Bagan ${label} — buka panel bagan`} onClick={() => pickChart(t)}>{g} {label}</button>
+              ))}
+            </div>
+            <div className="ee-rb-group-body">
+              <button className="ee-mm-chip" type="button" title="Bandingkan periode" onClick={() => onCompare && onCompare()}>{S.compare} Bandingkan</button>
+            </div>
+            <div className="ee-rb-group-label">Bagan</div>
+          </div>
+          <div className="ee-rb-group">
+            <div className="ee-rb-group-body">
+              <button className="ee-mm-chip" type="button" title="Kotak teks — klik 2x untuk mengetik" onClick={() => onAddShape && onAddShape("rect", "#4472C4")}>▤ Teks</button>
+              <button className="ee-mm-chip" type="button" title="WordArt — bentuk ungu, klik 2x untuk mengetik" onClick={() => onAddShape && onAddShape("diamond", "#8b5cf6")}>◇ WordArt</button>
+              <button className="ee-mm-chip" type="button" title="Tautan — biru + garis bawah seleksi" onClick={markAsLink}>🔗 Link</button>
+            </div>
+            <div className="ee-rb-group-label">Teks &amp; Tautan</div>
+          </div>
+          <div className="ee-rb-group">
+            <div className="ee-rb-group-body">
+              {SYMBOL_GALLERY.map((g) => (
+                <button key={g} className="ee-mm-chip" type="button" title={`Sisip "${g}" ke sel aktif`} onClick={() => insertSym(g)}>{g}</button>
+              ))}
+            </div>
+            <div className="ee-rb-group-body">
+              {FORMULA_SNIPPETS.map((f) => (
+                <button key={f} className="ee-mm-chip" type="button" title={`Sisip "${f}" ke sel aktif`} onClick={() => insertSym(f)}>{f}</button>
+              ))}
+            </div>
+            <div className="ee-rb-group-label">Simbol &amp; Rumus</div>
+          </div>
+        </React.Fragment>
+      )}
+    </div>
+  );
 
-        {importedFiles.length === 0 ? (
-          <span className="ee-top-none">Belum ada file terimport</span>
-        ) : (
-          <select
-            className="ee-top-select"
-            value={activeFileId || ""}
-            onChange={(e) => onSelectFile && onSelectFile(e.target.value)}
-            title="Pilih file excel yang diimport"
-          >
-            {importedFiles.map((f) => (
-              <option key={f.id} value={f.id}>{f.fileName}</option>
-            ))}
+  const renderLayout = () => (
+    <div className="ee-rb-panel" role="tabpanel" aria-label="Page Layout">
+      <div className="ee-rb-group">
+        <div className="ee-rb-group-body">
+          <button className={`ee-mm-chip${freezeOn ? " active" : ""}`} type="button" title="Kunci baris/header" onClick={onToggleFreeze}>{S.freeze} {freezeOn ? "Buka Kunci" : "Kunci"}</button>
+          <button className={`ee-mm-chip${wrapActive ? " active" : ""}`} type="button" title="Wrap Text" onClick={onWrapToggle}>↵ Bungkus</button>
+        </div>
+        <div className="ee-rb-group-label">Bekukan &amp; Tata</div>
+      </div>
+      <div className="ee-rb-group">
+        <div className="ee-rb-group-body">
+          {[["outline", "▢"], ["all", "▦"], ["t", "￣"], ["b", "＿"], ["l", "▏"], ["r", "▕"]].map(([v, g]) => (
+            <button key={v} className="ee-mm-chip" type="button" title={`Bingkai ${v}`} onClick={() => onApplyBorders && onApplyBorders([v], borderWeight)}>{g}</button>
+          ))}
+        </div>
+        <div className="ee-rb-group-body">
+          <span className="ee-mm-alignkey">Ketebalan:</span>
+          {[[1, "─ Tipis"], [2, "━ Sedang"], [3, "█ Tebal"]].map(([w, t]) => (
+            <button key={w} className={`ee-mm-chip${borderWeight === w ? " active" : ""}`} type="button" onClick={() => onBorderWeight && onBorderWeight(w)}>{t}</button>
+          ))}
+        </div>
+        <div className="ee-rb-group-label">Bingkai</div>
+      </div>
+      <div className="ee-rb-group">
+        <div className="ee-rb-group-body">
+          <button className="ee-mm-chip" type="button" title="Sesuaikan lebar kolom mengikuti isi" onClick={() => onAutoFit && onAutoFit()}>⇔ AutoFit</button>
+        </div>
+        <div className="ee-rb-group-body"><span className="ee-mm-note">Atau geser garis header.</span></div>
+        <div className="ee-rb-group-label">Ukuran Sel</div>
+      </div>
+      <div className="ee-rb-group">
+        <div className="ee-rb-group-body">
+          <button className="ee-mm-chip" type="button" title="Perkecil (Ctrl+-)" onClick={onZoomOut}>－</button>
+          <button className="ee-mm-chip" type="button" title="Reset 100% (Ctrl+0)" onClick={onZoomReset}>{Math.round(zoom * 100)}%</button>
+          <button className="ee-mm-chip" type="button" title="Perbesar (Ctrl+=)" onClick={onZoomIn}>＋</button>
+        </div>
+        <div className="ee-rb-group-label">Zoom</div>
+      </div>
+      <div className="ee-rb-group">
+        <div className="ee-rb-group-body">
+          <button className="ee-mm-chip" type="button" title="Ekspor ke .xlsx untuk cetak" onClick={onExport}>{S.export} Ekspor</button>
+        </div>
+        <div className="ee-rb-group-body"><span className="ee-mm-note">Baris beku = judul cetak.</span></div>
+        <div className="ee-rb-group-label">Cetak</div>
+      </div>
+    </div>
+  );
+
+  const renderFormulas = () => (
+    <div className="ee-rb-panel" role="tabpanel" aria-label="Formulas">
+      <div className="ee-rb-group ee-rb-wide">
+        <div className="ee-rb-group-body">
+          <span className="ee-mm-note"><i>fx</i> Awali dengan <code>=</code> — <code>=SUM(A1:A10)</code>, <code>=IF(A1&gt;0,"Ya","Tidak")</code>, <code>=Sheet2!B4</code>. Klik fungsi di samping untuk sisip ke sel aktif.</span>
+        </div>
+        <div className="ee-rb-group-label">Panduan Rumus</div>
+      </div>
+      <div className="ee-rb-group">
+        <div className="ee-rb-group-body">
+          <span className="ee-mm-alignkey">∑ Matematika:</span>
+          {FN_MATH.map((f) => (
+            <button key={f} className="ee-mm-chip" type="button" title={`Sisip "${f}" ke sel aktif`} onClick={() => insertSym(f)}>{f}</button>
+          ))}
+        </div>
+        <div className="ee-rb-group-body">
+          <span className="ee-mm-alignkey">⑂ Logika:</span>
+          {FN_LOGIC.map((f) => (
+            <button key={f} className="ee-mm-chip" type="button" title={`Sisip "${f}" ke sel aktif`} onClick={() => insertSym(f)}>{f}</button>
+          ))}
+        </div>
+        <div className="ee-rb-group-label">Pustaka Fungsi</div>
+      </div>
+      <div className="ee-rb-group">
+        <div className="ee-rb-group-body">
+          <span className="ee-mm-alignkey">✎ Teks:</span>
+          {FN_TEXT.map((f) => (
+            <button key={f} className="ee-mm-chip" type="button" title={`Sisip "${f}" ke sel aktif`} onClick={() => insertSym(f)}>{f}</button>
+          ))}
+        </div>
+        <div className="ee-rb-group-body">
+          <span className="ee-mm-alignkey">📅 Tanggal:</span>
+          {FN_DATE.map((f) => (
+            <button key={f} className="ee-mm-chip" type="button" title={`Sisip "${f}" ke sel aktif`} onClick={() => insertSym(f)}>{f}</button>
+          ))}
+        </div>
+        <div className="ee-rb-group-label">Teks &amp; Tanggal</div>
+      </div>
+      <div className="ee-rb-group">
+        <div className="ee-rb-group-body">{searchBox("formulas-search")}</div>
+        <div className="ee-rb-group-body"><span className="ee-mm-note">Enter = hasil berikutnya.</span></div>
+        <div className="ee-rb-group-label">Cari</div>
+      </div>
+    </div>
+  );
+
+  const renderData = () => (
+    <div className="ee-rb-panel" role="tabpanel" aria-label="Data">
+      <div className="ee-rb-group">
+        <div className="ee-rb-group-body">
+          <button className="ee-mm-chip" type="button" title="Urut A-Z" onClick={() => onSortAsc && onSortAsc()}>A↓Z Naik</button>
+          <button className="ee-mm-chip" type="button" title="Urut Z-A" onClick={() => onSortDesc && onSortDesc()}>Z↓A Turun</button>
+        </div>
+        <div className="ee-rb-group-label">Urutkan</div>
+      </div>
+      <div className="ee-rb-group">
+        <div className="ee-rb-group-body">
+          <button className={`ee-mm-chip${filterOn ? " active" : ""}`} type="button" title="Filter kolom" onClick={() => onToggleFilter && onToggleFilter()}>{S.filter} Filter {filterOn ? "(Aktif)" : "(Off)"}</button>
+        </div>
+        <div className="ee-rb-group-body">{searchBox("data-search")}</div>
+        <div className="ee-rb-group-label">Filter &amp; Cari</div>
+      </div>
+      {!readOnly && (
+        <div className="ee-rb-group">
+          <div className="ee-rb-group-body">
+            <button className="ee-mm-chip" type="button" title="Buang baris yang seluruh nilainya sama (pertahankan baris pertama)" onClick={() => onRemoveDuplicates && onRemoveDuplicates()}>⧉ Hapus Duplikat</button>
+          </div>
+          <div className="ee-rb-group-body"><span className="ee-mm-note">Cek seluruh kolom.</span></div>
+          <div className="ee-rb-group-label">Alat Data</div>
+        </div>
+      )}
+    </div>
+  );
+
+  const renderReview = () => (
+    <div className="ee-rb-panel" role="tabpanel" aria-label="Review">
+      <div className="ee-rb-group">
+        <div className="ee-rb-group-body">
+          {!readOnly && <button className="ee-mm-chip" type="button" title="Simpan" onClick={onSave}>{S.save} Simpan</button>}
+          <button className="ee-mm-chip" type="button" title="Riwayat" onClick={() => onHistory && onHistory()}>{S.history} Riwayat</button>
+          {!readOnly && <button className="ee-mm-chip" type="button" title="Ubah nama" onClick={() => onRenameFile && onRenameFile()}>{S.rename} Nama</button>}
+        </div>
+        <div className="ee-rb-group-label">Berkas</div>
+      </div>
+      <div className="ee-rb-group">
+        <div className="ee-rb-group-body">
+          <button className="ee-mm-chip" type="button" title="Bandingkan antar periode" onClick={() => onCompare && onCompare()}>{S.compare} Bandingkan</button>
+        </div>
+        <div className="ee-rb-group-body"><span className="ee-mm-note">Riwayat melacak versi.</span></div>
+        <div className="ee-rb-group-label">Perubahan</div>
+      </div>
+      <div className="ee-rb-group">
+        <div className="ee-rb-group-body">
+          <button className={`ee-mm-chip${freezeOn ? " active" : ""}`} type="button" title="Kunci baris/header" onClick={onToggleFreeze}>{S.freeze} {freezeOn ? "Buka Kunci" : "Kunci"}</button>
+        </div>
+        <div className="ee-rb-group-body"><span className="ee-mm-note">Sel terkunci admin tak bisa diedit.</span></div>
+        <div className="ee-rb-group-label">Lindungi</div>
+      </div>
+      {!readOnly && (
+        <div className="ee-rb-group">
+          <div className="ee-rb-group-body">
+            <button className="ee-mm-chip ee-mm-danger" type="button" title="Hapus file" onClick={() => onDeleteFile && onDeleteFile()}>{S.del} Hapus</button>
+            <button className="ee-mm-chip ee-mm-danger" type="button" title="Hapus isi" onClick={() => onClearAll && onClearAll()}>{S.clear} Bersihkan</button>
+          </div>
+          <div className="ee-rb-group-label">Hapus</div>
+        </div>
+      )}
+      <div className="ee-rb-group">
+        <div className="ee-rb-group-body">
+          {selShape?.type === "shape" ? (
+            <React.Fragment>
+              {FILL_SWATCHES.slice(0, 8).map((c) => (
+                <button key={c} className="ee-mm-swatch" type="button" style={{ background: c }} title={c} onClick={() => onShapeFill && onShapeFill(c)} />
+              ))}
+              <button className={`ee-mm-chip${selShape.bold ? " active" : ""}`} type="button" title="Tebal teks bentuk" onClick={onShapeBold}><b>T</b></button>
+              {FONT_SWATCHES.slice(0, 6).map((c) => (
+                <button key={c} className="ee-mm-chip" type="button" style={{ width: 22, height: 22, minWidth: 0, padding: 0, background: c }} title={c} onClick={() => onShapeTextColor && onShapeTextColor(c)} />
+              ))}
+            </React.Fragment>
+          ) : <span className="ee-mm-note">Klik bentuk di sheet untuk ubah warna.</span>}
+        </div>
+        <div className="ee-rb-group-label">Bentuk</div>
+      </div>
+    </div>
+  );
+
+  const renderView = () => (
+    <div className="ee-rb-panel" role="tabpanel" aria-label="View">
+      <div className="ee-rb-group">
+        <div className="ee-rb-group-body">
+          <button className={`ee-mm-chip${freezeOn ? " active" : ""}`} type="button" title="Kunci baris/header" onClick={onToggleFreeze}>{S.freeze} {freezeOn ? "Buka Kunci" : "Kunci"}</button>
+          <button className="ee-mm-chip" type="button" title="Sembunyikan ribbon" onClick={onToggleCollapse}>▾ Ribbon</button>
+        </div>
+        <div className="ee-rb-group-label">Jendela</div>
+      </div>
+      <div className="ee-rb-group">
+        <div className="ee-rb-group-body">
+          <button className="ee-mm-chip" type="button" title="Perkecil" onClick={onZoomOut}>－</button>
+          <button className="ee-mm-chip" type="button" title="Reset 100%" onClick={onZoomReset}>{Math.round(zoom * 100)}%</button>
+          <button className="ee-mm-chip" type="button" title="Perbesar" onClick={onZoomIn}>＋</button>
+        </div>
+        <div className="ee-rb-group-label">Zoom</div>
+      </div>
+      <div className="ee-rb-group">
+        <div className="ee-rb-group-body">
+          {!readOnly && <button className="ee-mm-chip" type="button" title="Undo (Ctrl+Z)" onClick={onUndo} disabled={!canUndo}>{S.undo} Undo</button>}
+          {!readOnly && <button className="ee-mm-chip" type="button" title="Redo (Ctrl+Y)" onClick={onRedo} disabled={!canRedo}>{S.redo} Redo</button>}
+          <button className="ee-mm-chip" type="button" title="Ekspor" onClick={onExport}>{S.export} Ekspor</button>
+        </div>
+        <div className="ee-rb-group-label">Aksi</div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className={`ee-top ee-ribbon${collapsed ? " collapsed" : ""}`} ref={rootRef}>
+      <div className="ee-top-row ee-ribbon-quick">
+        <button className="ee-top-toggle" type="button" onClick={onToggleCollapse}
+          title={collapsed ? "Tampilkan ribbon" : "Sembunyikan ribbon"} aria-expanded={!collapsed}>
+          {collapsed ? "▸" : "▾"}
+        </button>
+        {!collapsed ? null : <span className="ee-ribbon-collapsed-hint">Ribbon disembunyikan — klik ▸ untuk Home … View</span>}
+        <div className={`ee-mm${fileOpen ? " open" : ""}`}>
+          <button className="ee-top-btn ee-top-more" type="button" onClick={() => setFileOpen((v) => !v)} aria-haspopup="menu" aria-expanded={fileOpen}>
+            ▤ File <span className="ee-caret" />
+          </button>
+          {fileOpen && (
+            <div className="ee-mm-pop" role="menu">
+              {!readOnly && <button className="ee-mm-item" type="button" onClick={() => { setFileOpen(false); onNewFile && onNewFile(); }}><span className="ee-mm-ic">⊞</span> File Baru</button>}
+              <button className="ee-mm-item" type="button" onClick={() => { setFileOpen(false); onHistory && onHistory(); }}><span className="ee-mm-ic">{S.history}</span> Riwayat / Backup</button>
+              {!readOnly && <button className="ee-mm-item" type="button" onClick={() => { setFileOpen(false); onRenameFile && onRenameFile(); }}><span className="ee-mm-ic">{S.rename}</span> Ubah Nama</button>}
+              {!readOnly && <React.Fragment>
+                <div className="ee-mm-sep" />
+                <button className="ee-mm-item danger" type="button" onClick={() => { setFileOpen(false); onDeleteFile && onDeleteFile(); }}><span className="ee-mm-ic">{S.del}</span> Hapus File Ini</button>
+                <button className="ee-mm-item danger" type="button" onClick={() => { setFileOpen(false); onClearAll && onClearAll(); }}><span className="ee-mm-ic">{S.clear}</span> Hapus Semua Isi</button>
+              </React.Fragment>}
+            </div>
+          )}
+        </div>
+        {!readOnly && <button className="ee-top-btn primary" type="button" onClick={onSave} title="Simpan (backup otomatis)"><span className="ee-top-ic">{S.save}</span> Simpan</button>}
+        {!readOnly && <button className="ee-top-btn" type="button" onClick={onImport} title="Impor Excel">{S.import} Impor</button>}
+        {!readOnly && canPublish && <button className="ee-top-btn" type="button" onClick={onPublish} disabled={publishingPublish} title="Publikasikan">{publishingPublish ? "…" : "↑☆ Publikasikan"}</button>}
+        <button className="ee-top-btn" type="button" onClick={onExport} title="Ekspor Excel">{S.export} Ekspor</button>
+        {!readOnly && <React.Fragment>
+          <span className="ee-top-sep" />
+          <button className="ee-top-btn" type="button" onClick={onUndo} disabled={!canUndo} title="Undo (Ctrl+Z)">{S.undo} Undo</button>
+          <button className="ee-top-btn" type="button" onClick={onRedo} disabled={!canRedo} title="Redo (Ctrl+Y)">{S.redo} Redo</button>
+        </React.Fragment>}
+        <span className="ee-top-grow" />
+        <div className="ee-zoom" title="Zoom (Ctrl + roda mouse)">
+          <button className="ee-top-btn ee-zoom-btn" type="button" onClick={onZoomOut} title="Perkecil">−</button>
+          <button className="ee-zoom-label" type="button" onClick={onZoomReset} title="Reset 100%">{Math.round(zoom * 100)}%</button>
+          <button className="ee-top-btn ee-zoom-btn" type="button" onClick={onZoomIn} title="Perbesar">＋</button>
+        </div>
+        {importedFiles.length === 0 ? <span className="ee-top-none">Belum ada file</span> : (
+          <select className="ee-top-select" value={activeFileId || ""} onChange={(e) => onSelectFile && onSelectFile(e.target.value)} title="Pilih file">
+            {importedFiles.map((f) => (<option key={f.id} value={f.id}>{f.fileName}</option>))}
           </select>
         )}
-
-        {fileLabel && !collapsed ? <span className="ee-top-file" title={fileLabel}>{fileLabel}</span> : null}
-
+        {fileLabel && <span className="ee-top-file" title={fileLabel}>{fileLabel}</span>}
         {saveFlash ? <span className="ee-save-flash">{saveFlash}</span> : null}
         {infoBadge ? <span className="ee-info-badge">{infoBadge}</span> : null}
       </div>
+      {!collapsed && (
+        <React.Fragment>
+          <div className="ee-ribbon-tabs" role="tablist" aria-label="Ribbon spreadsheet" ref={tabsRef}>
+            {RIBBON_TABS.map((t) => (
+              <button key={t.id} data-tab={t.id} role="tab" aria-selected={activeTab === t.id}
+                className={`ee-ribbon-tab${activeTab === t.id ? " active" : ""}`}
+                type="button" onClick={() => selectTab(t.id)}>{t.label}</button>
+            ))}
+          </div>
+          <div className="ee-ribbon-body">
+            {activeTab === "home" && renderHome()}
+            {activeTab === "insert" && renderInsert()}
+            {activeTab === "layout" && renderLayout()}
+            {activeTab === "formulas" && renderFormulas()}
+            {activeTab === "data" && renderData()}
+            {activeTab === "review" && renderReview()}
+            {activeTab === "view" && renderView()}
+          </div>
+        </React.Fragment>
+      )}
     </div>
   );
 };
