@@ -110,8 +110,42 @@ app.use("/api/admin", adminRouter);
 app.use("/api/audit", auditRouter);
 // Kolaborasi multi-user (akses file, sel real-time, revisi). Berada di bawah
 // authRequired + maintenanceGuard sehingga otomatis terlindungi.
-const { createCollabRouter, setRowWriteChecker } = require("./collab");
+const { createCollabRouter, setRowWriteChecker, getWorkbookAccess } = require("./collab");
 app.use("/api/collab", createCollabRouter());
+const {
+  createStatisticalRouter,
+  initializeStatisticalWorkbooks,
+  setStatisticalWriteAccessCheck,
+} = require("./statisticalSpreadsheet");
+function statisticalColumnName(index) {
+  let value = Number(index);
+  let name = "";
+  while (value > 0) {
+    value -= 1;
+    name = String.fromCharCode(65 + (value % 26)) + name;
+    value = Math.floor(value / 26);
+  }
+  return name;
+}
+setStatisticalWriteAccessCheck(async (req, sheet, row, col) => {
+  const access = await getWorkbookAccess(req.user, sheet.workbook_key);
+  if (!access.write) return false;
+  if (req.user.role !== "admin") return true;
+  const permissionSheetId = Number(sheet.permission_sheet_id);
+  if (await scopeBlocksSheet(req, permissionSheetId, "edit")) return false;
+  return adminCanWriteSpreadsheetRow(
+    req,
+    permissionSheetId,
+    null,
+    [statisticalColumnName(col)],
+    "edit",
+    { rowPos: row }
+  );
+});
+const statisticalRouterPromise = createStatisticalRouter();
+app.use("/api/statistical", (req, res, next) => {
+  statisticalRouterPromise.then((router) => router(req, res, next)).catch(next);
+});
 
 // ===== Sambutan Dashboard (dapat diedit oleh Super Admin) =====
 // Judul & deskripsi kartu "Selamat Datang" disimpan di app_settings.
@@ -3390,7 +3424,8 @@ const http = require("http");
 const { attachRealtime } = require("./realtime");
 
 initDatabase()
-  .then(() => {
+  .then(async () => {
+    await initializeStatisticalWorkbooks();
     const httpServer = http.createServer(app);
     attachRealtime(httpServer);
     httpServer.listen(PORT, () => {

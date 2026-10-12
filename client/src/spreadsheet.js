@@ -660,6 +660,19 @@ const FUNCS = {
     return Math.sqrt(n);
   },
   POWER: (args) => Math.pow(toNum(scalar(args[0])), toNum(scalar(args[1]))),
+  PV: (args) => {
+    const rate = toNum(scalar(args[0]));
+    const periods = toNum(scalar(args[1]));
+    const payment = args[2] !== undefined ? toNum(scalar(args[2])) : 0;
+    const futureValue = args[3] !== undefined ? toNum(scalar(args[3])) : 0;
+    const paymentAtBeginning = args[4] !== undefined ? toNum(scalar(args[4])) : 0;
+    if (periods < 0 || ![0, 1].includes(paymentAtBeginning)) throw new EvalError(ERR.VALUE);
+    if (rate === 0) return -(futureValue + payment * periods);
+    const factor = Math.pow(1 + rate, periods);
+    const presentValue =
+      -(futureValue + payment * (1 + rate * paymentAtBeginning) * ((factor - 1) / rate)) / factor;
+    return Number.isFinite(presentValue) ? presentValue : ERR.VALUE;
+  },
   MOD: (args) => {
     const x = toNum(scalar(args[0]));
     const y = toNum(scalar(args[1]));

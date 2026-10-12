@@ -95,6 +95,53 @@ CREATE TABLE IF NOT EXISTS data_barang (
   CONSTRAINT fk_kategori FOREIGN KEY (kategori_id) REFERENCES kategori(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS statistical_modules (
+  module_key VARCHAR(80) NOT NULL PRIMARY KEY,
+  nama VARCHAR(150) NOT NULL,
+  workbook_key VARCHAR(255) NOT NULL UNIQUE,
+  source_file VARCHAR(255) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS statistical_sheets (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  module_key VARCHAR(80) NOT NULL,
+  nama VARCHAR(150) NOT NULL,
+  urutan INT NOT NULL,
+  max_row INT NOT NULL,
+  max_col INT NOT NULL,
+  permission_sheet_id INT NOT NULL,
+  merges JSON NULL,
+  column_widths JSON NULL,
+  row_heights JSON NULL,
+  UNIQUE KEY uk_stat_sheet (module_key, nama),
+  KEY idx_stat_module (module_key, urutan),
+  CONSTRAINT fk_stat_module FOREIGN KEY (module_key)
+    REFERENCES statistical_modules(module_key) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS statistical_cells (
+  sheet_id INT NOT NULL,
+  row_no INT NOT NULL,
+  col_no INT NOT NULL,
+  jenis ENUM('input','formula','static') NOT NULL,
+  nilai JSON NULL,
+  nilai_awal JSON NULL,
+  hasil JSON NULL,
+  formula LONGTEXT NULL,
+  formula_fallback TINYINT(1) NOT NULL DEFAULT 0,
+  external_formula TINYINT(1) NOT NULL DEFAULT 0,
+  number_format VARCHAR(100) NULL,
+  versi BIGINT UNSIGNED NOT NULL DEFAULT 1,
+  updated_by INT NULL,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (sheet_id, row_no, col_no),
+  KEY idx_stat_cell_type (sheet_id, jenis),
+  CONSTRAINT fk_stat_cell_sheet FOREIGN KEY (sheet_id)
+    REFERENCES statistical_sheets(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS riwayat (
   id INT AUTO_INCREMENT PRIMARY KEY,
   kategori_id INT NULL,

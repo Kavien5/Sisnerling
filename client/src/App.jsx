@@ -6,6 +6,7 @@ import KategoriPage from "./pages/KategoriPage.jsx";
 import Laporan from "./pages/Laporan.jsx";
 import ExcelResult from "./pages/ExcelResult.jsx";
 import ExcelEditor from "./pages/ExcelEditor.jsx";
+import StatisticalSpreadsheet from "./pages/StatisticalSpreadsheet.jsx";
 import FilesPage from "./pages/FilesPage.jsx";
 import Panduan from "./pages/Panduan.jsx";
 import AuditLogs from "./pages/AuditLogs.jsx";
@@ -245,12 +246,16 @@ export default function App() {
       >
         {page === "dashboard" && <Dashboard user={user} onNavigate={setPage} />}
         {page === "spreadsheet" && (
-          <ExcelEditor
-            importedFiles={importedFiles}
-            onFilesChanged={() => setImportedFiles(loadFiles())}
-            readOnly={!canEditData(user)}
-            openFileId={activeFileId}
-          />
+          activeFileId ? (
+            <ExcelEditor
+              importedFiles={importedFiles}
+              onFilesChanged={() => setImportedFiles(loadFiles())}
+              readOnly={!canEditData(user)}
+              openFileId={activeFileId}
+            />
+          ) : (
+            <StatisticalSpreadsheet user={user} />
+          )
         )}
         {page === "files" && (
           <FilesPage

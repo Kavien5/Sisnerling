@@ -216,6 +216,15 @@ export const api = {
   collabRevisionDetail: (revId) => request(`/api/collab/revisions/${revId}`),
   collabRestoreRevision: (revId) =>
     request(`/api/collab/revisions/${revId}/pulihkan`, { method: "POST" }),
+  statisticalModules: () => request("/api/statistical/modules"),
+  statisticalSheet: (moduleKey, sheetId) =>
+    request(`/api/statistical/modules/${encodeURIComponent(moduleKey)}/sheets/${sheetId}`),
+  statisticalUpdateCell: (body) =>
+    request("/api/statistical/cells", { method: "PUT", body: JSON.stringify(body) }),
+  statisticalAddYear: (moduleKey, sheetId) =>
+    request(`/api/statistical/modules/${encodeURIComponent(moduleKey)}/sheets/${sheetId}/tahun`, { method: "POST", body: "{}" }),
+  statisticalReset: (moduleKey) =>
+    request(`/api/statistical/modules/${encodeURIComponent(moduleKey)}/reset`, { method: "POST", body: "{}" }),
 };
 
 export const formatRupiah = (n) =>
