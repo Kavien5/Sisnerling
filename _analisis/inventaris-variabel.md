@@ -7,8 +7,8 @@ Tujuan: identifikasi awal **seluruh variabel** agar bisa di-store di database we
 
 | # | Nama File (pendek) | Path penuh | Jumlah Sheet | Dimensi utama |
 |---|---|---|---|---|
-| F1 | `synthetic-bond.xlsx` | `C:\laragon\www\Sisnerling\_analisis\synthetic-bond.xlsx` | 1 | `Bond` A1:W8 |
-| F2 | `original-7502adecb7ad.xlsx` | `C:\laragon\www\Sisnerling\server\storage\workbooks\WB_001\original-7502adecb7ad.xlsx` | 12 | READ ME, PDB ADHB, Penyusutan, SUT (Rasio Penyediaan), Penyediaan, Stok Kapital, Aset Moneter, Neraca Terpadu, PDB vs PDN1, Studi PDB, Penduduk, National Wealth |
+| F1 | `synthetic-bond.xlsx` | `C:\laragon\www\sisnerling\Sisnerling\_analisis\synthetic-bond.xlsx` | 1 | `Bond` A1:W8 |
+| F2 | `original-7502adecb7ad.xlsx` | `C:\laragon\www\sisnerling\Sisnerling\server\storage\workbooks\WB_001\original-7502adecb7ad.xlsx` | 12 | READ ME, PDB ADHB, Penyusutan, SUT (Rasio Penyediaan), Penyediaan, Stok Kapital, Aset Moneter, Neraca Terpadu, PDB vs PDN1, Studi PDB, Penduduk, National Wealth |
 
 Metode scan: `ExcelJS` (`server/node_modules/exceljs`), baca `cell.value` vs `cell.formula` + `sharedFormula` + `result` + `numFmt`, plus daftar `worksheet.tables` dan isi file zip (`externalLinks`).
 
