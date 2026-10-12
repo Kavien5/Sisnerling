@@ -590,6 +590,10 @@ router.post("/scopes", async (req, res, next) => {
       if (!colKeys.length) return res.status(400).json({ error: "Pilih minimal satu kolom" });
     }
 
+    // Baris data pertama (0-based) pada sheet asli saat aturan dibuat. Dipakai
+    // Dashboard untuk menerjemahkan r1/r2 cakupan ke posisi baris data_barang.
+    const dataStart = numOrNull(req.body.dataStart);
+
     const status = req.body.status === "unlock" ? "unlock" : "lock";
     const canEntry = req.body.canEntry === false || req.body.canEntry === 0 ? 0 : 1;
     const canEdit = req.body.canEdit === false || req.body.canEdit === 0 ? 0 : 1;
@@ -623,22 +627,23 @@ router.post("/scopes", async (req, res, next) => {
     let result;
     if (existing.length) {
       await pool.query(
-        "UPDATE admin_assignment_scopes SET status = ?, can_entry = ?, can_edit = ? WHERE id = ?",
-        [status, canEntry, canEdit, existing[0].id]
+        "UPDATE admin_assignment_scopes SET status = ?, can_entry = ?, can_edit = ?, data_start = COALESCE(?, data_start) WHERE id = ?",
+        [status, canEntry, canEdit, dataStart, existing[0].id]
       );
       result = { insertId: existing[0].id };
     } else {
       [result] = await pool.query(
         `INSERT INTO admin_assignment_scopes
           (admin_id, workbook_key, workbook_name, sheet_id, sheet_name, level,
-           r1, c1, r2, c2, col_keys, status, can_entry, can_edit)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+           r1, c1, r2, c2, data_start, col_keys, status, can_entry, can_edit)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           adminId, workbookKey, workbookName,
           sheetRow ? sheetRow.id : null,
           sheetRow ? String(sheetRow.nama).split("@").pop() : null,
           level,
           norm.r1, normC.c1, norm.r2, normC.c2,
+          dataStart,
           colKeysJson,
           status, canEntry, canEdit,
         ]

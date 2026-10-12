@@ -1,6 +1,7 @@
 import React from "react";
 import Modal from "../components/Modal.jsx";
 import SpreadsheetCharts from "../components/SpreadsheetCharts.jsx";
+import AssignmentProgressCharts from "../components/AssignmentProgressCharts.jsx";
 import PerbandinganData from "../components/PerbandinganData.jsx";
 import { getSheets } from "../spreadsheetWorkbook.js";
 import { sheetsToTables } from "../perbandinganUtils.js";
@@ -12,7 +13,7 @@ const DEFAULT_GREETING = {
     "Sistem ini digunakan untuk mengolah data input\u2013output secara terpusat. Anda dapat memasukkan atau mengimpor data spreadsheet, mengelolanya berdasarkan kategori (Hutan, Mineral, Energi, Uang, dan lainnya), lalu memantau statistik dan progres seluruh data melalui Dashboard ini.",
 };
 
-export default function Dashboard() {
+export default function Dashboard({ user }) {
   const [showInfo, setShowInfo] = React.useState(false);
   const [greeting, setGreeting] = React.useState(DEFAULT_GREETING);
   const [tables, setTables] = React.useState(() => sheetsToTables(getSheets()));
@@ -53,6 +54,10 @@ export default function Dashboard() {
       </button>
 
       <SpreadsheetCharts />
+
+      {user && (user.role === "admin" || user.role === "super_admin") && (
+        <AssignmentProgressCharts user={user} />
+      )}
 
       <div className="card mt">
         <PerbandinganData tables={tables} title="Perbandingan Data" />

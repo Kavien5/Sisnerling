@@ -249,6 +249,13 @@ async function initDatabase() {
     KEY idx_scope_level (level)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
 
+  // Baris data pertama (0-based, koordinat sheet ASLI) saat aturan dibuat.
+  // Dipakai menghitung progres pada Dashboard: r1/r2 cakupan diterjemahkan ke
+  // posisi baris data_barang (ordinal = barisNative - data_start). NULL untuk
+  // aturan lama; perhitungan memakai nilai default 1 sebagai perkiraan aman.
+  await ensureCol("admin_assignment_scopes", "data_start",
+    "ALTER TABLE admin_assignment_scopes ADD COLUMN data_start INT NULL AFTER c2");
+
   // ---- Backfill: data import lama (sheet_id NULL) dijadikan sheet otomatis ----
   // Data hasil import edisi lama tidak memiliki sheet. Agar tetap muncul di
   // halaman Penugasan Tabel, setiap kategori yang punya baris belum ber-sheet

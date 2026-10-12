@@ -184,6 +184,7 @@ export const api = {
   getDashboardGreeting: () => request("/api/dashboard/greeting"),
   setDashboardGreeting: (body) =>
     request("/api/dashboard/greeting", { method: "PUT", body: JSON.stringify(body) }),
+  getAssignmentProgress: () => request("/api/dashboard/assignment-progress"),
   // Kolaborasi multi-user (akses file, sel real-time, revisi)
   collabAccess: (workbookKey) =>
     request(`/api/collab/files/${encodeURIComponent(workbookKey)}/access`),

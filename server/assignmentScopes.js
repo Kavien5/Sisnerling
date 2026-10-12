@@ -87,6 +87,7 @@ function toRule(row) {
     c1: numOrNull(row.c1),
     r2: numOrNull(row.r2),
     c2: numOrNull(row.c2),
+    dataStart: numOrNull(row.data_start),
     colKeys: Array.isArray(parseJson(row.col_keys)) ? parseJson(row.col_keys).map(String) : null,
     status: row.status === "unlock" ? "unlock" : "lock",
     canEntry: Number(row.can_entry) !== 0,

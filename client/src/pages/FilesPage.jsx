@@ -1,6 +1,9 @@
 import React from "react";
 import * as XLSX from "xlsx-js-style";
 import { IconFileSpreadsheet, IconTrash, IconEdit, IconCheck, IconX } from "../components/Icons.jsx";
+import { useToast } from "../components/Toast.jsx";
+import { api } from "../api.js";
+import { saveCollabLink } from "../collabLinks.js";
 import { openFileZip, extractImagesFromZip } from "../excelImages.js";
 import { enrichWorkbookFromZip } from "../excelRawStyles.js";
 
@@ -25,7 +28,8 @@ function fmtDate(value) {
   return new Intl.DateTimeFormat("id-ID", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(d);
 }
 
-export default function FilesPage({ files = [], onOpen, onRemove, onRename, onImport, canImport = false }) {
+export default function FilesPage({ files = [], onOpen, onRemove, onRename, onImport, canImport = false, canPublish = false }) {
+  const toast = useToast();
   const [confirmId, setConfirmId] = React.useState(null);
   const [renameId, setRenameId] = React.useState(null);
   const [renameValue, setRenameValue] = React.useState("");
@@ -34,6 +38,7 @@ export default function FilesPage({ files = [], onOpen, onRemove, onRename, onIm
   const [dragging, setDragging] = React.useState(false);
   const [fileError, setFileError] = React.useState("");
   const [loading, setLoading] = React.useState(false);
+  const [publishing, setPublishing] = React.useState(false);
 
   const processFile = React.useCallback((file) => {
     setFileError("");
@@ -127,6 +132,67 @@ export default function FilesPage({ files = [], onOpen, onRemove, onRename, onIm
     }
   }, [renameId]);
 
+  // Publikasikan file browser ke server agar muncul di halaman Penugasan Tabel.
+  const publishOne = async (f) => {
+    let b64 = "";
+    try {
+      b64 = f.rawBase64 || XLSX.write(f.workbook, { type: "base64", bookType: "xlsx" });
+    } catch (_err) {
+      b64 = "";
+    }
+    if (!b64) {
+      throw new Error("workbook tidak bisa dikonversi (kosong/tidak valid)");
+    }
+    const res = await api.importWorkbook({ base64: b64, filename: f.fileName });
+    if (!res || typeof res.inserted !== "number") {
+      throw new Error("respons server tidak lengkap");
+    }
+    // Tautkan file lokal <-> sheet server untuk kolaborasi.
+    try {
+      if (Array.isArray(res.sheets) && res.sheets.length) saveCollabLink(f.id, f.fileName, res.sheets);
+      else saveCollabLink(f.id, f.fileName, []);
+    } catch (_) {}
+    return res.inserted || 0;
+  };
+
+  const handlePublishAll = async () => {
+    if (!files.length) {
+      toast("Tidak ada file untuk dipublikasikan", "error");
+      return;
+    }
+    if (!window.confirm(`Publikasikan ${files.length} file ke server agar bisa ditugaskan ke admin di halaman Penugasan Tabel?`)) return;
+    setPublishing(true);
+    let ok = 0;
+    let inserted = 0;
+    const fails = [];
+    for (const f of files) {
+      try {
+        inserted += await publishOne(f);
+        ok++;
+      } catch (err) {
+        fails.push(`"${f.fileName}" — ${err && err.message ? err.message : "gagal dipublikasikan"}`);
+      }
+    }
+    const summary =
+      `${ok} file dipublikasikan (${inserted} baris).` +
+      (fails.length ? ` ${fails.length} gagal: ${fails.join(" | ")}` : "");
+    toast(summary, fails.length && !ok ? "error" : undefined);
+    setPublishing(false);
+  };
+
+  const handlePublishOne = async (f) => {
+    if (!window.confirm(`Publikasikan file "${f.fileName}" ke server agar bisa ditugaskan ke admin di halaman Penugasan Tabel?`)) return;
+    setPublishing(true);
+    try {
+      const inserted = await publishOne(f);
+      toast(`"${f.fileName}" dipublikasikan (${inserted} baris).`, "success");
+    } catch (err) {
+      toast(`"${f.fileName}" gagal dipublikasikan: ${err && err.message ? err.message : "galat tak dikenal"}`, "error");
+    } finally {
+      setPublishing(false);
+    }
+  };
+
   return (
     <div className="files-page">
       <div className="page-title">
@@ -202,7 +268,14 @@ export default function FilesPage({ files = [], onOpen, onRemove, onRename, onIm
         <div className="card">
           <div className="card-header">
             <h2>File Terimport</h2>
-            <span className="badge masuk">{files.length} file</span>
+            <div className="files-list-actions">
+              <span className="badge masuk">{files.length} file</span>
+              {canPublish && (
+                <button className="btn btn-primary btn-sm" onClick={handlePublishAll} disabled={publishing} title="Kirim semua file ke server agar muncul di Penugasan Tabel">
+                  {publishing ? "Menerbitkan..." : "\u2191\u2606 Publikasikan"}
+                </button>
+              )}
+            </div>
           </div>
           <div className="card-body files-list">
             {files.map((f, i) => (
@@ -245,6 +318,11 @@ export default function FilesPage({ files = [], onOpen, onRemove, onRename, onIm
                   )}
                 </div>
                 <div className="files-list-actions">
+                  {canPublish && (
+                    <button className="btn btn-outline btn-sm" onClick={() => handlePublishOne(f)} disabled={publishing} title="Publikasikan file ini ke server">
+                      Publikasikan
+                    </button>
+                  )}
                   <button className="btn btn-outline btn-sm" onClick={() => startRename(f)} title="Ubah nama file">
                     <IconEdit size={14} />
                   </button>

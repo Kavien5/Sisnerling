@@ -4385,6 +4385,73 @@ td.cell.cell-match {
 }
 
 
+/* ===== Progres Penugasan (Dashboard) ===== */
+.apg-card { margin-bottom: 0; }
+.apg-head-actions { display: flex; align-items: center; gap: 10px; }
+.apg-hint { font-size: 11.5px; color: var(--ink-3); }
+
+.apg-bar {
+  position: relative;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--bg-2, #eef2f7);
+  overflow: hidden;
+  min-width: 90px;
+}
+.apg-bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(90deg, #22c55e, #4ade80);
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+.apg-bar-label {
+  position: relative;
+  z-index: 1;
+  display: block;
+  text-align: center;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 16px;
+}
+
+.apg-td-belum { color: var(--danger); font-weight: 600; }
+.apg-td-sedang { color: var(--warning); font-weight: 600; }
+.apg-td-selesai { color: var(--success); font-weight: 600; }
+
+.apg-level-badge {
+  background: var(--primary-100);
+  color: var(--primary-700);
+  font-size: 10.5px;
+  text-transform: capitalize;
+  margin-right: 4px;
+}
+
+.apg-detail-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.apg-sum-item {
+  background: var(--bg-2, #f8fafc);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.apg-sum-item b { font-size: 14px; }
+
+.apg-note {
+  margin-top: 12px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  line-height: 1.5;
+}
+
+
 /* ===== Riwayat / Backup ===== */
 .history-modal-max { max-width: 640px; }
 .history-tabs {
