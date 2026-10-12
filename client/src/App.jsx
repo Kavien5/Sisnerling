@@ -192,6 +192,11 @@ export default function App() {
     setPage("spreadsheet");
   };
 
+  const handleNavigate = (nextPage) => {
+    if (nextPage === "spreadsheet") setActiveFileId(null);
+    setPage(nextPage);
+  };
+
   const activeFile = importedFiles.find((f) => f.id === activeFileId) || null;
 
   // Tampilkan layar login/register selama belum selesai validasi sesi.
@@ -236,7 +241,7 @@ export default function App() {
     <ToastProvider>
       <Layout
         page={page}
-        setPage={setPage}
+        setPage={handleNavigate}
         importedFiles={importedFiles}
         user={user}
         onLogout={handleLogout}
@@ -244,7 +249,7 @@ export default function App() {
         onAccountDeleted={handleAccountDeleted}
         maintenance={maintenance}
       >
-        {page === "dashboard" && <Dashboard user={user} onNavigate={setPage} />}
+        {page === "dashboard" && <Dashboard user={user} onNavigate={handleNavigate} />}
         {page === "spreadsheet" && (
           activeFileId ? (
             <ExcelEditor

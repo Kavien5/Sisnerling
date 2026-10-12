@@ -16,30 +16,206 @@ function formatValue(value) {
   return String(value);
 }
 
-function columnName(index) {
-  let value = index;
-  let result = "";
-  while (value > 0) {
-    value -= 1;
-    result = String.fromCharCode(65 + (value % 26)) + result;
-    value = Math.floor(value / 26);
-  }
-  return result;
+function yearNumber(cell) {
+  const value = cell?.value;
+  if (typeof value === "number" && Number.isInteger(value) && value >= 1800 && value <= 2199) return value;
+  const match = /^((?:18|19|20|21)\d{2})\*{0,2}$/.exec(String(value ?? "").trim());
+  return match ? Number(match[1]) : null;
 }
 
-function parseMerge(range) {
-  const match = /^\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)$/i.exec(range);
-  if (!match) return null;
-  const colIndex = (letters) => [...letters.toUpperCase()].reduce(
-    (value, letter) => value * 26 + letter.charCodeAt(0) - 64,
-    0
-  );
-  return {
-    row: Number(match[2]),
-    col: colIndex(match[1]),
-    rowEnd: Number(match[4]),
-    colEnd: colIndex(match[3]),
-  };
+function findYearBlocks(cells) {
+  const rows = new Map();
+  for (const cell of cells) {
+    const row = rows.get(cell.row) || new Map();
+    row.set(cell.col, cell);
+    rows.set(cell.row, row);
+  }
+
+  const blocks = new Map();
+  for (const [rowNo, row] of rows) {
+    const entries = [...row.entries()].sort(([left], [right]) => left - right);
+    let run = [];
+    const addRun = () => {
+      if (run.length >= 3) {
+        const first = run[0];
+        const last = run[run.length - 1];
+        const key = `${first.col}:${last.col}:${first.year}:${last.year}`;
+        const block = blocks.get(key) || {
+          startCol: first.col,
+          endCol: last.col,
+          firstYear: first.year,
+          lastYear: last.year,
+          headerRows: [],
+        };
+        block.headerRows.push(rowNo);
+        blocks.set(key, block);
+      }
+      run = [];
+    };
+
+    for (const [col, cell] of entries) {
+      const year = yearNumber(cell);
+      const previous = run[run.length - 1];
+      if (year !== null && (!previous || (col === previous.col + 1 && year === previous.year + 1))) {
+        run.push({ col, year });
+      } else {
+        addRun();
+        if (year !== null) run.push({ col, year });
+      }
+    }
+    addRun();
+  }
+
+  return [...blocks.values()].sort((left, right) => left.startCol - right.startCol);
+}
+
+function buildStructuredTables(sheet, cells) {
+  const blocks = findYearBlocks(cells);
+  const cellsByKey = new Map(cells.map((cell) => [cellKey(cell.row, cell.col), cell]));
+  const rowNumbers = cells.map((cell) => cell.row);
+  if (!rowNumbers.length) return [];
+  const firstRow = Math.min(...rowNumbers);
+  const lastRow = Math.max(...rowNumbers);
+  if (!blocks.length) {
+    const columnCount = Math.max(...cells.map((cell) => cell.col));
+    const populatedRows = new Map();
+    for (const cell of cells) {
+      const row = populatedRows.get(cell.row) || [];
+      row.push(cell);
+      populatedRows.set(cell.row, row);
+    }
+    const headingRow = [...populatedRows.entries()]
+      .map(([rowNo, row]) => ({
+        rowNo,
+        score: row.filter((cell) => typeof cell.value === "string" && cell.value.trim()).length,
+      }))
+      .sort((left, right) => right.score - left.score || left.rowNo - right.rowNo)[0]?.rowNo;
+    const columns = Array.from({ length: columnCount }, (_, index) => {
+      const sourceName = formatValue(cellsByKey.get(cellKey(headingRow, index + 1))?.value).trim();
+      const label = /^description$/i.test(sourceName) || /^perincian$/i.test(sourceName)
+        ? "Komponen / Indikator"
+        : /^unit$/i.test(sourceName)
+          ? "Satuan"
+          : sourceName || (index === 0 ? "Komponen / Indikator" : `Parameter ${index + 1}`);
+      return { sourceCol: index + 1, label };
+    });
+    if (!columns.some((column) => column.label.toLowerCase() === "satuan")) {
+      columns.push({ key: "unit", label: "Satuan" });
+    }
+    columns.push({ key: "kind", label: "Tipe Sel" });
+    const rows = [];
+    for (let rowNo = headingRow + 1; rowNo <= lastRow; rowNo++) {
+      const rowCells = populatedRows.get(rowNo) || [];
+      const values = Array.from({ length: columnCount }, (_, index) =>
+        cellsByKey.get(cellKey(rowNo, index + 1))?.value
+      );
+      if (!values.some((value) => formatValue(value).trim())) continue;
+      const kinds = new Set(rowCells.map((cell) => cell.kind));
+      const typeLabel = kinds.has("input") && kinds.has("formula")
+        ? "Campuran"
+        : kinds.has("formula")
+          ? "Formula"
+          : kinds.has("input")
+            ? "Input"
+            : "Data tetap";
+      rows.push({
+        rowNo,
+        section: false,
+        labelValues: values,
+        unit: "",
+        typeLabel,
+        yearCells: [],
+      });
+    }
+    return [{
+      key: "parameter",
+      firstYear: null,
+      lastYear: null,
+      startCol: null,
+      columns,
+      rows,
+    }];
+  }
+
+  const identifierColumnCount = Math.min(...blocks.map((block) => block.startCol)) - 1;
+
+  return blocks.map((block) => {
+    const headerRows = new Set(block.headerRows);
+    const headingRow = block.headerRows
+      .map((rowNo) => ({
+        rowNo,
+        score: Array.from({ length: identifierColumnCount }, (_, index) => {
+          const value = formatValue(cellsByKey.get(cellKey(rowNo, index + 1))?.value).trim();
+          if (!value) return 0;
+          return /^(no\.?|description|unit|perincian|indikator|komponen)$/i.test(value) ? 2 : 1;
+        }).reduce((total, score) => total + score, 0),
+      }))
+      .sort((left, right) => right.score - left.score || left.rowNo - right.rowNo)[0]?.rowNo;
+
+    const columns = Array.from({ length: identifierColumnCount }, (_, index) => {
+      const sourceName = formatValue(cellsByKey.get(cellKey(headingRow, index + 1))?.value).trim();
+      const normalizedName = /^description$/i.test(sourceName) || /^perincian$/i.test(sourceName)
+        ? "Komponen / Indikator"
+        : /^unit$/i.test(sourceName)
+          ? "Satuan"
+          : sourceName || (index === 0 ? "Komponen / Indikator" : `Keterangan ${index + 1}`);
+      return { sourceCol: index + 1, label: normalizedName };
+    });
+    if (!columns.some((column) => column.label.toLowerCase() === "satuan")) {
+      columns.push({ key: "unit", label: "Satuan" });
+    }
+    columns.push({ key: "kind", label: "Tipe Sel" });
+
+    let currentUnit = "";
+    const rows = [];
+    for (let rowNo = Math.max(firstRow, Math.min(...block.headerRows)); rowNo <= lastRow; rowNo++) {
+      if (headerRows.has(rowNo)) continue;
+      const labelValues = Array.from({ length: identifierColumnCount }, (_, index) =>
+        cellsByKey.get(cellKey(rowNo, index + 1))?.value
+      );
+      const yearCells = Array.from(
+        { length: block.endCol - block.startCol + 1 },
+        (_, index) => cellsByKey.get(cellKey(rowNo, block.startCol + index))
+      );
+      const hasYearCells = yearCells.some((cell) => cell && (cell.kind === "input" || cell.kind === "formula"));
+      const hasLabels = labelValues.some((value) => formatValue(value).trim() !== "");
+      const hasYearValues = yearCells.some((cell) => cell?.value !== null && cell?.value !== undefined && cell?.value !== "");
+      if (!hasLabels && !hasYearValues) continue;
+
+      const labelText = labelValues.map((value) => formatValue(value).trim()).filter(Boolean).join(" ");
+      const sectionRow = !hasYearCells && hasLabels;
+      const unitMatch = sectionRow ? /\(([^()]+)\)/.exec(labelText) : null;
+      if (unitMatch) currentUnit = unitMatch[1].trim();
+
+      const kinds = new Set(yearCells.filter(Boolean).map((cell) => cell.kind));
+      const typeLabel = kinds.has("input") && kinds.has("formula")
+        ? "Campuran"
+        : kinds.has("formula")
+          ? "Formula"
+          : kinds.has("input")
+            ? "Input"
+            : "Data tetap";
+
+      rows.push({
+        rowNo,
+        section: sectionRow,
+        labelText,
+        labelValues,
+        unit: currentUnit,
+        typeLabel,
+        yearCells,
+      });
+    }
+
+    return {
+      key: `${block.startCol}-${block.endCol}`,
+      firstYear: block.firstYear,
+      lastYear: block.lastYear,
+      startCol: block.startCol,
+      columns,
+      rows,
+    };
+  });
 }
 
 function downloadCsv(sheet, cells) {
@@ -260,18 +436,7 @@ export default function StatisticalSpreadsheet({ user }) {
     return true;
   });
   const shownSheets = showAllSheets ? visibleSheets : visibleSheets.slice(0, 6);
-  const cellsByKey = new Map(cells.map((cell) => [cellKey(cell.row, cell.col), cell]));
-  const mergedRanges = (sheetMeta?.merges || []).map(parseMerge).filter(Boolean);
-  const mergeMasters = new Map();
-  const mergedChildren = new Set();
-  for (const range of mergedRanges) {
-    mergeMasters.set(cellKey(range.row, range.col), range);
-    for (let row = range.row; row <= range.rowEnd; row++) {
-      for (let col = range.col; col <= range.colEnd; col++) {
-        if (row !== range.row || col !== range.col) mergedChildren.add(cellKey(row, col));
-      }
-    }
-  }
+  const structuredTables = sheetMeta ? buildStructuredTables(sheetMeta, cells) : [];
 
   return (
     <section className={`stat-page${darkMode ? " stat-dark" : ""}`}>
@@ -350,104 +515,154 @@ export default function StatisticalSpreadsheet({ user }) {
           <div className="stat-table-heading">
             <div>
               <h2>{sheetMeta.name}</h2>
-              <span>{sheetMeta.rows.toLocaleString("id-ID")} baris · {sheetMeta.columns} kolom · biru menandai hasil formula</span>
+              <span>Tabel indikator terstruktur · biru menandai hasil formula · input disimpan otomatis</span>
             </div>
             <button className="stat-secondary" onClick={() => loadSheet(sheetMeta.id)}>Muat ulang</button>
           </div>
         )}
 
-        {sheetMeta && (
-          <div className="stat-table-scroll">
+        {structuredTables.map((table) => {
+          const yearCount = table.firstYear === null ? 0 : table.lastYear - table.firstYear + 1;
+          const totalColumns = table.columns.length + yearCount;
+          return (
+            <section className="stat-table-card" key={table.key}>
+              <div className="stat-table-card-heading">
+                <div>
+                  <strong>{yearCount ? "Data tahunan" : "Data penunjang"}</strong>
+                  {yearCount > 0 && <span>{table.firstYear}–{table.lastYear}</span>}
+                </div>
+                <div className="stat-cell-legend">
+                  <span><i className="stat-legend-input" /> Input</span>
+                  <span><i className="stat-legend-formula" /> Formula otomatis</span>
+                </div>
+              </div>
+              <div className="stat-table-scroll">
                 <table
-                  className="stat-table"
-                  style={{ "--stat-first-col-width": `${Math.max(82, Math.min(280, (sheetMeta.columnWidths?.[0] || 12) * 9))}px` }}
+                  className="stat-table stat-structured-table"
+                  style={{
+                    "--stat-first-col-width": table.columns[0]?.label === "No." ? "64px" : "280px",
+                    "--stat-second-col-width": table.columns[1]?.label === "Komponen / Indikator" ? "280px" : "120px",
+                  }}
                 >
-              <colgroup>
-                {Array.from({ length: sheetMeta.columns }, (_, col) => (
-                  <col key={col} style={{ width: `${Math.max(82, Math.min(280, (sheetMeta.columnWidths?.[col] || 12) * 9))}px` }} />
-                ))}
-              </colgroup>
-              <thead>
-                <tr>
-                  {Array.from({ length: sheetMeta.columns }, (_, col) => (
-                    <th key={col} className={col < 2 ? `stat-sticky-col stat-sticky-${col}` : ""}>{columnName(col + 1)}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {Array.from({ length: sheetMeta.rows }, (_, rowIndex) => {
-                  const rowNo = rowIndex + 1;
-                  const headerIndex = (sheetMeta.headerRows || []).indexOf(rowNo);
-                  return (
-                    <tr key={rowNo} className={headerIndex >= 0 ? "stat-year-header-row" : ""}>
-                      {Array.from({ length: sheetMeta.columns }, (_, colIndex) => {
-                        const colNo = colIndex + 1;
-                        const key = cellKey(rowNo, colNo);
-                        if (mergedChildren.has(key)) return null;
-                        const cell = cellsByKey.get(key);
-                        const merge = mergeMasters.get(key);
-                        const value = cell?.kind === "input" && key in drafts
-                          ? drafts[key]
-                          : formatValue(cell?.value);
-                        const editable = cell?.kind === "input" && !!access?.write;
-                        const classNames = [
-                          cell?.kind === "formula" ? "stat-formula-cell" : "",
-                          cell?.kind === "input" ? "stat-input-cell" : "",
-                          colIndex < 2 ? `stat-sticky-col stat-sticky-${colIndex}` : "",
-                        ].filter(Boolean).join(" ");
-                        return (
-                          <td
-                            key={key}
-                            className={classNames}
-                            rowSpan={merge ? merge.rowEnd - merge.row + 1 : undefined}
-                            colSpan={merge ? merge.colEnd - merge.col + 1 : undefined}
-                            style={{
-                              ...(sheetMeta.rowHeights?.[rowIndex] ? { height: `${sheetMeta.rowHeights[rowIndex]}px` } : {}),
-                              ...(headerIndex >= 0 ? { top: `${34 + headerIndex * 34}px` } : {}),
-                            }}
-                          >
-                            {editable ? (
-                              <input
-                                aria-label={`${sheetMeta.name} ${columnName(colNo)}${rowNo}`}
-                                inputMode="decimal"
-                                value={value}
-                                onChange={(event) => setCellDraft(key, event.target.value)}
-                                onBlur={() => {
-                                  if (cancelBlurSave.current) {
-                                    cancelBlurSave.current = false;
-                                    return;
-                                  }
-                                  saveCell(cell);
-                                }}
-                                onKeyDown={(event) => {
-                                  if (event.key === "Enter") event.currentTarget.blur();
-                                  if (event.key === "Escape") {
-                                    cancelBlurSave.current = true;
-                                    setDrafts((current) => {
-                                      const next = { ...current };
-                                      delete next[key];
-                                      return next;
-                                    });
-                                    event.currentTarget.blur();
-                                  }
-                                }}
-                                disabled={saving.has(key)}
-                              />
-                            ) : (
-                              <span className={cell?.kind === "formula" ? "stat-formula-value" : ""}>
-                                {value}
-                                {cell?.kind === "formula" && <span className="stat-formula-badge" title="Dihitung otomatis">ƒ</span>}
-                              </span>
-                            )}
-                          </td>
-                        );
-                      })}
+                  <colgroup>
+                    {table.columns.map((column, index) => (
+                      <col
+                        key={column.key || column.sourceCol}
+                        className={column.key ? `stat-column-${column.key}` : `stat-column-source-${index}`}
+                        style={{
+                          width: column.key === "kind" ? "110px"
+                            : column.key === "unit" || column.label === "Satuan" ? "120px"
+                              : column.label === "No." ? "64px"
+                                : column.label === "Komponen / Indikator" ? "280px" : "160px",
+                        }}
+                      />
+                    ))}
+                    {Array.from({ length: yearCount }, (_, index) => (
+                      <col key={`year-${index}`} className="stat-column-year" style={{ width: "124px" }} />
+                    ))}
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      {table.columns.map((column, index) => (
+                        <th
+                          key={column.key || column.sourceCol}
+                          className={index < 2 && column.sourceCol ? `stat-sticky-col stat-sticky-${index}` : ""}
+                        >
+                          {column.label}
+                        </th>
+                      ))}
+                      {Array.from({ length: yearCount }, (_, index) => (
+                        <th key={table.firstYear + index}>{table.firstYear + index}</th>
+                      ))}
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                  </thead>
+                  <tbody>
+                    {table.rows.map((row) => {
+                      if (row.section) {
+                        return (
+                          <tr className="stat-section-row" key={`section-${row.rowNo}`}>
+                            <th colSpan={totalColumns}>{row.labelText}</th>
+                          </tr>
+                        );
+                      }
+                      return (
+                        <tr key={row.rowNo}>
+                          {table.columns.map((column, index) => {
+                            if (column.key === "unit") {
+                              return <td key={column.key} className="stat-unit-value">{row.unit || "—"}</td>;
+                            }
+                            if (column.key === "kind") {
+                              const typeKey = row.typeLabel.toLowerCase().replace(/\s+/g, "-");
+                              return <td key={column.key}><span className={`stat-kind stat-kind-${typeKey}`}>{row.typeLabel}</span></td>;
+                            }
+                            return (
+                              <td
+                                key={column.key || column.sourceCol}
+                                className={index < 2 ? `stat-sticky-col stat-sticky-${index}` : ""}
+                              >
+                                {formatValue(row.labelValues[column.sourceCol - 1])}
+                              </td>
+                            );
+                          })}
+                          {row.yearCells.map((cell, index) => {
+                            const colNo = table.startCol + index;
+                            const key = cellKey(row.rowNo, colNo);
+                            const value = cell?.kind === "input" && key in drafts
+                              ? drafts[key]
+                              : formatValue(cell?.value);
+                            const editable = cell?.kind === "input" && !!access?.write;
+                            return (
+                              <td
+                                key={table.firstYear + index}
+                                className={cell?.kind === "formula" ? "stat-formula-cell" : cell?.kind === "input" ? "stat-input-cell" : ""}
+                              >
+                                {editable ? (
+                                  <input
+                                    aria-label={`${sheetMeta.name} ${row.labelText} ${table.firstYear + index}`}
+                                    inputMode="decimal"
+                                    value={value}
+                                    onChange={(event) => setCellDraft(key, event.target.value)}
+                                    onBlur={() => {
+                                      if (cancelBlurSave.current) {
+                                        cancelBlurSave.current = false;
+                                        return;
+                                      }
+                                      saveCell(cell);
+                                    }}
+                                    onKeyDown={(event) => {
+                                      if (event.key === "Enter") event.currentTarget.blur();
+                                      if (event.key === "Escape") {
+                                        cancelBlurSave.current = true;
+                                        setDrafts((current) => {
+                                          const next = { ...current };
+                                          delete next[key];
+                                          return next;
+                                        });
+                                        event.currentTarget.blur();
+                                      }
+                                    }}
+                                    disabled={saving.has(key)}
+                                  />
+                                ) : (
+                                  <span className={cell?.kind === "formula" ? "stat-formula-value" : ""}>
+                                    {value}
+                                    {cell?.kind === "formula" && <span className="stat-formula-badge" title="Dihitung otomatis">ƒ</span>}
+                                  </span>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          );
+        })}
+        {sheetMeta && !structuredTables.length && (
+          <div className="stat-empty">Lembar ini tidak memiliki deret tahun yang bisa ditampilkan sebagai tabel statistik.</div>
         )}
       </>}
       {showShares && selectedModule && (

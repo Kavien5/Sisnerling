@@ -215,12 +215,78 @@
   isolation: isolate;
 }
 
+.stat-table-card {
+  margin-top: 16px;
+  overflow: hidden;
+  border: 1px solid var(--stat-border);
+  border-radius: 12px;
+  background: var(--stat-surface);
+  box-shadow: 0 4px 14px rgba(16, 24, 40, .04);
+}
+
+.stat-table-card-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--stat-border);
+  background: var(--stat-surface);
+}
+
+.stat-table-card-heading > div:first-child {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.stat-table-card-heading strong {
+  font-size: 13px;
+}
+
+.stat-table-card-heading > div:first-child span {
+  padding: 4px 9px;
+  border-radius: 999px;
+  color: var(--stat-primary);
+  background: var(--stat-primary-soft);
+  font-size: 11px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-cell-legend {
+  display: flex;
+  gap: 14px;
+  color: var(--stat-muted);
+  font-size: 11px;
+}
+
+.stat-cell-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stat-cell-legend i {
+  width: 9px;
+  height: 9px;
+  border: 1px solid var(--stat-border);
+  border-radius: 3px;
+}
+
+.stat-legend-input { background: var(--stat-primary-soft); }
+.stat-legend-formula { background: var(--stat-formula); }
+
 .stat-table {
   width: max-content;
   min-width: 100%;
   border-collapse: separate;
   border-spacing: 0;
   font-size: 12px;
+}
+
+.stat-structured-table {
+  table-layout: fixed;
 }
 
 .stat-table th,
@@ -245,6 +311,106 @@
   color: #475467;
   font-size: 11px;
   text-align: center;
+}
+
+.stat-structured-table thead th {
+  padding: 9px 10px;
+  background: #e9eef5;
+  color: #344054;
+  font-size: 11px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.stat-structured-table tbody td {
+  height: 40px;
+  padding: 6px 10px;
+}
+
+.stat-structured-table tbody tr:not(.stat-section-row):hover td {
+  background-color: #f8fafc;
+}
+
+.stat-dark .stat-structured-table tbody tr:not(.stat-section-row):hover td {
+  background-color: #273549;
+}
+
+.stat-structured-table .stat-section-row th {
+  position: static;
+  z-index: auto;
+  padding: 10px 12px;
+  background: #f3f7f5;
+  color: var(--stat-primary);
+  text-align: left;
+  font-size: 12px;
+  letter-spacing: .01em;
+}
+
+.stat-dark .stat-structured-table thead th {
+  background: #273549;
+  color: #e5e7eb;
+}
+
+.stat-dark .stat-structured-table .stat-section-row th {
+  background: #1d3a34;
+  color: #9ce0c6;
+}
+
+.stat-structured-table td.stat-sticky-0,
+.stat-structured-table td.stat-sticky-1 {
+  font-weight: 550;
+}
+
+.stat-unit-value {
+  color: var(--stat-muted);
+  white-space: nowrap !important;
+}
+
+.stat-kind {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.stat-kind-input {
+  color: #067647;
+  background: #ecfdf3;
+}
+
+.stat-kind-formula {
+  color: #175cd3;
+  background: #eff8ff;
+}
+
+.stat-kind-campuran {
+  color: #b54708;
+  background: #fffaeb;
+}
+
+.stat-kind-data-tetap {
+  color: #475467;
+  background: #f2f4f7;
+}
+
+.stat-dark .stat-kind-input { color: #9ce0c6; background: #1d3a34; }
+.stat-dark .stat-kind-formula { color: #9fc5ff; background: #203750; }
+.stat-dark .stat-kind-campuran { color: #ffd08a; background: #4a3418; }
+.stat-dark .stat-kind-data-tetap { color: #d0d5dd; background: #344054; }
+
+.stat-structured-table .stat-input-cell input {
+  min-width: 80px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-structured-table .stat-formula-cell {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .stat-table .stat-year-header-row td {
@@ -335,4 +501,6 @@
   .stat-header { align-items: flex-start; flex-direction: column; }
   .stat-actions { justify-content: flex-start; }
   .stat-toolbar { align-items: flex-start; flex-direction: column; }
+  .stat-table-card-heading { align-items: flex-start; flex-direction: column; }
+  .stat-structured-table { font-size: 11px; }
 }
