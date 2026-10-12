@@ -61,25 +61,278 @@ function colWindowCeFrom(sl, cp, cumW, colsLen, mergeMap, colWidth) {
   return ce;
 }
 
-const buildBorderStyle = (bd) => {
-  if (!bd || typeof bd !== "object") return undefined;
-  const side = (k) => {
-    const s = bd[k];
-    if (!s) return undefined;
-    const w = s.w || 1;
-    const c = s.c || "#000000";
-    return `${w}px solid ${c}`;
-  };
-  const t = side("t");
-  const r = side("r");
-  const b = side("b");
-  const l = side("l");
-  if (!t && !r && !b && !l) return undefined;
-  return { borderTop: t, borderRight: r, borderBottom: b, borderLeft: l };
-};
+// ---------------------------------------------------------------------------
+// Lapisan garis border + gridline data (BODY), terpisah dari <table>.
+// Semua garis digambar dengan koordinat ABSOLUT dari SATU SUMBER geometri yang
+// sama dengan sel (snap ke piksel utuh): colWs/colXs untuk kolom, rowTop/rowH
+// untuk baris. Karena posisinya bukan relatif viewport, garis TIDAK pernah
+// bergeser/mengecil/membesar saat scroll atau saat virtualisasi berganti
+// window — window hanya menentukan garis mana yang TAMPIL, bukan posisinya.
+//
+// Aturan tiap pertemuan antar sel:
+//  - Border asli Excel (dari __bd_*) dipakai PERSIS (tebal + warna); jika dua
+//    sisi sama-sama ber-border, yang lebih tebal menang.
+//  - Tanpa border → gridline tipis (seperti Excel) di semua pertemuan sel,
+//    termasuk sisi kiri kolom A dan sisi bawah header (dua-duanya memang
+//    tampil di Excel dan sejalan dengan border th header/row-num lama).
+//  - Interior merge → tidak ada garis sama sekali.
+//  - Kolom/baris hidden dilewati (lebar 0 / tak masuk visIdx), jadi geometri
+//    garis SAMA PERSIS dengan sel yang dirender.
+// Garis pada area beku (freeze pane) digambar sebagai lapisan STICKY dengan
+// posisi statis SAMA dengan koordinat sel beku (margin = koordinat konten), jadi
+// ikut tersemat persis bersama sel beku saat di-scroll, dan TIDAK ada garis yang
+// "tertinggal" di belakang area beku. Baris bermanfaatnya persis baris yang
+// selalu dirender (frozen rows berdiri sendiri, bukan bagian dari window):
+//  - Garis pada baris beku (y <= frozenY): untuk kolom beku (x <= frozenX) pin
+//    kiri + atas; untuk kolom biasa pin atas saja.
+//  - Garis vertikal di x <= frozenX yang berada di bawah frozenY: pin kiri saja.
+//  - Batas bawah area beku baris (y == frozenY) ikut dieksekusi (pin vertikal).
+//  - Garis di luar area beku → posisi absolut biasa (ikut scroll).
+// ---------------------------------------------------------------------------
+const GRID_BORDER = { w: 1, c: "var(--border)" };
 
-const GRID_LINE = "1px solid var(--border)";
-const borderSideCss = (s) => (s ? `${s.w || 1}px solid ${s.c || "#000000"}` : undefined);
+function GridBorderLayer({
+  rows,
+  allKeys,
+  colWs,
+  colXs,
+  win,
+  ce,
+  visIdx,
+  rowTop,
+  rowH,
+  mergeMap,
+  headH,
+  frozenX,
+  frozenY,
+}) {
+  const [ws0, we0] = win;
+  if (!rows.length || !visIdx.length) return null;
+  const vN = visIdx.length;
+
+  const visCols = [];
+  for (let ci = 0; ci < colWs.length; ci++) if (colWs[ci] > 0) visCols.push(ci);
+  if (!visCols.length) return null;
+
+  const bdOf = (r, ci, side) => {
+    if (r == null || ci == null) return null;
+    const row = rows[r];
+    const bd = row ? row["__bd_" + allKeys[ci]] : null;
+    return bd && bd[side] ? bd[side] : null;
+  };
+  const pickV = (a, b) => (a && b ? (a.w >= b.w ? a : b) : a || b || null);
+  const keyOf = (side) => (side === GRID_BORDER ? "g:" + side.w : side.w + ":" + side.c);
+
+  const topOf = (r) => headH + (rowTop.get(r) || 0);
+  const botOf = (r) => headH + (rowTop.get(r) || 0) + rowH(r);
+  const contentW = colXs[colXs.length - 1];
+  const contentH = vN ? botOf(visIdx[vN - 1]) : headH;
+
+  // Penampilan batas HORIZONTAL antar baris k (index di visIdx) pada kolom ci.
+  const valH = (k, ci) => {
+    const rA = k > 0 ? visIdx[k - 1] : null;
+    const rB = k < vN ? visIdx[k] : null;
+    if (rA != null && rB != null) {
+      const occA = mergeMap.get(`${rA}:${ci}`);
+      const occB = mergeMap.get(`${rB}:${ci}`);
+      if (occA && occA === occB) return null;
+      return pickV(bdOf(rA, ci, "b"), bdOf(rB, ci, "t")) || GRID_BORDER;
+    }
+    if (rB != null) return bdOf(rB, ci, "t") || GRID_BORDER;
+    return bdOf(rA, ci, "b") || GRID_BORDER;
+  };
+  // Penampilan batas VERTIKAL antar kolom p/p-1 (p = index batas di colXs).
+  const valV = (p, r) => {
+    const occL = p > 0 ? mergeMap.get(`${r}:${p - 1}`) : null;
+    const occR = p < colWs.length ? mergeMap.get(`${r}:${p}`) : null;
+    if (occL && occR && occL === occR) return null;
+    return pickV(p > 0 ? bdOf(r, p - 1, "r") : null, p < colWs.length ? bdOf(r, p, "l") : null) || GRID_BORDER;
+  };
+
+  // Baris "beku": jumlah baris (alias di visIdx) yang isinya penuh berada di
+  // atas batas frozenY — batas k=frEnd adalah garis bawah area beku.
+  let frEnd = 0;
+  if (frozenY != null) {
+    for (let k = 0; k < vN; k++) {
+      if (topOf(visIdx[k]) < frozenY - 0.5) frEnd = k + 1;
+      else break;
+    }
+  }
+  const hy = (k) => (k < vN ? topOf(visIdx[k]) : contentH);
+
+  // Segmen-merge per baris k untuk garis horisontal (runs dengan tampilan sama).
+  const hRuns = (k) => {
+    const runs = [];
+    let runKey = null;
+    let runSide = null;
+    let x0 = 0;
+    for (const ci of visCols) {
+      if (ci > ce) break;
+      const side = valH(k, ci);
+      const kk = side === null ? null : keyOf(side);
+      if (kk !== runKey) {
+        if (runKey != null) runs.push({ x0, x1: colXs[ci], side: runSide });
+        runKey = kk;
+        runSide = side;
+        x0 = colXs[ci];
+      }
+    }
+    if (runKey != null) runs.push({ x0, x1: colXs[Math.min(ce + 1, colXs.length - 1)], side: runSide });
+    return runs;
+  };
+
+  const els = [];
+  let pinN = 0;
+  const pushLine = (x, y, w, h, side, pinL, pinT, topZ) => {
+    if (w <= 0 || h <= 0 || !side) return;
+    if (pinL || pinT) {
+      // Sticky: posisi statis dibuat sama persis dengan koordinat konten sel
+      // beku via margin (dalam anchor absolut seluas konten, supaya tidak
+      // menumpuk di alur normal), dan offset sticky din-set ke koordinat yg
+      // sama — jadi garis SELALU tertambat di koordinat itu di viewport,
+      // persis ikut sel beku, berapapun scroll/zoom-nya.
+      pinN++;
+      els.push(
+        <div
+          key={"p" + pinN}
+          className="gb-anchor"
+          style={{ position: "absolute", left: 0, top: 0, width: "100%", height: "100%" }}
+        >
+          <div
+            className="gb-line"
+            style={{
+              position: "sticky",
+              marginLeft: x,
+              marginTop: y,
+              width: w,
+              height: h,
+              background: side.c,
+              pointerEvents: "none",
+              zIndex: 5,
+              ...(pinL ? { left: x } : {}),
+              ...(pinT ? { top: y } : {}),
+            }}
+          />
+        </div>
+      );
+    } else {
+      els.push(
+        <div
+          key={"n" + els.length}
+          className="gb-line"
+          style={{
+            position: "absolute",
+            left: x,
+            top: y,
+            width: w,
+            height: h,
+            background: side.c,
+            pointerEvents: "none",
+            ...(topZ ? { zIndex: 5 } : {}),
+          }}
+        />
+      );
+    }
+  };
+
+  // --- Garis HORIZONTAL normal (di bawah area beku baris) --------------------
+  const hNormStart = frozenY != null ? Math.max(ws0, frEnd + 1) : ws0;
+  for (let k = hNormStart; k <= we0 + 1; k++) {
+    const y = hy(k);
+    for (const r of hRuns(k)) pushLine(r.x0, y, r.x1 - r.x0, r.side.w, r.side, false, false, k === 0);
+  }
+
+  // --- Garis HORIZONTAL area beku baris (k 0..frEnd, selalu dirender, pin) ---
+  if (frozenY != null) {
+    const fX = frozenX != null ? frozenX : contentW;
+    for (let k = 0; k <= frEnd; k++) {
+      const y = hy(k);
+      for (const r of hRuns(k)) {
+        const xr0 = r.x0 < 0 ? 0 : r.x0;
+        const xr1 = r.x1 > contentW ? contentW : r.x1;
+        if (xr1 <= xr0) continue;
+        const cut = Math.max(xr0, Math.min(xr1, fX));
+        if (frozenX != null && cut > xr0) pushLine(xr0, y, cut - xr0, r.side.w, r.side, true, true);
+        const rightX = frozenX != null ? cut : xr0;
+        if (xr1 > rightX) pushLine(rightX, y, xr1 - rightX, r.side.w, r.side, false, true);
+      }
+    }
+  }
+
+  // Emit segmen VERTIKAL boundary kolom p pada rentang baris kStart..kEnd
+  // (klip ke yStart..yEnd), di-merge per tampilan yang sama.
+  const emitV = (p, kStart, kEnd, yStart, yEnd, pinL, pinT) => {
+    if (yEnd - yStart <= 0) return;
+    if (kStart < 0) kStart = 0;
+    let runKey = null;
+    let runSide = null;
+    let runTop = 0;
+    let runBot = 0;
+    const flushV = () => {
+      if (runKey == null) return;
+      const y0 = runTop > yStart ? runTop : yStart;
+      const y1 = runBot < yEnd ? runBot : yEnd;
+      if (y1 - y0 > 0) pushLine(colXs[p], y0, runSide.w, y1 - y0, runSide, pinL, pinT);
+    };
+    for (let k = kStart; k <= kEnd && k < vN; k++) {
+      const side = valV(p, visIdx[k]);
+      const kk = side === null ? null : keyOf(side);
+      if (kk !== runKey) {
+        flushV();
+        runKey = kk;
+        runSide = side;
+        runTop = kk != null ? topOf(visIdx[k]) : 0;
+        runBot = kk != null ? botOf(visIdx[k]) : 0;
+      } else {
+        runBot = botOf(visIdx[k]);
+      }
+    }
+    flushV();
+  };
+
+  // --- Garis VERTIKAL normal (x > frozenX, di bawah area beku baris) --------
+  for (let p = 0; p <= ce + 1 && p < colXs.length; p++) {
+    const vis = (p > 0 && p - 1 < colWs.length && colWs[p - 1] > 0) || (p < colWs.length && colWs[p] > 0);
+    if (!vis) continue;
+    const x = colXs[p];
+    if (frozenX != null && x <= frozenX + 0.5) continue; // seluruhnya ditangani pinned
+    if (frozenY != null) emitV(p, ws0, we0, frozenY, contentH, false, false);
+    else emitV(p, ws0, we0, headH, contentH, false, false);
+  }
+
+  // --- Garis VERTIKAL area beku kolom (x <= frozenX, pin kiri) ---------------
+  if (frozenX != null) {
+    for (let p = 0; p < colXs.length; p++) {
+      const x = colXs[p];
+      if (x > frozenX + 0.5) continue;
+      const vis = (p > 0 && colWs[p - 1] > 0) || (p < colWs.length && colWs[p] > 0);
+      if (!vis) continue;
+      if (frozenY != null) {
+        // Di dalam baris beku (selalu dirender) → pin kiri + atas.
+        emitV(p, 0, Math.max(0, frEnd - 1), headH, frozenY, true, true);
+        // Di bawah baris beku (window) → pin kiri saja.
+        emitV(p, ws0, we0, frozenY, contentH, true, false);
+      } else {
+        // Hanya kolom beku (tanpa baris beku): seluruh tinggi pin kiri.
+        emitV(p, 0, vN - 1, headH, contentH, true, false);
+      }
+    }
+  }
+
+  // --- Garis VERTIKAL kolom biasa (x > frozenX) di dalam baris beku ----------
+  if (frozenY != null) {
+    for (let p = 0; p <= ce + 1 && p < colXs.length; p++) {
+      const vis = (p > 0 && colWs[p - 1] > 0) || (p < colWs.length && colWs[p] > 0);
+      if (!vis) continue;
+      const x = colXs[p];
+      if (frozenX != null && x <= frozenX + 0.5) continue;
+      emitV(p, 0, Math.max(0, frEnd - 1), headH, frozenY, false, true);
+    }
+  }
+
+  if (!els.length) return null;
+  return <div className="sheet-borders">{els}</div>;
+}
 
 // Deteksi kontras teks vs latar sel (WCAG relative luminance). Bila font hasil
 // impor nyaris sama-menyatu dengan latar (mis. teks putih/nipis di atas putih),
@@ -142,9 +395,9 @@ const ImagesLayer = React.memo(function ImagesLayer({
   winBottom = Infinity,
   selected = -1,
   float = null,
-  onMouseDownImg = () => {},
-  onDoubleClickImg = () => {},
-  onResizeImg = () => {},
+  onMouseDownImg = () => { },
+  onDoubleClickImg = () => { },
+  onResizeImg = () => { },
 }) {
   // Sudut gagang "ubah ukuran" pada elemen yang terpilih.
   const RESIZE_CORNERS = ["nw", "ne", "sw", "se"];
@@ -448,12 +701,12 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
           j !== i
             ? it
             : {
-                ...it,
-                dxPx: Math.round((f.x - cumW[base.col]) / zoom),
-                dyPx: Math.round((f.y - cumH[base.row]) / zoom),
-                w: Math.round(f.w / zoom),
-                h: Math.round(f.h / zoom),
-              }
+              ...it,
+              dxPx: Math.round((f.x - cumW[base.col]) / zoom),
+              dyPx: Math.round((f.y - cumH[base.row]) / zoom),
+              w: Math.round(f.w / zoom),
+              h: Math.round(f.h / zoom),
+            }
         )
       );
     };
@@ -738,7 +991,11 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
         }
         w = Math.max(34, Math.min(320, maxChars * 6.8 + 34));
       }
-      return w * zoom;
+      // SNAP ke piksel utuh (bukan float) setelah dikali zoom. Semua pemakai
+      // (thead, cell body, cumW, overlay border, sticky/frozen) memakai nilai
+      // ini sebagai SATU-SATUNYA sumber lebar kolom, sehingga tidak ada
+      // posisi/border pecahan yang bergeser saat scroll/zoom.
+      return Math.max(1, Math.round(w * zoom));
     });
   }, [columns, rows, computed, zoom]);
 
@@ -753,20 +1010,123 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
 
   // Tinggi baris dalam piksel tampilan (sudah dikali faktor zoom). Data disimpan
   // dalam unit "logis" (ukuran asli Excel); zoom hanya mengubah tampilan.
+  // Hasil di-SNAP ke bilangan bulat agar baris/garis/border selalu di batas
+  // piksel utuh dan konsisten di seluruh sumber (spacer, fill, overlay border).
   const rowPx = React.useCallback(
-    (r) => (rows[r] && rows[r].height && rows[r].height > 0 ? rows[r].height : MIN_ROW_HEIGHT) * zoom,
+    (r) =>
+      Math.max(
+        1,
+        Math.round((rows[r] && rows[r].height && rows[r].height > 0 ? rows[r].height : MIN_ROW_HEIGHT) * zoom)
+      ),
     [rows, zoom]
   );
+
+  // Lebar kolom nomor-bar/corner (snap ke piksel utuh) — dipakai konsisten di
+  // cumW, thead corner, row-num, dan overlay border agar tegak lurus terhadap
+  // lebar kolom data.
+  const RX_PX = Math.max(1, Math.round(RX_NUM * zoom));
 
   // Prefiks lebar kolom & tinggi baris (termasuk header & nomor baris) dihitung
   // SEKALI, dipakai oleh lapisan gambar & overlay seleksi (bukan di-loop per
   // gambar/per baris setiap render).
   const cumW = React.useMemo(() => {
     const a = new Array(columns.length + 1);
-    a[0] = RX_NUM * zoom;
-    for (let i = 0; i < columns.length; i++) a[i + 1] = a[i] + (allColWidth[i] || DEFAULT_COL_WIDTH * zoom);
+    a[0] = RX_PX;
+    for (let i = 0; i < columns.length; i++) {
+      const col = colByMap.get(columns[i].key);
+      const w = col && col.hidden ? 0 : (allColWidth[i] || DEFAULT_COL_WIDTH);
+      a[i + 1] = a[i] + w;
+    }
     return a;
-  }, [columns, allColWidth, zoom]);
+  }, [columns, colByMap, allColWidth, RX_PX]);
+
+  // Geometri kolom KHUSUS overlay border: lebar kolom yang dirender + posisi x
+  // kumulatifnya. Kolom hidden (renderCell mengembalikan null → di DOM kolom
+  // itu TIDAK mengambil tempat) diberi lebar 0, sehingga garis-garis overlay
+  // selalu sejajar persis dengan posisi sel yang benar-benar dirender, terlepas
+  // dari zoom. Satu-satunya sumber posisi garis VERTIKAL data.
+  const colGeo = React.useMemo(() => {
+    const ws = new Array(columns.length);
+    const xs = new Array(columns.length + 1);
+    xs[0] = RX_PX;
+    for (let i = 0; i < columns.length; i++) {
+      const col = colByMap.get(columns[i].key);
+      ws[i] = col && col.hidden ? 0 : (allColWidth[i] || DEFAULT_COL_WIDTH);
+      xs[i + 1] = xs[i] + ws[i];
+    }
+    return { ws, xs };
+  }, [columns, colByMap, allColWidth, RX_PX]);
+
+  // Bentang merge UNTUK RENDER: colspan/rowspan yang ditampilkan = jumlah
+  // kolom/baris yang BENAR-BENAR dirender (visible). Kolom/baris hidden tidak
+  // pernah menjadi slot <td> (renderCell mengembalikan null, visIdx melewatkan
+  // baris), sehingga colspan/rowspan mentah dari file LEBIH LEBAR/TINGGI dari
+  // tabel asli dan menggeser kolom/baris sesudahnya — akar masalah kolom antara
+  // C dan kolom tahun (L,M,N..) yang "bergeser" saat kolom D..K disembunyikan
+  // file. Bila kolom anchor merge tersembunyi, sel ditampilkan mulai kolom
+  // visible pertama dalam rentang (anchornya sendiri tidak punya slot <td>).
+  const mergeSpanInfo = React.useMemo(() => {
+    const info = new Map();
+    for (const mg of merges || []) {
+      if (!mg || mg.c1 == null || mg.c2 == null || mg.r1 == null || mg.r2 == null) continue;
+      let colSpan = 0;
+      let visC = -1;
+      for (let c = mg.c1; c <= mg.c2 && c < columns.length; c++) {
+        if (colGeo.ws[c] > 0) {
+          colSpan++;
+          if (visC < 0) visC = c;
+        }
+      }
+      let rowSpan = 0;
+      let visR = -1;
+      for (let r = mg.r1; r <= mg.r2 && r < rows.length; r++) {
+        if ((hiddenRows && hiddenRows.has(r)) || rows[r]?.hidden) continue;
+        rowSpan++;
+        if (visR < 0) visR = r;
+      }
+      if (colSpan <= 0 || rowSpan <= 0) continue;
+      const anchorKey =
+        visC === mg.c1 || !columns[mg.c1] ? null : columns[mg.c1].key;
+      const anchorRow = visR === mg.r1 ? null : visR;
+      info.set(`${mg.r1}:${mg.c1}`, { colSpan, rowSpan, visC, visR, anchorKey, anchorRow });
+    }
+    return info;
+  }, [merges, columns, colGeo.ws, rows, hiddenRows]);
+
+  // Kolom yang "terisi" per baris (nilai / rumus, latar, border, atau kolom
+  // tertutup merge) dipakai untuk meniru aturan overflow teks Excel: teks hanya
+  // boleh meluber ke kanan melewati sel yang masih KOSONG; bila sel di kanan
+  // terisi, teks terpotong di garis kolomnya sendiri (tidak menimpa isi/tabel).
+  const occupiedByRow = React.useMemo(() => {
+    const out = new Array(rows.length);
+    for (let r = 0; r < rows.length; r++) {
+      const rw = rows[r];
+      const set = new Set();
+      if (rw) {
+        for (let c = 0; c < allKeys.length; c++) {
+          const k = allKeys[c];
+          const v = rw[k];
+          if (v !== "" && v !== null && v !== undefined) {
+            set.add(c);
+          } else if (rw["__cv_" + k] !== undefined && rw["__cv_" + k] !== "") {
+            set.add(c);
+          } else if (rw["__" + k] || rw["__bd_" + k]) {
+            set.add(c);
+          }
+        }
+      }
+      if (mergeMap) {
+        for (const mg of mergeMap.values()) {
+          if (mg.r1 !== r) continue;
+          set.add(mg.c1);
+          for (let c = mg.c1 + 1; c <= mg.c2; c++) set.add(c);
+        }
+      }
+      out[r] = set;
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, allKeys, mergeMap]);
 
   const cumH = React.useMemo(() => {
     const a = new Array(rows.length + 1);
@@ -786,7 +1146,7 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
   const visCum = React.useMemo(() => {
     const cum = [0];
     for (let i = 0; i < rows.length; i++) {
-      if (hiddenRows && hiddenRows.has(i)) continue;
+      if ((hiddenRows && hiddenRows.has(i)) || rows[i]?.hidden) continue;
       const h = rowPx(i);
       cum.push(cum[cum.length - 1] + h);
     }
@@ -795,7 +1155,7 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
   const visIdx = React.useMemo(() => {
     const arr = [];
     for (let i = 0; i < rows.length; i++) {
-      if (hiddenRows && hiddenRows.has(i)) continue;
+      if ((hiddenRows && hiddenRows.has(i)) || rows[i]?.hidden) continue;
       arr.push(i);
     }
     return arr;
@@ -815,6 +1175,15 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
     () => rowWindowFrom(view.top || 0, view.vp || 800, visCum, visIdx, rowPx, MIN_ROW_HEIGHT * zoom),
     [view.top, view.vp, visCum, visIdx, rowPx, zoom]
   );
+
+  // Batas area beku (freeze pane) dalam KOORDINAT KONTEN — dipakai overlay
+  // border untuk tahu ke mana garis-garis area beku harus tersemat (sticky).
+  // frozenX = posisi x setelah freezeCols kolom pertama (kolom hidden tetap
+  // dihitung: lebarnya 0, jadi posisi sama dengan deretan sel yang dirender).
+  // frozenY = posisi top baris beku berikutnya (di bawah header).
+  const frozenX = freezeCols > 0 ? colGeo.xs[Math.min(freezeCols, columns.length)] : null;
+  const frRowVis = Math.min(freezeRows, visIdx.length);
+  const frozenY = freezeRows > 0 ? (headH || 26) + (visCum[frRowVis] || 0) : null;
 
   // Window KOLOM: hanya ujung KANAN (ce) yang menentukan berapa kolom dirender.
   // Kolom 0..ce (bukan cs..ce) dibangun di tbody agar posisi DOM sel tetap
@@ -1389,7 +1758,7 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
     }
     clipboardRef.current = { cut: cut && !readOnly, r1: range.r1, r2: range.r2, c1: range.c1, c2: range.c2, data, colors };
     const text = data.map((row) => row.map((x) => String(x)).join("\t")).join("\n");
-    navigator.clipboard?.writeText(text).catch(() => {});
+    navigator.clipboard?.writeText(text).catch(() => { });
     if (cut && !readOnly) {
       const newRows = rows.map((row, ri) => {
         if (ri < range.r1 || ri > range.r2) return row;
@@ -1530,7 +1899,7 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
       const text = await navigator.clipboard?.readText();
       if (!text) return;
       pasteExternalText(text);
-    } catch (_) {}
+    } catch (_) { }
   };
 
   const onColResizeStart = (ci, e) => {
@@ -1780,18 +2149,27 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
     // konsisten dengan header (col.hidden => null) — layout mengikuti Excel.
     if (col && col.hidden) return null;
     const occ = mergeMap.get(`${r}:${ci}`);
-    if (occ && (occ.r1 !== r || occ.c1 !== ci)) return null;
+    if (occ && occ.r1 !== r) {
+      return <td key={key} style={{ display: "none" }} />;
+    }
+    if (occ && occ.c1 !== ci) {
+      return null;
+    }
     const span =
-      occ && (occ.r2 !== r || occ.c2 !== ci)
-        ? { rowSpan: occ.r2 - occ.r1 + 1, colSpan: occ.c2 - occ.c1 + 1 }
+      occ && mspan && (occ.r2 !== r || occ.c2 !== ci)
+        ? { rowSpan: Math.max(1, mspan.rowSpan), colSpan: Math.max(1, mspan.colSpan) }
         : null;
     const isActive = active !== null && active.r === r && active.key === key;
     const inSel = isInRange(r, ci);
-    const rw = rows[r] || {};
-    const cached = rw["__cv_" + key];
+    const rw = rows[dataRow] || rows[r] || {};
+    const cached = rw["__cv_" + dataKey];
     const hasCached = cached !== undefined && cached !== "";
-    const cellFmt = rw["__nf_" + key] || (col && col.numFmt);
-    const rawVal = rw[key];
+    // Format angka = numFmt SEL PER-SEL dari file (General bila tidak ada).
+    // Tanpa fallback ke `col.numFmt`: kolom bisa berisi sel berformat akuntansi
+    // DAN sel berformat General (mis. header tahun) — memakai format mayoritas
+    // kolom membuat header "2014" tampil jadi "2.014,00" (beda dari file asli).
+    const cellFmt = rw["__nf_" + dataKey];
+    const rawVal = rw[dataKey];
     let value = computed ? computed.get(`${r}:${key}`) : rawVal;
     const isFormula = typeof rawVal === "string" && rawVal.startsWith("=");
     const computedError =
@@ -1825,16 +2203,15 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
       rowStyles = new Map();
       csc.map.set(rw, rowStyles);
     }
-    cellStyle = rowStyles.get(key);
+    cellStyle = rowStyles.get(dataKey);
     if (!cellStyle) {
-      const cellBg = rw["__" + key];
-      const bd = rw["__bd_" + key];
-      const bold = rw["__b_" + key];
-      const italic = rw["__i_" + key];
-      const underline = rw["__u_" + key];
-      const sz = rw["__sz_" + key];
-      const fn = rw["__fn_" + key];
-      const fc = rw["__fc_" + key];
+      const cellBg = rw["__" + dataKey];
+      const bold = rw["__b_" + dataKey];
+      const italic = rw["__i_" + dataKey];
+      const underline = rw["__u_" + dataKey];
+      const sz = rw["__sz_" + dataKey];
+      const fn = rw["__fn_" + dataKey];
+      const fc = rw["__fc_" + dataKey];
       // Teks yang kontrasnya terlalu rendah terhadap latar (nyaris putih/nyaris
       // menyatu) ditimpa warna terbaca — sisanya dipertahankan apa adanya.
       let textColor = fc;
@@ -1843,46 +2220,20 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
         const ratio = colorContrastRatio(fc, effBg);
         if (ratio !== null && ratio < FONT_CONTRAST_MIN) textColor = readableColorOn(effBg);
       }
-      const ha = rw["__ha_" + key];
-      const va = rw["__va_" + key];
-      const wrap = rw["__wr_" + key];
-      const rh = rows[r] && rows[r].height && rows[r].height > 0 ? rows[r].height * zoom : 0;
+      const ha = rw["__ha_" + dataKey];
+      const va = rw["__va_" + dataKey];
+      const wrap = rw["__wr_" + dataKey];
+      const rh = rows[r] && rows[r].height && rows[r].height > 0 ? rowPx(r) : 0;
       const baseW = { minWidth: allColWidth[ci] || DEFAULT_COL_WIDTH, width: allColWidth[ci] || DEFAULT_COL_WIDTH };
-      const borders = {};
-      if (!occ || !span) {
-        for (const s of ["t", "r", "b", "l"]) {
-          const cssKey = { t: "borderTop", r: "borderRight", b: "borderBottom", l: "borderLeft" }[s];
-          const v = bd && bd[s] ? borderSideCss(bd[s]) : s === "r" || s === "b" ? GRID_LINE : undefined;
-          if (v) borders[cssKey] = v;
-        }
-      } else {
-        const m = occ;
-        const inb = (rr, cc, side) => {
-          if (rr < 0 || rr >= rows.length) return null;
-          const k = allKeys[cc];
-          if (!k) return null;
-          const xb = rows[rr] ? rows[rr]["__bd_" + k] : null;
-          return xb && xb[side] ? xb[side] : null;
-        };
-        const pick = (arr) => {
-          for (const x of arr) if (x) return borderSideCss(x);
-          return null;
-        };
-        const topArr = [];
-        const bottomArr = [];
-        for (let c = m.c1; c <= m.c2; c++) {
-          topArr.push(inb(m.r1 - 1, c, "b"));
-          bottomArr.push(inb(m.r2 + 1, c, "t"));
-        }
-        const t = pick(topArr) || (bd && bd.t ? borderSideCss(bd.t) : undefined);
-        const b = pick(bottomArr) || (bd && bd.b ? borderSideCss(bd.b) : GRID_LINE);
-        const l = pick([inb(m.r1, m.c1 - 1, "r")]) || (bd && bd.l ? borderSideCss(bd.l) : undefined);
-        const r2b = pick([inb(m.r1, m.c2 + 1, "l")]) || (bd && bd.r ? borderSideCss(bd.r) : GRID_LINE);
-        if (t) borders.borderTop = t;
-        if (b) borders.borderBottom = b;
-        if (l) borders.borderLeft = l;
-        if (r2b) borders.borderRight = r2b;
-      }
+      // BORDER TIDAK lagi digambar di <td>. Semua garis data (border asli Excel
+      // + gridline) digambar oleh lapisan overlay GridBorderLayer dengan
+      // koordinat absolut yang SAMA dengan geometri sel, sehingga tersambung,
+      // stabil saat scroll, dan persis mengikuti border tiap cell di file.
+      // CATATAN: colSpan/rowSpan SELALU diberikan sebagai PROPS <td> asli (lihat
+      // return di bawah), BUKAN lewat style — React menulis key colSpan/rowSpan
+      // dalam objek style menjadi CSS "col-span/row-span" yang DIABAIKAN browser,
+      // sehingga merge tidak pernah benar-benar meregang dan kolom sesudahnya
+      // bergeser. Keduanya harus atribut HTML agar tabel melakukan spanning.
       cellStyle = {
         ...baseW,
         // Tinggi baris dari metadata file (hpt) — inline menimpa min-height
@@ -1898,9 +2249,8 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
         ...(ha ? { textAlign: ha } : isNum ? { textAlign: "right" } : undefined),
         ...(va ? { verticalAlign: va } : undefined),
         ...(wrap ? { whiteSpace: "pre-wrap" } : undefined),
-        ...borders,
       };
-      rowStyles.set(key, cellStyle);
+      rowStyles.set(dataKey, cellStyle);
     }
     // Freeze pane (file impor): kolom &/atau baris pertama "beku" — pakai
     // position:sticky dengan offset asal (left = cumW[ci], top = headH +
@@ -1909,7 +2259,7 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
     const frCol = freezeCols > 0 && ci < freezeCols;
     const frRow = freezeRows > 0 && r < freezeRows;
     if (frCol || frRow) {
-      const fBg = rw["__" + key] || "#ffffff";
+      const fBg = rw["__" + dataKey] || "#ffffff";
       const sticky = {
         position: "sticky",
         ...(frCol ? { left: cumW[ci] ?? 0, backgroundColor: fBg } : {}),
@@ -1917,7 +2267,7 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
         zIndex: ci < 2 ? (frRow ? 5 : 4) : frCol && frRow ? 3 : 2,
       };
       cellStyle = { ...cellStyle, ...sticky };
-      rowStyles.set(key, cellStyle);
+      rowStyles.set(dataKey, cellStyle);
     }
     // Overlay Lock/Unlock (Penugasan Tabel): tint + outline di atas tampilan asli.
     const hl = highlights.get(`${r}:${ci}`);
@@ -1928,7 +2278,7 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
         outlineOffset: "-1px",
         boxShadow: `inset 0 0 0 1000px ${hl === "lock" ? "rgba(220,38,38,0.10)" : "rgba(5,150,105,0.10)"}`,
       };
-      rowStyles.set(key, cellStyle);
+      rowStyles.set(dataKey, cellStyle);
     }
     if (isActive && inline) {
       return (
@@ -1958,6 +2308,20 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
       computed && value !== undefined
         ? formatCellValue(value, { ...(col || {}), numFmt: cellFmt })
         : formatCellValue(rawVal, { ...(col || {}), numFmt: cellFmt });
+    // Teks tanpa wrap mengikuti aturan overflow Excel: meluber ke kanan melewati
+    // sel VISIBLE yang KOSONG, lalu terpotong di garis kolomnya sendiri begitu
+    // sel visible berikutnya TERISI (nilai/latar/border/merge) — teks tidak
+    // menimpa isi tetangga. Sel kosong di kanan dibiarkan agar label panjang
+    // tampil utuh, persis Excel (bukan "keluar dari garis kotak").
+    let clipText = false;
+    if (!isNum && !rw["__wr_" + dataKey] && !span && typeof display === "string" && display.length > 0) {
+      const occSet = occupiedByRow[r];
+      if (occSet) {
+        let nc = ci + 1;
+        while (nc < columns.length && (colGeo.ws[nc] || 0) <= 0) nc++;
+        clipText = nc < columns.length && occSet.has(nc);
+      }
+    }
     const matched = !!sq && rawVal !== null && rawVal !== undefined && String(rawVal).toLowerCase().includes(sq);
     const isFillAnchor = !!sel && r === sel.r2 && ci === sel.c2;
     return (
@@ -1967,9 +2331,9 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
         colSpan={span?.colSpan}
         data-r={r}
         data-ci={ci}
-        className={`cell${isActive ? " active" : ""}${inSel ? " in-range" : ""}${
-          err ? " cell-error" : ""
-        }${isNum ? " number" : ""}${matched ? " cell-match" : ""}${ci === 0 ? " col-a" : ci === 1 ? " col-b" : ""}`}
+        {...(span ? { rowSpan: span.rowSpan, colSpan: span.colSpan } : {})}
+        className={`cell${isActive ? " active" : ""}${inSel ? " in-range" : ""}${err ? " cell-error" : ""
+          }${isNum ? " number" : ""}${matched ? " cell-match" : ""}`}
         style={cellStyle}
         onMouseDown={(e) => onCellMouseDown(r, key, e)}
         onMouseOver={() => onCellMouseOver(r, key)}
@@ -2022,9 +2386,9 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
               />
             ) : null}
             {imgEdit != null &&
-            images[imgEdit.idx] &&
-            images[imgEdit.idx].type === "shape" &&
-            rows.length > 0 ? (
+              images[imgEdit.idx] &&
+              images[imgEdit.idx].type === "shape" &&
+              rows.length > 0 ? (
               (() => {
                 const im = images[imgEdit.idx];
                 const ex = Math.max(0, Math.round(cumW[im.col] + (im.dxPx || 0) * zoom));
@@ -2076,171 +2440,199 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
                   "--headrow-h": `${headRowH || 26}px`,
                 }}
               >
-            <thead ref={theadRef}>
-              {banner && banner.label ? (
-                <tr className="sheet-banner">
-                  <th colSpan={allKeys.length + 1} style={{ ...(banner.bg ? { backgroundColor: banner.bg } : undefined), fontSize: Math.round(13 * zoom) }}>
-                    {banner.label}
-                  </th>
-                </tr>
-              ) : null}
-              <tr>
-                <th className="corner" title="Pilih semua" onClick={selectAllCells} style={{ width: RX_NUM * zoom, minWidth: RX_NUM * zoom }} />
-                {allKeys.map((key, i) => {
-                  const col = colByMap.get(key);
-                  if (col && col.hidden) return null;
-                  const w = allColWidth[i] || DEFAULT_COL_WIDTH;
-                  const colActive = active !== null && allKeys.indexOf(active.key) === i;
-                  const colActiveFilter =
-                    !!colFilter && Array.isArray(colFilter[key]) && colFilter[key].length > 0;
-                  return (
-                    <th
-                      key={key}
-                      data-cidx={i}
-                      colSpan={col && col.span && col.span > 1 ? col.span : undefined}
-                      className={`col-label${col && col.label ? "" : " empty"}${colActive ? " active" : ""}${i === 0 ? " col-a" : i === 1 ? " col-b" : ""}`}
-                      style={{
-                        minWidth: w,
-                        width: w,
-                        position: "sticky",
-                        fontSize: Math.round(11.5 * zoom),
-                        ...(col && col.bg ? { backgroundColor: col.bg } : undefined),
-                        ...(freezeCols > 0 && i < freezeCols
-                          ? { position: "sticky", left: cumW[i] ?? 0, zIndex: i < 2 ? 7 : 4 }
-                          : undefined),
-                      }}
-                      title={col && col.label ? col.label : ""}
-                      onMouseDown={(e) => onColHeaderMouseDown(i, e)}
-                      onMouseOver={() => onColHeaderMouseOver(i)}
-                      onClick={(e) => {
-                        if (e.target.closest && e.target.closest(".col-resize-handle")) return;
-                        if (e.target.closest && e.target.closest(".ee-col-filter-btn")) return;
-                        if (didDragRef.current) {
-                          didDragRef.current = false;
-                          return;
-                        }
-                        selectColumn(i, e);
-                      }}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        setContextMenu({ x: e.clientX, y: e.clientY, r: 0, ci: i });
-                      }}
-                    >
-                      <span>{col?.label || colName(i)}</span>
-                      {filterMode && onApplyColFilter ? (
-                        <button
-                          className={`ee-col-filter-btn${colActiveFilter ? " active" : ""}`}
-                          title="Filter kolom ini"
+                <thead ref={theadRef}>
+                  {banner && banner.label ? (
+                    <tr className="sheet-banner">
+                      <th colSpan={allKeys.length + 1} style={{ ...(banner.bg ? { backgroundColor: banner.bg } : undefined), fontSize: Math.round(13 * zoom) }}>
+                        {banner.label}
+                      </th>
+                    </tr>
+                  ) : null}
+                  <tr>
+                    <th className="corner" title="Pilih semua" onClick={selectAllCells} style={{ width: RX_PX, minWidth: RX_PX }} />
+                    {allKeys.map((key, i) => {
+                      const col = colByMap.get(key);
+                      if (col && col.hidden) return null;
+                      // span header (kolom yang digabung saat impor legacy) dihitung
+                      // dari kolom yang BENAR-BENAR dirender — kolom hidden tidak
+                      // punya slot <th>, jadi span mentah menggeser label berikutnya.
+                      const thSpan =
+                        col && col.span && col.span > 1
+                          ? (() => {
+                            let n = 0;
+                            for (let c = i; c < i + col.span && c < colGeo.ws.length; c++) {
+                              if (colGeo.ws[c] > 0) n++;
+                            }
+                            return n > 1 ? n : undefined;
+                          })()
+                          : undefined;
+                      const w = allColWidth[i] || DEFAULT_COL_WIDTH;
+                      const colActive = active !== null && allKeys.indexOf(active.key) === i;
+                      const colActiveFilter =
+                        !!colFilter && Array.isArray(colFilter[key]) && colFilter[key].length > 0;
+                      return (
+                        <th
+                          key={key}
+                          data-cidx={i}
+                          colSpan={col && col.span && col.span > 1 ? col.span : undefined}
+                          className={`col-label${col && col.label ? "" : " empty"}${colActive ? " active" : ""}`}
+                          style={{
+                            minWidth: w,
+                            width: w,
+                            position: "sticky",
+                            fontSize: Math.round(11.5 * zoom),
+                            ...(col && col.bg ? { backgroundColor: col.bg } : undefined),
+                            ...(freezeCols > 0 && i < freezeCols
+                              ? { position: "sticky", left: cumW[i] ?? 0, zIndex: i < 2 ? 7 : 4 }
+                              : undefined),
+                          }}
+                          title={col && col.label ? col.label : ""}
+                          onMouseDown={(e) => onColHeaderMouseDown(i, e)}
+                          onMouseOver={() => onColHeaderMouseOver(i)}
                           onClick={(e) => {
-                            e.stopPropagation();
-                            const rect = e.currentTarget.getBoundingClientRect();
-                            setFilterPopover((cur) =>
-                              cur && cur.ci === i
-                                ? null
-                                : { ci: i, x: rect.right, y: rect.bottom + 6 }
-                            );
+                            if (e.target.closest && e.target.closest(".col-resize-handle")) return;
+                            if (e.target.closest && e.target.closest(".ee-col-filter-btn")) return;
+                            if (didDragRef.current) {
+                              didDragRef.current = false;
+                              return;
+                            }
+                            selectColumn(i, e);
+                          }}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            setContextMenu({ x: e.clientX, y: e.clientY, r: 0, ci: i });
                           }}
                         >
-                          &#128269;
-                        </button>
-                      ) : null}
-                      <div
-                        className="col-resize-handle"
-                        onMouseDown={(e) => onColResizeStart(i, e)}
-                      />
-                    </th>
-                  );
-                })}
-              </tr>
-            </thead>
-            <tbody>
-              {(() => {
-                const frEnd = Math.min(freezeRows, visIdx.length);
-                const wStart = Math.max(win[0], frEnd);
-                const showWindow = wStart <= win[1] ? visIdx.slice(wStart, win[1] + 1) : [];
-                const spacerNeeded = win[0] > frEnd;
-                return (
-                  <>
-                    {spacerNeeded ? (
-                      <tr className="sheet-top-spacer">
-                        <td
-                          colSpan={allKeys.length + 1}
-                          style={{ height: visCum[win[0]] - visCum[frEnd] || 0, border: "none" }}
-                        />
-                      </tr>
-                    ) : null}
-                    {visIdx.slice(0, frEnd).concat(showWindow).map((r) => {
-                      const row = rows[r];
-                      const rowActive = active !== null && active.r === r;
-                      const isFrozenRow = r < frEnd;
-                      return (
-                        <tr
-                          key={row.id ?? `row-${r}`}
-                          data-r={r}
-                          className={`data-row${rowActive ? " row-active" : ""}${isFrozenRow ? " frz-row" : ""}`}
-                        >
-                          <th
-                            className={`row-num${rowActive ? " active" : ""}`}
-                            style={{
-                              height: row.height && row.height > 0 ? Math.round(row.height * zoom) : undefined,
-                              width: RX_NUM * zoom,
-                              minWidth: RX_NUM * zoom,
-                              fontSize: Math.round(11 * zoom),
-                              ...(isFrozenRow
-                                ? {
-                                    position: "sticky",
-                                    top: (headH || 26) + (visCumByRow.get(r) || 0),
-                                    zIndex: 5,
-                                  }
-                                : undefined),
-                            }}
-                            onMouseDown={(e) => {
-                              if (e.target.closest && e.target.closest(".row-resize-handle")) return;
-                              onRowHeaderMouseDown(r, e);
-                            }}
-                            onMouseOver={() => onRowHeaderMouseOver(r)}
-                            onClick={(e) => {
-                              if (e.target.closest && e.target.closest(".row-resize-handle")) return;
-                              if (didDragRef.current) {
-                                didDragRef.current = false;
-                                return;
-                              }
-                              selectRow(r, e);
-                            }}
-                            title={`Pilih baris ${r + 1}`}
-                            onContextMenu={(e) => {
-                              e.preventDefault();
-                              setContextMenu({ x: e.clientX, y: e.clientY, r, ci: 0 });
-                            }}
-                          >
-                            <span>{r + 1}</span>
-                            <div
-                              className="row-resize-handle"
-                              onMouseDown={(e) => onRowResizeStart(r, e)}
-                            />
-                          </th>
-                          {colKeys.map((ci) => renderCell(r, ci))}
-                        </tr>
+                          <span>{col?.label || colName(i)}</span>
+                          {filterMode && onApplyColFilter ? (
+                            <button
+                              className={`ee-col-filter-btn${colActiveFilter ? " active" : ""}`}
+                              title="Filter kolom ini"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                setFilterPopover((cur) =>
+                                  cur && cur.ci === i
+                                    ? null
+                                    : { ci: i, x: rect.right, y: rect.bottom + 6 }
+                                );
+                              }}
+                            >
+                              &#128269;
+                            </button>
+                          ) : null}
+                          <div
+                            className="col-resize-handle"
+                            onMouseDown={(e) => onColResizeStart(i, e)}
+                          />
+                        </th>
                       );
                     })}
-                  </>
-                );
-              })()}
-              <tr className="sheet-fill">
-                <td
-                  colSpan={allKeys.length + 1}
-                  style={{
-                    height: Math.max(
-                      0,
-                      (visCum[visCum.length - 1] || 0) - (visCum[win[1] + 1] !== undefined ? visCum[win[1] + 1] : visCum[visCum.length - 1] || 0)
-                    ),
-                    border: "none",
-                  }}
-                />
-              </tr>
-            </tbody>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(() => {
+                    const frEnd = Math.min(freezeRows, visIdx.length);
+                    const wStart = Math.max(win[0], frEnd);
+                    const showWindow = wStart <= win[1] ? visIdx.slice(wStart, win[1] + 1) : [];
+                    const spacerNeeded = win[0] > frEnd;
+                    return (
+                      <>
+                        {spacerNeeded ? (
+                          <tr className="sheet-top-spacer">
+                            <td
+                              colSpan={allKeys.length + 1}
+                              style={{ height: visCum[win[0]] - visCum[frEnd] || 0, border: "none" }}
+                            />
+                          </tr>
+                        ) : null}
+                        {visIdx.slice(0, frEnd).concat(showWindow).map((r) => {
+                          const row = rows[r];
+                          const rowActive = active !== null && active.r === r;
+                          const isFrozenRow = r < frEnd;
+                          return (
+                            <tr
+                              key={row.id ?? `row-${r}`}
+                              data-r={r}
+                              className={`data-row${rowActive ? " row-active" : ""}${isFrozenRow ? " frz-row" : ""}`}
+                            >
+                              <th
+                                className={`row-num${rowActive ? " active" : ""}`}
+                                style={{
+                                  height: rowPx(r),
+                                  width: RX_PX,
+                                  minWidth: RX_PX,
+                                  fontSize: Math.round(11 * zoom),
+                                  ...(isFrozenRow
+                                    ? {
+                                      position: "sticky",
+                                      top: (headH || 26) + (visCumByRow.get(r) || 0),
+                                      zIndex: 5,
+                                    }
+                                    : undefined),
+                                }}
+                                onMouseDown={(e) => {
+                                  if (e.target.closest && e.target.closest(".row-resize-handle")) return;
+                                  onRowHeaderMouseDown(r, e);
+                                }}
+                                onMouseOver={() => onRowHeaderMouseOver(r)}
+                                onClick={(e) => {
+                                  if (e.target.closest && e.target.closest(".row-resize-handle")) return;
+                                  if (didDragRef.current) {
+                                    didDragRef.current = false;
+                                    return;
+                                  }
+                                  selectRow(r, e);
+                                }}
+                                title={`Pilih baris ${r + 1}`}
+                                onContextMenu={(e) => {
+                                  e.preventDefault();
+                                  setContextMenu({ x: e.clientX, y: e.clientY, r, ci: 0 });
+                                }}
+                              >
+                                <span>{r + 1}</span>
+                                <div
+                                  className="row-resize-handle"
+                                  onMouseDown={(e) => onRowResizeStart(r, e)}
+                                />
+                              </th>
+                              {colKeys.map((ci) => renderCell(r, ci))}
+                            </tr>
+                          );
+                        })}
+                      </>
+                    );
+                  })()}
+                  <tr className="sheet-fill">
+                    <td
+                      colSpan={allKeys.length + 1}
+                      style={{
+                        height: Math.max(
+                          0,
+                          (visCum[visCum.length - 1] || 0) - (visCum[win[1] + 1] !== undefined ? visCum[win[1] + 1] : visCum[visCum.length - 1] || 0)
+                        ),
+                        border: "none",
+                      }}
+                    />
+                  </tr>
+                </tbody>
               </table>
             </div>
+            <GridBorderLayer
+              rows={rows}
+              allKeys={allKeys}
+              colWs={colGeo.ws}
+              colXs={colGeo.xs}
+              win={win}
+              ce={Math.max(colCe, freezeCols - 1)}
+              visIdx={visIdx}
+              rowTop={visCumByRow}
+              rowH={rowPx}
+              mergeMap={mergeMap}
+              headH={headH || 26}
+              frozenX={frozenX}
+              frozenY={frozenY}
+            />
           </div>
         )}
       </div>

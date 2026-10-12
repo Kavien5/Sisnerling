@@ -298,14 +298,14 @@ const ref = sheet["!ref"];
   const widthPx = (fc) => {
     // Lebar persis dari file, per KOLOM: prioritas wpx (penulis file sudah
     // menyimpan piksel), lalu wch (karakter → piksel rumus Excel), lalu width
-    // karakter. Kolom yang tidak diset mengikuti default Excel (64px).
+    // karakter.
     const fcChars = typeof fc.width === "number" && fc.width > 0 ? fc.width : null;
     const px =
       fc.wpx ||
-      (typeof fc.wch === "number" && fc.wch > 0 ? Math.round(fc.wch * 7 + 5) : 0) ||
-      (fcChars ? Math.round(fcChars * 7 + 5) : 0);
+      (typeof fc.wch === "number" && fc.wch > 0 ? Math.round(fc.wch * 8 + 12) : 0) ||
+      (fcChars ? Math.round(fcChars * 8 + 12) : 0);
     if (px > 0) return Math.max(6, Math.min(1200, Math.round(px)));
-    return 64;
+    return null;
   };
 
   // Tinggi baris bawaan Excel bila file tidak mendeklarasikan hpt untuk baris
@@ -317,14 +317,14 @@ const ref = sheet["!ref"];
   const fmtTally = {};
   for (let i = 0; i < nCols; i++) {
     const fc = fileCols[i] || {};
+    const wp = widthPx(fc);
     const col = {
       key: colName(i),
       label: colName(i),
       type: "text",
-      width: widthPx(fc),
-      manual: true,
+      ...(wp ? { width: wp, manual: true } : {}),
     };
-    if (fc.hidden) col.hidden = true;
+    if (fc.hidden || fc.Hidden || fc.h) col.hidden = true;
     columns.push(col);
   }
 
@@ -338,7 +338,7 @@ const ref = sheet["!ref"];
     // Bawah hanya membuang tinggi 0/negatif, atas ~600px (Excel maks 409,5pt).
     const hpt = typeof rh.hpt === "number" && rh.hpt > 0 ? rh.hpt : DEFAULT_ROWS_HPT;
     row.height = Math.max(4, Math.min(600, Math.round((hpt * 96) / 72)));
-    if (rh.hidden) row.hidden = true;
+    if (rh.hidden || rh.Hidden || rh.h) row.hidden = true;
     for (let c = 0; c < nCols; c++) {
       const cell = sheet[XLSX.utils.encode_cell({ r, c })];
       const k = colName(c);
@@ -976,6 +976,10 @@ const headerBg = [];
         col.manual = true;
       }
     }
+    // Kolom yang disembunyikan file ikut disembunyikan (kolom hidden tidak
+    // mengambil slot <td>, jadi tanpa ini semua kolom tampil dan data bergeser
+    // ke kanan — tidak lagi 1:1 dengan file asli).
+    if (fcDef && fcDef.hidden) col.hidden = true;
     columns.push(col);
   }
 
@@ -1123,6 +1127,7 @@ const headerBg = [];
     if (rd && typeof rd.hpt === "number" && rd.hpt > 14) {
       row.height = Math.min(160, Math.round(rd.hpt + 4));
     }
+    if (rd && rd.hidden) row.hidden = true;
   });
 
   // Pertahankan gabungan sel (merged cells) dari file asli, dipetakan ulang ke indeks
@@ -1445,7 +1450,7 @@ export function bakeThemeColors(wb) {
 // Hasilnya dipakai editor untuk menampilkan status "1:1" atau daftar sel.
 // =====================================================================
 export function debugImportFidelity(wb, opts = {}) {
-  const report = { differences: 0, checked: 0, sheets: [] };
+  const report = { differences: 0, checked: 0, sheets: [], valueDiff: 0, styleDiff: 0, nfDiff: 0, mergeDiff: 0, dimDiff: 0, extentDiff: 0 };
   if (!wb || !Array.isArray(wb.SheetNames)) return report;
   const themes = wb.themes && wb.themes.themeElements ? wb.themes : null;
   // default: grid yang SAMA dengan yang dipakai aplikasi. Bisa dioverride
@@ -1511,39 +1516,49 @@ export function debugImportFidelity(wb, opts = {}) {
       }
     });
 
-    const normBg = (hex) => {
-      if (!hex) return "";
-      let h = String(hex).replace("#", "").toUpperCase();
-      if (h.length === 8) h = h.slice(2);
-      return h.length === 6 ? "#" + h : h;
-    };
     const styleOf = (row, colKey, cell) => {
       const s = cell && cell.s ? cell.s : null;
       const out = {};
-      const bgR = row["__" + colKey];
-      const bgS = s && s.fill && s.fill.fgColor ? normBg(s.fill.fgColor.rgb) : "";
-      if ((bgR && bgR !== "#ffffff") || bgS) {
-        const expected = bgS;
-        const got = bgR || "";
-        if (got.toLowerCase() !== expected.toLowerCase()) out.fill = `${expected} vs ${got}`;
+      // FILL: panggil resolver yang SAMA dengan importer (cellBgColor menangani
+      // tema/tint + fallback fg/bgColor). Fill putih eksplisit DIBUANG importer,
+      // sehingga tidak dihitung sebagai beda. Membandingkan s.fill.fgColor.rgb
+      // mentah salah besar: fill ber-tema tidak punya .rgb → dianggap beda untuk
+      // SEMUA sel yang memakai warna tema.
+      const bgE = cellBgColor(cell, themes);
+      const bgG = row["__" + colKey] || "";
+      if (bgE && bgE.toLowerCase() !== "#ffffff" && bgG.toLowerCase() !== bgE.toLowerCase()) {
+        out.fill = `${bgE} vs ${bgG || "-"}`;
       }
+      // FONT: bold/italic/underline/size/nama + warna (lewat resolver sama).
       const f = s && s.font ? s.font : null;
       if (!!f && !!f.bold !== !!row["__b_" + colKey]) out.bold = true;
       if (!!f && !!f.italic !== !!row["__i_" + colKey]) out.italic = true;
       if (f && !!f.underline !== !!row["__u_" + colKey]) out.underline = true;
       if (f && f.sz && row["__sz_" + colKey] && f.sz !== row["__sz_" + colKey]) out.size = `${f.sz} vs ${row["__sz_" + colKey]}`;
-      const ha = s && s.alignment && s.alignment.horizontal;
-      if (ha && ha !== (row["__ha_" + colKey] || "")) out.align = `${ha} vs ${row["__ha_" + colKey] || "-"}`;
-      const sides = ["t", "b", "l", "r"];
-      const keyM = { t: "top", r: "right", b: "bottom", l: "left" };
-      const w2s = (w) => (w >= 3 ? "thick" : w >= 2 ? "medium" : "thin");
-      const bdW = row["__bd_" + colKey];
-      for (const sd of sides) {
-        const fb = s && s.border ? s.border[sd] || s.border[keyM[sd]] : null;
-        const es = fb && fb.style && fb.style !== "none" ? fb.style : null;
-        const bw = bdW && bdW[sd];
-        const gs = bw && bw.w ? w2s(bw.w) : null;
-        if ((es || gs) && es !== gs) out["border" + sd] = `${es || "-"} vs ${gs || "-"}`;
+      if (f && f.name && row["__fn_" + colKey] && f.name !== row["__fn_" + colKey]) out.font = `${f.name} vs ${row["__fn_" + colKey]}`;
+      const fcE = cellFontColor(cell, themes);
+      const fcG = row["__fc_" + colKey] || "";
+      if (fcE && fcG.toLowerCase() !== fcE.toLowerCase()) out.fcolor = `${fcE} vs ${fcG || "-"}`;
+      // ALIGN: horizontal/vertical (center→middle) & wrap — pola penyimpanan
+      // persis seperti importer.
+      const al = s && s.alignment ? s.alignment : null;
+      if (al) {
+        const va = al.vertical === "center" ? "middle" : al.vertical;
+        if (al.horizontal && al.horizontal !== (row["__ha_" + colKey] || "")) out.align = `${al.horizontal} vs ${row["__ha_" + colKey] || "-"}`;
+        if (va && va !== (row["__va_" + colKey] || "")) out.valign = `${va} vs ${row["__va_" + colKey] || "-"}`;
+        if (!!al.wrapText !== !!row["__wr_" + colKey]) out.wrap = true;
+      }
+      // BORDER: bandingkan lewat serapan yang SAMA (cellBorder → {w,c}). Gaya
+      // hair/dotted/dashed/double di-flatten 1px/3px oleh importer; membandingkan
+      // NAMA gaya Excel ("hair" vs "thin") menghitung sel-sel ber-border putus-
+      // putus/purpur sebagai beda padahal tampilannya identik.
+      const bdE = cellBorder(cell) || {};
+      const bdG = row["__bd_" + colKey] || {};
+      for (const sd of ["t", "b", "l", "r"]) {
+        const ew = bdE[sd] && bdE[sd].w;
+        const gw = bdG[sd] && bdG[sd].w;
+        if ((ew || gw) && ew !== gw) out["border" + sd] = `${ew || "-"}px vs ${gw || "-"}px`;
+        else if (ew && (!bdG[sd] || !bdG[sd].c || bdG[sd].c.toLowerCase() !== bdE[sd].c.toLowerCase())) out["border" + sd] = `${bdE[sd].c} vs ${(bdG[sd] && bdG[sd].c) || "-"}`;
       }
       return Object.keys(out).length ? out : null;
     };
@@ -1590,6 +1605,12 @@ export function debugImportFidelity(wb, opts = {}) {
     const sheetDiffs = valueDiff + nfDiff + mergeDiff + styleDiff + dimDiff + (extentNote ? 1 : 0);
     report.differences += sheetDiffs;
     report.checked += checked;
+    report.valueDiff += valueDiff;
+    report.styleDiff += styleDiff;
+    report.nfDiff += nfDiff;
+    report.mergeDiff += mergeDiff;
+    report.dimDiff += dimDiff;
+    if (extentNote) report.extentDiff += 1;
     report.sheets.push({
       name,
       columns: sh.columns.length,

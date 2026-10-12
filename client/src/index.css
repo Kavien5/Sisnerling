@@ -1631,6 +1631,26 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--primary)
   position: relative;
 }
 
+/* Lapisan garis border + gridline DATA (GridBorderLayer): digambar dengan
+   koordinat absolut SAMA dengan geometri sel (satu sumber), jadi posisinya
+   stabil/tersambung saat scroll & virtualisasi (tidak bergeser/menyusut).
+   TIDAK memakai z-index sendiri (z auto): garis sticky area beku (z 5) ikut
+   bersaing global sehingga bisa tampil DI ATAS header/sel beku, sedangkan
+   garis normal (z auto) tetap di atas sel tapi di bawah gambar/preview. */
+.sheet-borders {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.sheet-borders .gb-line {
+  pointer-events: none;
+}
+/* Anchor sticky garis area beku: selapis absolute seukuran konten agar
+   posisi statis bertumpu pada koordinat sendiri (bukan menumpuk di alur). */
+.sheet-borders .gb-anchor {
+  pointer-events: none;
+}
+
 /* Lapisan gambar/bentuk dari file Excel: posisinya mengikuti kolom/baris model
    (lihat ImagesLayer). Di bawah header sticky (z 4-7) dan tidak menghalangi
    klik/editing sel (pointer-events: none). */
@@ -1931,6 +1951,15 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--primary)
    sebelahnya, bukan membuat baris menjadi sangat tinggi). */
 .sheet td.cell.wrap {
   white-space: pre-wrap;
+}
+
+/* Teks yang kolom di kanannya TERISI dipotong di garis kolomnya sendiri,
+   persis aturan overflow Excel (teks tidak boleh menimpa isi sel tetangga).
+   Sel kosong di kanan tetap membiarkan teks tampil utuh/meluber. */
+.sheet td.cell.cell-clip {
+  overflow: hidden;
+  text-overflow: clip;
+  white-space: pre;
 }
 
 .sheet td.cell.number { text-align: right; font-variant-numeric: tabular-nums; }
