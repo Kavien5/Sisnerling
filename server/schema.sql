@@ -143,6 +143,17 @@ CREATE TABLE IF NOT EXISTS statistical_cells (
     REFERENCES statistical_sheets(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Jejak ramah-isi sel statistik per modul. Dipakai memuat cepat saat start:
+-- jika nilai/rumus/sheet tidak berubah sejak boot terakhir, kalkulasi ulang
+-- (yang butuh puluhan detik) dapat dilewati dengan aman.
+CREATE TABLE IF NOT EXISTS statistical_module_state (
+  module_key VARCHAR(80) NOT NULL PRIMARY KEY,
+  seed_hash CHAR(64) NOT NULL,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_stat_state_module FOREIGN KEY (module_key)
+    REFERENCES statistical_modules(module_key) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS riwayat (
   id INT AUTO_INCREMENT PRIMARY KEY,
   kategori_id INT NULL,
@@ -194,6 +205,142 @@ CREATE TABLE IF NOT EXISTS sessions (
   expires_at DATETIME NOT NULL,
   CONSTRAINT fk_sessions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
+
+-- =====================================================================
+-- TASK 3: inventaris logis (generic long-format + rule engine)
+-- Didefinisikan di _analisis/skema-db-task3.md; diisi oleh
+-- server/scripts/build-inventaris.js
+-- =====================================================================
+
+CREATE TABLE IF NOT EXISTS dim_tahun (
+  tahun INT NOT NULL PRIMARY KEY,
+  tahun_label VARCHAR(16) NOT NULL,
+  status ENUM('tetap','sementara','sangat_sementara') NOT NULL DEFAULT 'tetap',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS inventaris_file (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  kode VARCHAR(10) NOT NULL UNIQUE,
+  nama VARCHAR(191) NOT NULL,
+  workbook_key VARCHAR(255) NULL,
+  source_file VARCHAR(255) NOT NULL,
+  urutan INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS inventaris_sheet (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  file_id INT NOT NULL,
+  nama VARCHAR(191) NOT NULL,
+  urutan INT NOT NULL DEFAULT 0,
+  peran ENUM('primary','parameter','dokumentasi','skema','induk') NULL,
+  stat_sheet_id INT NULL,
+  UNIQUE KEY uk_inv_sheet (file_id, nama),
+  KEY idx_inv_sheet_file (file_id),
+  FOREIGN KEY (file_id) REFERENCES inventaris_file(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS inventaris_tabel (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  sheet_id INT NOT NULL,
+  blok_no INT NOT NULL,
+  nama VARCHAR(191) NOT NULL,
+  r1 INT NOT NULL,
+  r2 INT NOT NULL,
+  c1 INT NULL,
+  c2 INT NULL,
+  axis ENUM('tahun','triwulan','tunggal','teks','kosong') NOT NULL DEFAULT 'tunggal',
+  tahun_c1 INT NULL,
+  tahun_c2 INT NULL,
+  jenis ENUM('data','teks','helper','kosong') NOT NULL DEFAULT 'data',
+  n_cell INT NULL,
+  UNIQUE KEY uk_inv_tabel (sheet_id, blok_no),
+  KEY idx_inv_tabel_sheet (sheet_id),
+  FOREIGN KEY (sheet_id) REFERENCES inventaris_sheet(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS inventaris_variabel (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  tabel_id INT NOT NULL,
+  row_no INT NOT NULL,
+  nama VARCHAR(255) NOT NULL,
+  nama_bersih VARCHAR(255) NULL,
+  satuan VARCHAR(100) NULL,
+  sumber VARCHAR(255) NULL,
+  jenis_nilai ENUM('angka','teks','tanggal','kosong') NOT NULL DEFAULT 'angka',
+  tipe ENUM('input_manual','hasil_formulasi','formula_tapi_input_manual') NOT NULL,
+  n_sel INT NOT NULL DEFAULT 0,
+  isian_sample VARCHAR(2048) NULL,
+  rule_pengisian MEDIUMTEXT NULL,
+  rule_parsed JSON NULL,
+  refer_keluar JSON NULL,
+  sel_direfer INT NOT NULL DEFAULT 0,
+  status_verifikasi ENUM('kurasi','otomatis') NOT NULL DEFAULT 'otomatis',
+  UNIQUE KEY uk_inv_var (tabel_id, row_no),
+  KEY idx_inv_var_tipe (tipe),
+  FOREIGN KEY (tabel_id) REFERENCES inventaris_tabel(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS inventaris_cell_map (
+  variabel_id INT NOT NULL,
+  sheet_id INT NOT NULL,
+  row_no INT NOT NULL,
+  col_no INT NOT NULL,
+  pos ENUM('data','label','axis','helper') NOT NULL DEFAULT 'data',
+  PRIMARY KEY (sheet_id, row_no, col_no),
+  KEY idx_cm_var (variabel_id),
+  FOREIGN KEY (variabel_id) REFERENCES inventaris_variabel(id) ON DELETE CASCADE,
+  FOREIGN KEY (sheet_id) REFERENCES inventaris_sheet(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS inventaris_dependensi (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  dari_variabel_id INT NOT NULL,
+  ke_variabel_id INT NOT NULL,
+  src_cell VARCHAR(60) NOT NULL,
+  via_rule TINYINT(1) NOT NULL DEFAULT 1,
+  UNIQUE KEY uk_dep (dari_variabel_id, ke_variabel_id, src_cell),
+  KEY idx_dep_ke (ke_variabel_id),
+  FOREIGN KEY (dari_variabel_id) REFERENCES inventaris_variabel(id) ON DELETE CASCADE,
+  FOREIGN KEY (ke_variabel_id) REFERENCES inventaris_variabel(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS nilai_variabel (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  variabel_id INT NOT NULL,
+  tahun INT NULL,
+  periode VARCHAR(20) NULL,
+  tahun_label VARCHAR(16) NULL,
+  status_angka ENUM('tetap','sementara','sangat_sementara') NULL,
+  pos VARCHAR(40) NULL,
+  nilai JSON NULL,
+  nilai_num DECIMAL(24,6) NULL,
+  satuan VARCHAR(100) NULL,
+  sumber VARCHAR(255) NULL,
+  hasil_final TINYINT(1) NOT NULL DEFAULT 0,
+  versi BIGINT UNSIGNED NOT NULL DEFAULT 1,
+  updated_by INT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_nilai (variabel_id, tahun, periode, pos),
+  KEY idx_nilai_var (variabel_id, hasil_final),
+  KEY idx_nilai_thn (tahun),
+  KEY idx_nilai_num (variabel_id, nilai_num),
+  FOREIGN KEY (variabel_id) REFERENCES inventaris_variabel(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS nilai_variabel_revisi (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  nilai_id BIGINT NOT NULL,
+  nilai_lama JSON NULL,
+  nilai_baru JSON NULL,
+  actor INT NULL,
+  alasan VARCHAR(500) NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_nvr_nilai (nilai_id),
+  FOREIGN KEY (nilai_id) REFERENCES nilai_variabel(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT IGNORE INTO kategori (id, nama_kategori, deskripsi) VALUES
   (1, 'Neraca Terintegrasi', 'Data neraca terintegrasi'),

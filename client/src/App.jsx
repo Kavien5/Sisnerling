@@ -13,7 +13,7 @@ import AuditLogs from "./pages/AuditLogs.jsx";
 import Login from "./pages/Login.jsx";
 import Register from "./pages/Register.jsx";
 import { AdminUsers, AdminTables, AdminMaintenance, AdminBackup, AdminSettings, MaintenancePage, AdminMaintenanceBlockedPage } from "./pages/AdminPages.jsx";
-import { loadFiles, saveFile, removeFile, generateId, clearAllFiles, hydrateFiles } from "./excelStorage.js";
+import { loadFiles, saveFile, removeFile, generateId, clearAllFiles, hydrateFiles, enrichSheetNames } from "./excelStorage.js";
 import { api } from "./api.js";
 import { getToken, getUser, setAuth, clearAuth, updateStoredUser, isSuperAdmin, hasMaintenanceBypass, canEditData } from "./auth.js";
 
@@ -26,6 +26,9 @@ export default function App() {
   const [authReady, setAuthReady] = React.useState(false);
   const [authMode, setAuthMode] = React.useState("login");
   const [maintenance, setMaintenance] = React.useState(null);
+  // Cegah efek simpan-otomatis menulis ulang file hanya karena daftar
+  // disegarkan (hidrasi/rename) — penyimpanan diubah hanya oleh aksi pengguna.
+  const skipAutoSaveRef = React.useRef(false);
 
   // Cek status maintenance secara berkala (dipakai untuk gerbang halaman).
   const pollMaintenance = React.useCallback(async () => {
@@ -94,7 +97,17 @@ export default function App() {
     let alive = true;
     hydrateFiles()
       .then(() => {
-        if (alive) setImportedFiles(loadFiles());
+        if (alive) {
+          skipAutoSaveRef.current = true;
+          setImportedFiles(loadFiles());
+          // Lengkapi nama sheet file lama di latar belakang (satu per tick)
+          // agar membuka halaman daftar file tidak perlu mem-parse semua file.
+          enrichSheetNames(() => {
+            if (!alive) return;
+            skipAutoSaveRef.current = true;
+            setImportedFiles(loadFiles());
+          });
+        }
       })
       .catch(() => {});
     return () => {
@@ -103,9 +116,12 @@ export default function App() {
   }, []);
 
   React.useEffect(() => {
-    if (importedFiles.length > 0) {
-      saveFile(importedFiles[importedFiles.length - 1]);
+    if (importedFiles.length === 0) return;
+    if (skipAutoSaveRef.current) {
+      skipAutoSaveRef.current = false;
+      return;
     }
+    saveFile(importedFiles[importedFiles.length - 1]);
   }, [importedFiles]);
 
   const handleLogin = (token, u) => {
@@ -178,7 +194,8 @@ export default function App() {
     if (!entry) return;
     const trimmed = String(namaBaru || "").trim();
     if (!trimmed) return;
-    saveFile({ id: entry.id, fileName: trimmed, workbook: entry.workbook, rawBase64: entry.rawBase64 });
+    saveFile({ id: entry.id, fileName: trimmed, sheetNames: entry.sheetNames, rawBase64: entry.rawBase64 });
+    skipAutoSaveRef.current = true;
     setImportedFiles(loadFiles());
   };
 
@@ -193,7 +210,9 @@ export default function App() {
   };
 
   const handleNavigate = (nextPage) => {
-    if (nextPage === "spreadsheet") setActiveFileId(null);
+    if (nextPage === "statistik") {
+      setActiveFileId(null);
+    }
     setPage(nextPage);
   };
 
@@ -259,9 +278,16 @@ export default function App() {
               openFileId={activeFileId}
             />
           ) : (
-            <StatisticalSpreadsheet user={user} />
+            <div className="empty-state">
+              <h2 style={{ marginBottom: 8 }}>Belum ada file dibuka</h2>
+              <p>Pilih file dari menu <strong>File &amp; Import</strong> untuk mulai mengedit di sini.</p>
+              <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => setPage("files")}>
+                Buka File &amp; Import
+              </button>
+            </div>
           )
         )}
+        {page === "statistik" && <StatisticalSpreadsheet user={user} />}
         {page === "files" && (
           <FilesPage
             files={importedFiles}

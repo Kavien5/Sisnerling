@@ -761,6 +761,7 @@ export default function Layout({ page, setPage, children, importedFiles, user, o
     if (page === "laporan") return "Laporan";
     if (page === "import-result") return "Hasil Import";
     if (page === "spreadsheet") return "Spreadsheet";
+    if (page === "statistik") return "Spreadsheet Statistik";
     if (page === "files") return "File & Import";
     if (page === "panduan") return "Panduan Penggunaan";
     if (page === "audit-log") return "Audit Log";
@@ -930,6 +931,7 @@ export default function Layout({ page, setPage, children, importedFiles, user, o
         <nav className="sidebar-nav">
           {renderLeaf({ key: "dashboard", label: "Dashboard", icon: IconDashboard })}
           {renderLeaf({ key: "spreadsheet", label: "Spreadsheet", icon: IconFileSpreadsheet })}
+          {renderLeaf({ key: "statistik", label: "Spreadsheet Statistik", icon: IconFileSpreadsheet })}
           {renderLeaf({ key: "files", label: "File & Import", icon: IconDatabase })}
           {renderLeaf({ key: "kategori", label: "Kategori", icon: IconTag })}
           {renderLeaf({ key: "laporan", label: "Laporan", icon: IconFileText })}

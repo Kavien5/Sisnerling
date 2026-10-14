@@ -1,4 +1,5 @@
 import * as XLSX from "xlsx-js-style";
+import JSZip from "jszip";
 import { bakeThemeColors } from "./excelImportUtil.js";
 import { applyStylesManifest } from "./excelRawStyles.js";
 import { removeDraftSheets } from "./excelDrafts.js";
@@ -185,34 +186,115 @@ export function hydrateFiles() {
   return hydrationPromise;
 }
 
+// Parse base64 → workbook HANYA saat benar-benar dipakai. loadFiles() dahulu
+// memanggil XLSX.read untuk SEMUA file tersimpan secara sinkron; bila pengguna
+// punya beberapa file besar (ratusan KB–MB), ini membekukan main thread saat
+// aplikasi dibuka (halaman login terasa lag/berat, "page is having a problem").
+function parseStoredWorkbook(item) {
+  const b64 = item.rawBase64 || item.base64;
+  if (!b64) return null;
+  const wb = XLSX.read(b64, { type: "base64", cellDates: true, cellStyles: true });
+  // XLSX.write membuang gambar saat penyimpanan, jadi gambar file asli
+  // disimpan terpisah dan dipulihkan ke workbook setelah di-parse ulang.
+  if (item.images) wb.__images = item.images;
+  // Reader tidak mempertahankan border/font/alignment — pulihkan dari
+  // manifest style yang tersimpan saat import agar hasil refresh konsisten.
+  if (item.styles) {
+    applyStylesManifest(wb, item.styles);
+    wb.__stylesManifest = item.styles;
+  }
+  return wb;
+}
+
+// Daftar file ringan (tanpa parse). `workbook` baru diparse saat diakses
+// (getter), lalu di-cache per entri. `sheetNames` memakai metadata tersimpan
+// (tanpa parse) sehingga daftar file / statistik tidak lagi membekukan render.
 export function loadFiles() {
   try {
     const list = memoryList !== null ? memoryList : loadFilesMeta();
     if (!Array.isArray(list)) return [];
-    return list.map((item) => {
-      try {
-        // Reload dari base64 — gunakan base64 mentah asli (rawBase64) bila
-        // tersimpan, atau fallback ke base64 hasil XLSX.write (hasil rebuild).
-        const b64 = item.rawBase64 || item.base64;
-        if (!b64) return null;
-        const wb = XLSX.read(b64, { type: "base64", cellDates: true, cellStyles: true });
-        // XLSX.write membuang gambar saat penyimpanan, jadi gambar file asli
-        // disimpan terpisah dan dipulihkan ke workbook setelah di-parse ulang.
-        if (item.images) wb.__images = item.images;
-        // Reader tidak mempertahankan border/font/alignment — pulihkan dari
-        // manifest style yang tersimpan saat import agar hasil refresh konsisten.
-        if (item.styles) {
-          applyStylesManifest(wb, item.styles);
-          wb.__stylesManifest = item.styles;
-        }
-        return { id: item.id, fileName: item.fileName, savedAt: item.savedAt, workbook: wb, sheetNames: wb.SheetNames, rawBase64: item.rawBase64 || "" };
-      } catch {
-        return null;
-      }
-    }).filter(Boolean);
+    return list
+      .map((item) => {
+        if (!(item.rawBase64 || item.base64)) return null;
+        const entry = {
+          id: item.id,
+          fileName: item.fileName,
+          savedAt: item.savedAt,
+          rawBase64: item.rawBase64 || "",
+          sheetNames: Array.isArray(item.sheetNames) ? item.sheetNames.slice() : undefined,
+        };
+        let cached = null;
+        Object.defineProperty(entry, "workbook", {
+          enumerable: true,
+          get() {
+            if (!cached) {
+              cached = parseStoredWorkbook(item);
+              // Simpan nama sheet yang baru diketahui agar akses berikutnya
+              // (dan setelah disimpan ulang) tidak perlu parse lagi.
+              if (cached && !Array.isArray(item.sheetNames)) item.sheetNames = cached.SheetNames;
+            }
+            return cached;
+          },
+        });
+        return entry;
+      })
+      .filter(Boolean);
   } catch {
     return [];
   }
+}
+
+// Baca nama sheet langsung dari `xl/workbook.xml` di dalam ZIP xlsx. Jauh
+// lebih ringan daripada XLSX.read penuh (tidak menyentuh data sel/style) dan
+// berjalan asinkron (JSZip) sehingga tidak membekukan main thread.
+export async function readSheetNamesFromBase64(b64) {
+  if (!b64) return [];
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const zip = await JSZip.loadAsync(bytes);
+  const file = zip.file("xl/workbook.xml");
+  if (!file) return [];
+  const xml = await file.async("string");
+  const names = [];
+  const re = /<sheet\b[^>]*\bname="([^"]*)"/g;
+  let m;
+  while ((m = re.exec(xml)) !== null) {
+    names.push(
+      m[1]
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"')
+        .replace(/&apos;/g, "'")
+        .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+        .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
+        .replace(/&amp;/g, "&")
+    );
+  }
+  return names;
+}
+
+// Lengkapi nama sheet untuk file lama yang belum menyimpannya (metadata).
+// Membaca workbook.xml secara asinkron (bukan parse penuh) untuk semua file
+// sekaligus, lalu mempersistensikan metadata dan memanggil `onUpdate`.
+export function enrichSheetNames(onUpdate) {
+  const list = memoryList;
+  if (!Array.isArray(list)) return;
+  const pending = list.filter(
+    (e) => !Array.isArray(e.sheetNames) && (e.rawBase64 || e.base64)
+  );
+  if (!pending.length) return;
+  Promise.all(
+    pending.map(async (item) => {
+      try {
+        item.sheetNames = await readSheetNamesFromBase64(item.rawBase64 || item.base64);
+      } catch (_) { /* lewati file rusak */ }
+    })
+  ).then(() => {
+    persistList(memoryList);
+    idbWrite(memoryList).catch(() => {});
+    if (typeof onUpdate === "function") onUpdate();
+  });
 }
 
 export function saveFile(fileEntry) {
@@ -249,6 +331,13 @@ export function saveFile(fileEntry) {
   if (imgs && Object.keys(imgs).length > 0) entry.images = imgs;
   const styles = (fileEntry.workbook && fileEntry.workbook.__stylesManifest) || (prior && prior.styles);
   if (styles) entry.styles = styles;
+  // Simpan daftar nama sheet sebagai metadata ringan agar daftar file &
+  // statistik tidak perlu mem-parse workbook setiap kali halaman dibuka.
+  const sheetNames =
+    (Array.isArray(fileEntry.sheetNames) && fileEntry.sheetNames) ||
+    (prior && Array.isArray(prior.sheetNames) && prior.sheetNames) ||
+    (fileEntry.workbook && Array.isArray(fileEntry.workbook.SheetNames) ? fileEntry.workbook.SheetNames : null);
+  if (sheetNames && sheetNames.length) entry.sheetNames = sheetNames.slice();
   const exists = list.findIndex((f) => f.id === entry.id);
   if (exists >= 0) {
     list[exists] = entry;

@@ -1239,14 +1239,23 @@ export function AdminTables() {
   }, [pv, pvSheets]);
 
   const externalHook = React.useMemo(() => {
-    const byKey = new Map();
+    const index = new Map();
     for (const f of files) {
-      if (!f || !f.workbook) continue;
+      if (!f) continue;
       for (const k of [String(f.fileName || "").toUpperCase(), baseNameOf(String(f.fileName)).toUpperCase()]) {
-        if (k && !byKey.has(k)) byKey.set(k, f.workbook);
+        if (k && !index.has(k)) index.set(k, f);
       }
     }
-    return createExternalResolverHook ? createExternalResolverHook(byKey) : null;
+    const lazyWorkbooks = {
+      get(k) {
+        const f = index.get(k);
+        return f ? f.workbook : undefined;
+      },
+      has(k) {
+        return index.has(k);
+      },
+    };
+    return createExternalResolverHook ? createExternalResolverHook(lazyWorkbooks) : null;
   }, [files]);
 
   const computed = React.useMemo(() => {

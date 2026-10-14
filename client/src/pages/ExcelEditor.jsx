@@ -241,14 +241,25 @@ export default function ExcelEditor({ importedFiles = [], onFilesChanged, readOn
   // (masih asli) untuk referensi antar-file. Rumus di dalamnya ikut dievaluasi,
   // dan resolver dimemo sehingga referensi melingkar antar-file jadi #CYCLE!.
   const externalHook = React.useMemo(() => {
-    const byKey = new Map();
+    const index = new Map();
     for (const f of importedFiles) {
       const names = [String(f.fileName).toUpperCase(), baseNameOf(f.fileName).toUpperCase()];
       for (const k of names) {
-        if (k && !byKey.has(k)) byKey.set(k, f.workbook);
+        if (k && !index.has(k)) index.set(k, f);
       }
     }
-    return createExternalResolverHook(byKey);
+    // Resolver malas: workbook file lain hanya diparse bila benar-benar
+    // dirujuk oleh rumus lintas-file — bukan untuk semua file saat mount.
+    const lazyWorkbooks = {
+      get(k) {
+        const f = index.get(k);
+        return f ? f.workbook : undefined;
+      },
+      has(k) {
+        return index.has(k);
+      },
+    };
+    return createExternalResolverHook(lazyWorkbooks);
   }, [importedFiles]);
 
   // Performa: deteksi apakah sheet aktif memuat rumus. Sheet tanpa rumus (mayoritas

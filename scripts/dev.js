@@ -61,21 +61,26 @@ const run = (name, cmd, args, cwd, logFile, opts = {}) => {
 // Tunggu sampai server benar-benar menulis tanda siap di stdout-nya.
 // Lebih deterministik daripada polling port TCP (tidak terpengaruh IPv4/IPv6,
 // TIME_WAIT, atau proses lain yang sempat memakai port).
-function waitServerReady(child, timeout = 30000) {
+// Tanpa batas waktu mati: saat pertama kali berjalan skema statistik (F3/F4)
+// bisa perlu ~50 dtk untuk menyetel nilai formula. Selama proses server masih
+// hidup, tunggu; baru berhenti bila proses server benar-benar keluar.
+function waitServerReady(child) {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(new Error(`Server API tidak siap dalam ${timeout}ms`));
-    }, timeout);
+    let elapsed = 0;
+    const progress = setInterval(() => {
+      elapsed += 10;
+      console.log(`[startup] Server API masih memulai... (${elapsed}s). Cek logs/server.log untuk progres.`);
+    }, 10000);
     const onData = (buf) => {
       if (String(buf).includes("Server API berjalan")) {
-        clearTimeout(timer);
+        clearInterval(progress);
         child.stdout.removeListener("data", onData);
         resolve();
       }
     };
     child.stdout.on("data", onData);
     child.once("exit", (code) => {
-      clearTimeout(timer);
+      clearInterval(progress);
       reject(new Error(`Server API berhenti sebelum siap (kode ${code})`));
     });
   });

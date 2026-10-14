@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node scripts/dev.js",
     "install:all": "npm --prefix server install && npm --prefix client install",
-    "build": "npm --prefix client run build",
+    "build": "npm --prefix client run build && node scripts/sync-build.js",
     "start": "node server/server.js",
     "server": "npm --prefix server run dev",
     "client": "npm --prefix client run dev"

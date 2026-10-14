@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const { pathToFileURL } = require("url");
 const ExcelJS = require("exceljs");
 const express = require("express");
@@ -453,6 +454,18 @@ async function seedModule(module) {
   await initializeModuleFormulaValues(module.key);
 }
 
+// Jejak isi modul yang menentukan hasil kalkulasi. Diperbarui tiap kali
+// initializeModuleFormulaValues menuntaskan kalkulasi ulang sehingga boot
+// berikutnya bisa melewati proses tersebut bila belum ada perubahan.
+function moduleStateHash(sheets, cells) {
+  const h = crypto.createHash("sha256");
+  for (const s of sheets) h.update(`${s.id}|${s.nama}|${s.urutan}|${s.max_row}|${s.max_col};`);
+  for (const c of cells) {
+    h.update(`${c.sheet_id}|${c.row_no}|${c.col_no}|${c.jenis}|${c.nilai ?? ""}|${c.formula ?? ""}|${c.formula_fallback ?? 0}|${c.external_formula ?? 0};`);
+  }
+  return h.digest("hex");
+}
+
 async function initializeModuleFormulaValues(moduleKey) {
   const engine = await getFormulaEngine();
   const [sheets] = await pool.query(
@@ -465,6 +478,14 @@ async function initializeModuleFormulaValues(moduleKey) {
       WHERE s.module_key = ?`,
     [moduleKey]
   );
+
+  const hash = moduleStateHash(sheets, cells);
+  const [[state]] = await pool.query(
+    "SELECT seed_hash FROM statistical_module_state WHERE module_key = ?",
+    [moduleKey]
+  );
+  if (state && state.seed_hash === hash) return;
+
   const initialResults = await evaluateTargets(sheets, cells, engine);
   const fallbackKeys = [];
   for (const cell of cells) {
@@ -499,6 +520,11 @@ async function initializeModuleFormulaValues(moduleKey) {
       [serializeCellOutput(result), sheetId, rowNo, colNo]
     );
   }
+
+  await pool.query(
+    "INSERT INTO statistical_module_state (module_key, seed_hash) VALUES (?, ?) ON DUPLICATE KEY UPDATE seed_hash = VALUES(seed_hash)",
+    [moduleKey, hash]
+  );
 }
 
 async function initializeStatisticalWorkbooks() {
