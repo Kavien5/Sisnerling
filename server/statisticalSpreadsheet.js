@@ -6,6 +6,7 @@ const ExcelJS = require("exceljs");
 const express = require("express");
 const { pool } = require("./db");
 const { getWorkbookAccess } = require("./collab");
+const { logAudit } = require("./auditLog");
 
 const MODULES = [
   {
@@ -15,6 +16,7 @@ const MODULES = [
     sourceFile: "neraca-hutan.xlsx",
     primarySheets: ["Jati Jawa", "Rimba Jawa", "Rimba Luar Jawa", "Indonesia", "Rekap Hutan Indonesia"],
     parameterSheets: ["Data Penunjang"],
+    maxTahun: 2024,
   },
   {
     key: "neraca-mineral-energi",
@@ -23,6 +25,7 @@ const MODULES = [
     sourceFile: "neraca-mineral-energi.xlsx",
     primarySheets: ["Oil", "Gas", "Coal", "Gold", "Silver", "Copper", "Tin", "Nickel", "Bauxite"],
     parameterSheets: ["Lakin", "Conversion Factor", "Harga Acuan"],
+    maxTahun: 2019,
   },
 ];
 
@@ -399,10 +402,11 @@ async function seedModule(module) {
       sheet.worksheet.eachRow({ includeEmpty: false }, (row, rowNo) => {
         if (row.height) heights.push([rowNo, row.height]);
       });
+      const isHiddenSheet = sheet.worksheet.state === 'hidden' || sheet.worksheet.state === 'veryHidden';
       const [insertedSheet] = await connection.query(
         `INSERT INTO statistical_sheets
-          (module_key, nama, urutan, max_row, max_col, permission_sheet_id, merges, column_widths, row_heights)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (module_key, nama, urutan, max_row, max_col, permission_sheet_id, hidden, merges, column_widths, row_heights)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           module.key,
           sheet.nama,
@@ -410,6 +414,7 @@ async function seedModule(module) {
           sheet.maxRow,
           sheet.maxCol,
           permissionSheetId,
+          isHiddenSheet ? 1 : 0,
           JSON.stringify(merges),
           JSON.stringify(widths),
           JSON.stringify(heights),
@@ -577,6 +582,7 @@ function outputCell(cell, engine, calculated = null) {
     ref: engine.cellAddress(Number(cell.col_no) - 1, Number(cell.row_no) - 1),
     kind: cell.jenis,
     value: current,
+    formula: cell.jenis === "formula" ? cell.formula : null,
     version: Number(cell.versi),
     numberFormat: cell.number_format,
   };
@@ -620,6 +626,115 @@ async function recalculateAndSave(connection, moduleKey, sheets, cells, targetKe
   return recalculated;
 }
 
+function isEngineError(value) {
+  return typeof value === "string" && value.startsWith("#");
+}
+
+function locateCell(cells, sheetId, rowNo, colNo) {
+  return cells.find((candidate) =>
+    Number(candidate.sheet_id) === Number(sheetId) &&
+    Number(candidate.row_no) === Number(rowNo) &&
+    Number(candidate.col_no) === Number(colNo)
+  );
+}
+
+function normalizeFormulaInput(value) {
+  let text = typeof value === "string" ? value.trim() : "";
+  if (text.startsWith("=")) text = text.slice(1).trim();
+  return text;
+}
+
+// Validasi kandidat rumus baru dengan mesin rumus SEBELUM disimpan. Melempar
+// error ber-status (400/422) bila rumus tidak layak; mengembalikan hasil
+// evaluasi sel target serta daftar sel terdampak bila lolos.
+async function validateFormulaChange({ sheets, cells, cell, newFormula, engine }) {
+  if (!newFormula) {
+    throw Object.assign(new Error("Rumus tidak boleh kosong."), { status: 400 });
+  }
+  if (newFormula.length > 5000) {
+    throw Object.assign(new Error("Rumus terlalu panjang (maksimal 5000 karakter)."), { status: 400 });
+  }
+  if (isExternalFormula(newFormula)) {
+    throw Object.assign(
+      new Error("Rumus dengan referensi berkas eksternal ([...]) tidak dapat dihitung ulang oleh sistem."),
+      { status: 400 }
+    );
+  }
+
+  const targetKey = toFormulaKey(cell.sheet_id, cell.row_no, cell.col_no);
+  // Simulasikan kondisi pasca-simpan: rumus baru + flag fallback dibersihkan
+  // agar buildWorkbookState mengevaluasi rumus (bukan hasil cache lama).
+  const cellsWithNew = cells.map((candidate) =>
+    toFormulaKey(candidate.sheet_id, candidate.row_no, candidate.col_no) === targetKey
+      ? { ...candidate, formula: newFormula, formula_fallback: 0 }
+      : candidate
+  );
+
+  let dependentsOld;
+  let dependentsNew;
+  try {
+    dependentsOld = buildDependents(cells, sheets, engine);
+    dependentsNew = buildDependents(cellsWithNew, sheets, engine);
+  } catch (error) {
+    throw Object.assign(new Error(error.message || "Rumus tidak dapat dibaca."), { status: 400 });
+  }
+
+  const union = new Map();
+  for (const [key, list] of dependentsOld) union.set(key, [...(union.get(key) || []), ...list]);
+  for (const [key, list] of dependentsNew) union.set(key, [...(union.get(key) || []), ...list]);
+  const affected = new Set([targetKey]);
+  for (const key of affectedFormulaKeys(targetKey, union)) affected.add(key);
+
+  for (const key of affected) {
+    if (key === targetKey) continue;
+    const dependent = locateCell(cells, ...key.split(":").map(Number));
+    if (dependent && dependent.jenis === "formula" && dependent.formula_fallback && !dependent.external_formula) {
+      throw Object.assign(
+        new Error(
+          `Perubahan memengaruhi rumus ${dependent.sheet_name}!${engine.cellAddress(Number(dependent.col_no) - 1, Number(dependent.row_no) - 1)} yang memerlukan sumber yang belum tersedia; rumus tidak disimpan.`
+        ),
+        { status: 422 }
+      );
+    }
+  }
+
+  const results = await evaluateTargets(sheets, cellsWithNew, engine, affected);
+  const nextValue = results.get(targetKey);
+  if (isEngineError(nextValue)) {
+    throw Object.assign(
+      new Error(
+        `Rumus baru menghasilkan ${nextValue} pada ${cell.sheet_name}!${engine.cellAddress(Number(cell.col_no) - 1, Number(cell.row_no) - 1)}; rumus tidak disimpan.`
+      ),
+      { status: 400 }
+    );
+  }
+
+  const regressions = [];
+  for (const key of affected) {
+    if (key === targetKey) continue;
+    const dependent = locateCell(cells, ...key.split(":").map(Number));
+    if (!dependent || dependent.jenis !== "formula") continue;
+    const baseline = decodeValue(parseJson(dependent.hasil));
+    if (baseline === null || baseline === undefined) continue;
+    const next = results.get(key);
+    if (!isEngineError(baseline) && isEngineError(next)) {
+      regressions.push(
+        `${dependent.sheet_name}!${engine.cellAddress(Number(dependent.col_no) - 1, Number(dependent.row_no) - 1)} → ${next}`
+      );
+    }
+  }
+  if (regressions.length) {
+    throw Object.assign(
+      new Error(
+        `Rumus baru membuat hasil sebelumnya valid menjadi error: ${regressions.slice(0, 8).join("; ")}`
+      ),
+      { status: 400, details: regressions }
+    );
+  }
+
+  return { value: nextValue, affected };
+}
+
 async function createStatisticalRouter({ pool: db = pool } = {}) {
   const router = express.Router();
   const engine = await getFormulaEngine();
@@ -634,7 +749,7 @@ async function createStatisticalRouter({ pool: db = pool } = {}) {
         const access = await getWorkbookAccess(_req.user, module.workbook_key);
         if (!access.read) continue;
         const [sheets] = await db.query(
-          `SELECT id, nama, urutan, max_row, max_col, permission_sheet_id
+          `SELECT id, nama, urutan, max_row, max_col, permission_sheet_id, hidden
              FROM statistical_sheets WHERE module_key = ? ORDER BY urutan`,
           [module.module_key]
         );
@@ -642,6 +757,7 @@ async function createStatisticalRouter({ pool: db = pool } = {}) {
           key: module.module_key,
           name: module.nama,
           workbookKey: module.workbook_key,
+          maxTahun: MODULES.find((entry) => entry.key === module.module_key)?.maxTahun ?? null,
           access,
           sheets: sheets.map((sheet) => ({
             id: Number(sheet.id),
@@ -652,6 +768,7 @@ async function createStatisticalRouter({ pool: db = pool } = {}) {
             primary: MODULES.find((entry) => entry.key === module.module_key)?.primarySheets.includes(sheet.nama) || false,
             parameter: MODULES.find((entry) => entry.key === module.module_key)?.parameterSheets.includes(sheet.nama) || false,
             permissionSheetId: Number(sheet.permission_sheet_id),
+            hidden: !!sheet.hidden,
           })),
         });
       }
@@ -713,6 +830,41 @@ async function createStatisticalRouter({ pool: db = pool } = {}) {
         },
         cells: cells.map((cell) => outputCell(cell, engine)),
       });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get("/formula/history", async (req, res, next) => {
+    try {
+      if (req.user.role !== "super_admin") {
+        return res.status(403).json({ error: "Hanya Super Admin yang dapat melihat riwayat rumus" });
+      }
+      const sheetId = Number(req.query.sheet_id);
+      const rowNo = Number(req.query.row);
+      const colNo = Number(req.query.col);
+      if (![sheetId, rowNo, colNo].every(Number.isSafeInteger) || sheetId < 1 || rowNo < 1 || colNo < 1) {
+        return res.status(400).json({ error: "Identitas sel tidak valid" });
+      }
+      const [[sheet]] = await db.query("SELECT id FROM statistical_sheets WHERE id = ?", [sheetId]);
+      if (!sheet) return res.status(404).json({ error: "Tabel statistik tidak ditemukan" });
+      const [rows] = await db.query(
+        `SELECT h.id, h.old_formula, h.new_formula, h.old_hasil, h.changed_at, u.nama AS changed_by_name
+           FROM statistical_formula_history h
+           LEFT JOIN users u ON u.id = h.changed_by
+          WHERE h.sheet_id = ? AND h.row_no = ? AND h.col_no = ?
+          ORDER BY h.id DESC
+          LIMIT 5`,
+        [sheetId, rowNo, colNo]
+      );
+      res.json(rows.map((row) => ({
+        id: Number(row.id),
+        oldFormula: row.old_formula,
+        newFormula: row.new_formula,
+        oldHasil: decodeValue(parseJson(row.old_hasil)),
+        changedAt: row.changed_at,
+        changedByName: row.changed_by_name || null,
+      })));
     } catch (error) {
       next(error);
     }
@@ -823,6 +975,155 @@ async function createStatisticalRouter({ pool: db = pool } = {}) {
     }
   });
 
+  router.put("/formula", async (req, res, next) => {
+    const connection = await db.getConnection();
+    try {
+      if (req.user.role !== "super_admin") {
+        return res.status(403).json({ error: "Hanya Super Admin yang dapat mengubah rumus" });
+      }
+      const sheetId = Number(req.body && req.body.sheet_id);
+      const rowNo = Number(req.body && req.body.row);
+      const colNo = Number(req.body && req.body.col);
+      const baseVersion = Number(req.body && req.body.base_version);
+      const isPreview = !!(req.body && req.body.preview);
+      if (![sheetId, rowNo, colNo].every(Number.isSafeInteger) || sheetId < 1 || rowNo < 1 || colNo < 1) {
+        return res.status(400).json({ error: "Identitas sel tidak valid" });
+      }
+      const newFormula = normalizeFormulaInput(req.body && req.body.formula);
+
+      const [[sheet]] = await db.query(
+        `SELECT s.*, m.workbook_key FROM statistical_sheets s
+           JOIN statistical_modules m ON m.module_key = s.module_key
+          WHERE s.id = ?`,
+        [sheetId]
+      );
+      if (!sheet) return res.status(404).json({ error: "Tabel statistik tidak ditemukan" });
+
+      if (isPreview) {
+        const { sheets, cells } = await loadModuleState(db, sheet.module_key);
+        const cell = locateCell(cells, sheetId, rowNo, colNo);
+        if (!cell || cell.jenis !== "formula") {
+          return res.status(400).json({ error: "Hanya sel formula yang memiliki rumus" });
+        }
+        if (cell.external_formula) {
+          return res.status(400).json({ error: "Rumus eksternal diimpor dari berkas lain dan tidak dapat diubah di sini" });
+        }
+        try {
+          const result = await validateFormulaChange({ sheets, cells, cell, newFormula, engine });
+          return res.json({ ok: true, value: result.value ?? null, affectedCount: result.affected.size });
+        } catch (error) {
+          if (error.status) {
+            return res.status(error.status).json({ error: error.message, details: error.details || null });
+          }
+          throw error;
+        }
+      }
+
+      if (!Number.isSafeInteger(baseVersion) || baseVersion < 1) {
+        return res.status(400).json({ error: "Versi dasar sel wajib valid" });
+      }
+      await connection.beginTransaction();
+      const [[sheetRef]] = await connection.query(
+        "SELECT module_key FROM statistical_sheets WHERE id = ?",
+        [sheetId]
+      );
+      if (!sheetRef) {
+        await connection.rollback();
+        return res.status(404).json({ error: "Tabel statistik tidak ditemukan" });
+      }
+      const [[moduleLock]] = await connection.query(
+        "SELECT module_key FROM statistical_modules WHERE module_key = ? FOR UPDATE",
+        [sheetRef.module_key]
+      );
+      if (!moduleLock) {
+        await connection.rollback();
+        return res.status(404).json({ error: "Modul statistik tidak ditemukan" });
+      }
+      const { sheets, cells } = await loadModuleState(connection, sheetRef.module_key, true);
+      const cell = locateCell(cells, sheetId, rowNo, colNo);
+      if (!cell || cell.jenis !== "formula") {
+        await connection.rollback();
+        return res.status(400).json({ error: "Hanya sel formula yang memiliki rumus" });
+      }
+      if (cell.external_formula) {
+        await connection.rollback();
+        return res.status(400).json({ error: "Rumus eksternal diimpor dari berkas lain dan tidak dapat diubah di sini" });
+      }
+      if (Number(cell.versi) !== baseVersion) {
+        await connection.rollback();
+        return res.status(409).json({ error: "Sel ini sudah diubah pengguna lain. Muat ulang sebelum menyimpan.", current: outputCell(cell, engine) });
+      }
+
+      let validation;
+      try {
+        validation = await validateFormulaChange({ sheets, cells, cell, newFormula, engine });
+      } catch (error) {
+        await connection.rollback();
+        if (error.status) {
+          return res.status(error.status).json({ error: error.message, details: error.details || null });
+        }
+        throw error;
+      }
+
+      const oldFormula = cell.formula;
+      const oldHasil = decodeValue(parseJson(cell.hasil));
+      const cellRef = engine.cellAddress(colNo - 1, rowNo - 1);
+      await connection.query(
+        `INSERT INTO statistical_formula_history
+           (sheet_id, row_no, col_no, old_formula, new_formula, old_hasil, changed_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [sheetId, rowNo, colNo, oldFormula, newFormula, cell.hasil ?? null, req.user.id]
+      );
+      await connection.query(
+        "UPDATE statistical_cells SET formula = ?, formula_fallback = 0, versi = versi + 1, updated_by = ? WHERE sheet_id = ? AND row_no = ? AND col_no = ?",
+        [newFormula, req.user.id, sheetId, rowNo, colNo]
+      );
+      cell.formula = newFormula;
+      cell.formula_fallback = 0;
+      cell.versi = Number(cell.versi) + 1;
+
+      const dependents = buildDependents(cells, sheets, engine);
+      const targetKey = toFormulaKey(sheetId, rowNo, colNo);
+      const affected = new Set([targetKey]);
+      for (const key of affectedFormulaKeys(targetKey, dependents)) affected.add(key);
+      const recalculated = await recalculateAndSave(connection, sheetRef.module_key, sheets, cells, affected, engine);
+      await connection.commit();
+
+      logAudit({
+        userId: req.user.id,
+        action: "update",
+        module: "statistical",
+        description: `Ubah rumus ${sheet.nama}!${cellRef} pada modul ${sheetRef.module_key}`,
+        oldData: { formula: oldFormula, hasil: oldHasil },
+        newData: { formula: newFormula },
+        req,
+      });
+
+      res.json({
+        message: "Rumus berhasil diperbarui",
+        cell: {
+          row: rowNo,
+          col: colNo,
+          ref: cellRef,
+          formula: newFormula,
+          value: validation.value ?? null,
+          version: baseVersion + 1,
+        },
+        recalculated,
+      });
+    } catch (error) {
+      try {
+        await connection.rollback();
+      } catch (rollbackError) {
+        console.error("Gagal membatalkan transaksi perubahan rumus statistik:", rollbackError);
+      }
+      if (error.status) return res.status(error.status).json({ error: error.message });
+      next(error);
+    } finally {
+      connection.release();
+    }
+  });
+
   router.post("/modules/:moduleKey/sheets/:sheetId/tahun", async (req, res, next) => {
     const connection = await db.getConnection();
     try {
@@ -860,6 +1161,12 @@ async function createStatisticalRouter({ pool: db = pool } = {}) {
         ), engine.colName);
         if (!runs.length) continue;
         const latestYear = Math.max(...runs.map((run) => run.lastYear));
+        if (module.maxTahun && latestYear >= module.maxTahun) {
+          await connection.rollback();
+          return res.status(422).json({
+            error: `Tahun sudah mencapai batas template (${module.maxTahun}). Tidak dapat menambah tahun lagi.`,
+          });
+        }
         const latestRuns = runs.filter((run) => run.lastYear === latestYear);
         const selectedRuns = [...new Map(latestRuns.map((run) => [
           `${run.startCol}:${run.endCol}`,

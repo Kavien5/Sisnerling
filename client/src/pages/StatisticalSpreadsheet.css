@@ -194,6 +194,24 @@
   color: var(--stat-primary);
 }
 
+.stat-hidden-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: #f1f5f9;
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.stat-dark .stat-hidden-badge {
+  background: #1f2937;
+  color: #9ca3af;
+}
+
 .stat-table-heading {
   justify-content: space-between;
   gap: 16px;
@@ -413,6 +431,20 @@
   font-variant-numeric: tabular-nums;
 }
 
+.stat-structured-table .stat-formula-cell input {
+  display: block;
+  width: 100%;
+  min-width: 58px;
+  border: 0;
+  outline: 0;
+  padding: 4px;
+  color: inherit;
+  background: transparent;
+  text-align: right;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
 .stat-table .stat-year-header-row td {
   position: sticky;
   z-index: 3;
@@ -494,6 +526,197 @@
 
 .stat-formula-value {
   font-variant-numeric: tabular-nums;
+}
+
+/* ---- Pemicu ubah rumus (khusus Super Admin) pada sel formula ---- */
+.stat-page button.stat-formula-edit {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  width: 100%;
+  min-height: 28px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  white-space: nowrap;
+}
+
+.stat-page button.stat-formula-edit:hover:not(:disabled) {
+  background: rgba(23, 107, 85, .09);
+  box-shadow: inset 0 0 0 1px var(--stat-primary);
+}
+
+.stat-page button.stat-formula-edit-label {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.stat-dark button.stat-formula-edit:hover:not(:disabled) {
+  background: rgba(98, 194, 160, .12);
+}
+
+/* ---- Dialog editor rumus ---- */
+.stat-formula-loc {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--stat-muted);
+  letter-spacing: .02em;
+}
+
+.stat-formula-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--stat-muted);
+  margin: 12px 0 4px;
+}
+
+.stat-formula-current,
+.stat-formula-input {
+  box-sizing: border-box;
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--stat-text);
+  background: var(--stat-bg);
+  border: 1px solid var(--stat-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.stat-formula-current {
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-height: 20px;
+}
+
+.stat-formula-input {
+  background: var(--stat-surface);
+  resize: vertical;
+  outline: none;
+}
+
+.stat-formula-input:focus {
+  border-color: var(--stat-primary);
+  box-shadow: 0 0 0 3px var(--stat-primary-soft);
+}
+
+.stat-formula-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.stat-page .stat-formula-btn {
+  border: 1px solid var(--stat-border);
+  background: var(--stat-surface);
+  color: var(--stat-text);
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font: inherit;
+  white-space: nowrap;
+}
+
+.stat-page .stat-formula-btn:hover:not(:disabled) {
+  border-color: var(--stat-primary);
+}
+
+.stat-page .stat-formula-btn:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.stat-page .stat-formula-btn-primary {
+  background: var(--stat-primary);
+  border-color: var(--stat-primary);
+  color: #fff;
+}
+
+.stat-dark .stat-formula-btn-primary {
+  color: #0b1a15;
+}
+
+.stat-page .stat-formula-btn-small {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.stat-formula-preview {
+  font-size: 12px;
+  font-weight: 700;
+  color: #027a48;
+  background: #ecfdf3;
+  border: 1px solid #a6f4c5;
+  border-radius: 999px;
+  padding: 4px 12px;
+}
+
+.stat-dark .stat-formula-preview {
+  color: #6ee7b7;
+  background: #1d3a34;
+  border-color: #2b5a4c;
+}
+
+.stat-formula-error {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #b42318;
+  background: #fef3f2;
+  border: 1px solid #fecdca;
+  border-radius: 8px;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+}
+
+.stat-dark .stat-formula-error {
+  color: #fda29b;
+  background: #3a1d1d;
+  border-color: #5a2b2b;
+}
+
+.stat-formula-history {
+  margin-top: 14px;
+  border-top: 1px solid var(--stat-border);
+  padding-top: 4px;
+}
+
+.stat-formula-history-empty {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--stat-muted);
+}
+
+.stat-formula-history-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--stat-border);
+  font-size: 12px;
+}
+
+.stat-formula-history-item > span {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stat-formula-history-item > small {
+  color: var(--stat-muted);
+  white-space: nowrap;
 }
 
 @media (max-width: 800px) {

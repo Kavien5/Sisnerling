@@ -226,6 +226,10 @@ export const api = {
     request(`/api/statistical/modules/${encodeURIComponent(moduleKey)}/sheets/${sheetId}/tahun`, { method: "POST", body: "{}" }),
   statisticalReset: (moduleKey) =>
     request(`/api/statistical/modules/${encodeURIComponent(moduleKey)}/reset`, { method: "POST", body: "{}" }),
+  statisticalUpdateFormula: (body) =>
+    request("/api/statistical/formula", { method: "PUT", body: JSON.stringify(body) }),
+  statisticalFormulaHistory: (sheetId, row, col) =>
+    request(`/api/statistical/formula/history?sheet_id=${sheetId}&row=${row}&col=${col}`),
 };
 
 export const formatRupiah = (n) =>

@@ -1,6 +1,6 @@
-# Kamus Variabel — LK Neraca Fisik & Moneter Hutan dan LK Timber
+buatk# Kamus Variabel — LK Neraca Fisik & Moneter Hutan dan LK Timber
 
-> Hasil identifikasi otomatis seluruh sheet, tabel, variabel (baris/kolom), isi sel, rumus, dan keterkaitannya dari dua file Excel.
+> Hasil identifikasi otomatis seluruh sheet, tabel, variabel (baris/kolom), isi sel, rumsus, dan keterkaitannya dari dua file Excel.
 > Tujuan: dasar perancangan skema database untuk migrasi ke website. Dokumen ini = tahap identifikasi (belum desain tabel DB).
 
 File yang dianalisis:

@@ -1,6 +1,7 @@
 import React from "react";
 import { api } from "../api.js";
 import { ShareDialog } from "../components/CollabPanels.jsx";
+import Modal from "../components/Modal.jsx";
 import "./StatisticalSpreadsheet.css";
 
 const cellKey = (row, col) => `${row}:${col}`;
@@ -33,6 +34,13 @@ function findYearBlocks(cells) {
 
   const blocks = new Map();
   for (const [rowNo, row] of rows) {
+    const rowCells = [...row.values()];
+    const hasHeaderLabel = rowCells.some((cell) => {
+      const v = formatValue(cell?.value).trim();
+      if (!v) return false;
+      return /^(perincian|description|unit|tahun|year|periode|periode tahun)$/i.test(v);
+    });
+    if (!hasHeaderLabel && rowNo > 25) continue;
     const entries = [...row.entries()].sort(([left], [right]) => left - right);
     let run = [];
     const addRun = () => {
@@ -69,13 +77,37 @@ function findYearBlocks(cells) {
   return [...blocks.values()].sort((left, right) => left.startCol - right.startCol);
 }
 
-function buildStructuredTables(sheet, cells) {
-  const blocks = findYearBlocks(cells);
+function filterSheetsByGroup(sheets, group) {
+  return sheets.filter((sheet) => {
+    if (sheet.hidden) return group === "other" || group === "all";
+    if (group === "primary") return sheet.primary;
+    if (group === "parameters") return sheet.parameter;
+    if (group === "other") return !sheet.primary && !sheet.parameter;
+    return true;
+  });
+}
+
+function buildStructuredTables(sheet, cells, opts = {}) {
+  let blocks = findYearBlocks(cells);
+  const minYear = opts.minYear;
+  const maxYear = opts.maxYear;
   const cellsByKey = new Map(cells.map((cell) => [cellKey(cell.row, cell.col), cell]));
   const rowNumbers = cells.map((cell) => cell.row);
   if (!rowNumbers.length) return [];
   const firstRow = Math.min(...rowNumbers);
   const lastRow = Math.max(...rowNumbers);
+  if (minYear || maxYear) {
+    blocks = blocks
+      .map((block) => {
+        if (minYear && block.lastYear < minYear) return null;
+        if (maxYear && block.firstYear > maxYear) return null;
+        const firstYear = minYear ? Math.max(block.firstYear, minYear) : block.firstYear;
+        const lastYear = maxYear ? Math.min(block.lastYear, maxYear) : block.lastYear;
+        if (firstYear > lastYear) return null;
+        return { ...block, firstYear, lastYear };
+      })
+      .filter(Boolean);
+  }
   if (!blocks.length) {
     const columnCount = Math.max(...cells.map((cell) => cell.col));
     const populatedRows = new Map();
@@ -111,13 +143,11 @@ function buildStructuredTables(sheet, cells) {
       );
       if (!values.some((value) => formatValue(value).trim())) continue;
       const kinds = new Set(rowCells.map((cell) => cell.kind));
-      const typeLabel = kinds.has("input") && kinds.has("formula")
-        ? "Campuran"
-        : kinds.has("formula")
-          ? "Formula"
-          : kinds.has("input")
-            ? "Input"
-            : "Data tetap";
+      const typeLabel = kinds.has("formula")
+        ? "Formula"
+        : kinds.has("input")
+          ? "Input"
+          : "Data tetap";
       rows.push({
         rowNo,
         section: false,
@@ -166,6 +196,14 @@ function buildStructuredTables(sheet, cells) {
     }
     columns.push({ key: "kind", label: "Tipe Sel" });
 
+    const originalFirstYear = block.firstYear;
+    const yearOffset = minYear && originalFirstYear < minYear ? (minYear - originalFirstYear) : 0;
+    const effStartCol = block.startCol + yearOffset;
+    const rawCount = Math.max(0, block.endCol - effStartCol + 1);
+    const effCount = maxYear
+      ? Math.max(0, Math.min(rawCount, maxYear - (originalFirstYear + yearOffset) + 1))
+      : rawCount;
+
     let currentUnit = "";
     const rows = [];
     for (let rowNo = Math.max(firstRow, Math.min(...block.headerRows)); rowNo <= lastRow; rowNo++) {
@@ -174,8 +212,8 @@ function buildStructuredTables(sheet, cells) {
         cellsByKey.get(cellKey(rowNo, index + 1))?.value
       );
       const yearCells = Array.from(
-        { length: block.endCol - block.startCol + 1 },
-        (_, index) => cellsByKey.get(cellKey(rowNo, block.startCol + index))
+        { length: effCount },
+        (_, index) => cellsByKey.get(cellKey(rowNo, effStartCol + index))
       );
       const hasYearCells = yearCells.some((cell) => cell && (cell.kind === "input" || cell.kind === "formula"));
       const hasLabels = labelValues.some((value) => formatValue(value).trim() !== "");
@@ -188,13 +226,11 @@ function buildStructuredTables(sheet, cells) {
       if (unitMatch) currentUnit = unitMatch[1].trim();
 
       const kinds = new Set(yearCells.filter(Boolean).map((cell) => cell.kind));
-      const typeLabel = kinds.has("input") && kinds.has("formula")
-        ? "Campuran"
-        : kinds.has("formula")
-          ? "Formula"
-          : kinds.has("input")
-            ? "Input"
-            : "Data tetap";
+      const typeLabel = kinds.has("formula")
+        ? "Formula"
+        : kinds.has("input")
+          ? "Input"
+          : "Data tetap";
 
       rows.push({
         rowNo,
@@ -207,11 +243,12 @@ function buildStructuredTables(sheet, cells) {
       });
     }
 
+    const effFirstYear = originalFirstYear + yearOffset;
     return {
-      key: `${block.startCol}-${block.endCol}`,
-      firstYear: block.firstYear,
-      lastYear: block.lastYear,
-      startCol: block.startCol,
+      key: `${effStartCol}-${block.endCol}`,
+      firstYear: effFirstYear,
+      lastYear: effFirstYear + Math.max(0, effCount - 1),
+      startCol: effStartCol,
       columns,
       rows,
     };
@@ -235,6 +272,140 @@ function downloadCsv(sheet, cells) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+function FormulaEditorDialog({ sheetId, sheetName, cell, onClose, onSaved }) {
+  const [draft, setDraft] = React.useState(String(cell.formula || ""));
+  const [busy, setBusy] = React.useState("");
+  const [preview, setPreview] = React.useState(null);
+  const [error, setError] = React.useState("");
+  const [history, setHistory] = React.useState([]);
+
+  const trimmed = draft.trim().replace(/^=/, "").trim();
+  const unchanged = trimmed === String(cell.formula || "").trim();
+
+  React.useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const rows = await api.statisticalFormulaHistory(sheetId, cell.row, cell.col);
+        if (alive) setHistory(rows);
+      } catch {
+        if (alive) setHistory([]);
+      }
+    })();
+    return () => { alive = false; };
+  }, [sheetId, cell.row, cell.col]);
+
+  const runPreview = async () => {
+    if (!trimmed) return;
+    setBusy("preview");
+    setPreview(null);
+    setError("");
+    try {
+      const result = await api.statisticalUpdateFormula({
+        sheet_id: sheetId,
+        row: cell.row,
+        col: cell.col,
+        formula: trimmed,
+        base_version: cell.version,
+        preview: true,
+      });
+      setPreview(result.value ?? null);
+    } catch (cause) {
+      setError(cause.message || "Pratinjau gagal dijalankan.");
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const runSave = async () => {
+    if (!trimmed || unchanged) return;
+    setBusy("save");
+    setError("");
+    try {
+      const result = await api.statisticalUpdateFormula({
+        sheet_id: sheetId,
+        row: cell.row,
+        col: cell.col,
+        formula: trimmed,
+        base_version: cell.version,
+      });
+      onSaved(result);
+    } catch (cause) {
+      setError(cause.message || "Rumus gagal disimpan.");
+    } finally {
+      setBusy("");
+    }
+  };
+
+  return (
+    <Modal
+      title="Ubah Rumus"
+      onClose={onClose}
+      width={640}
+      footer={(
+        <>
+          <button className="stat-formula-btn" onClick={onClose} disabled={busy === "save"}>Batal</button>
+          <button
+            className="stat-formula-btn stat-formula-btn-primary"
+            onClick={runSave}
+            disabled={busy === "save" || !trimmed || unchanged}
+          >
+            {busy === "save" ? "Menyimpan…" : "Simpan"}
+          </button>
+        </>
+      )}
+    >
+      <div className="stat-formula-loc">{sheetName}!{cell.ref}</div>
+      <label className="stat-formula-label">Rumus saat ini</label>
+      <div className="stat-formula-current">{cell.formula || "—"}</div>
+      <label className="stat-formula-label" htmlFor="stat-formula-draft">Rumus baru</label>
+      <textarea
+        id="stat-formula-draft"
+        className="stat-formula-input"
+        rows={3}
+        value={draft}
+        onChange={(event) => { setDraft(event.target.value); setPreview(null); }}
+        spellCheck={false}
+      />
+      <div className="stat-formula-actions">
+        <button
+          className="stat-formula-btn"
+          onClick={runPreview}
+          disabled={busy === "preview" || busy === "save" || !trimmed}
+        >
+          {busy === "preview" ? "Memeriksa…" : "Pratinjau"}
+        </button>
+        {preview !== null && <span className="stat-formula-preview">Hasil: {formatValue(preview)}</span>}
+      </div>
+      {error && <div className="stat-formula-error" role="alert">{error}</div>}
+      <div className="stat-formula-history">
+        <label className="stat-formula-label">Riwayat rumus sebelumnya</label>
+        {!history.length && <p className="stat-formula-history-empty">Belum ada perubahan rumus pada sel ini.</p>}
+        {history.map((entry) => (
+          <div className="stat-formula-history-item" key={entry.id}>
+            <span title={entry.oldFormula || ""}>{entry.oldFormula || "—"}</span>
+            <small>
+              {entry.changedByName ? `${entry.changedByName} · ` : ""}
+              {entry.changedAt ? new Date(entry.changedAt).toLocaleString("id-ID") : ""}
+            </small>
+            <button
+              className="stat-formula-btn stat-formula-btn-small"
+              disabled={busy === "save"}
+              onClick={() => {
+                setDraft(String(entry.oldFormula || ""));
+                setPreview(null);
+                setError("");
+              }}
+            >
+              Pulihkan
+            </button>
+          </div>
+        ))}
+      </div>
+    </Modal>
+  );
+}
+
 export default function StatisticalSpreadsheet({ user }) {
   const [modules, setModules] = React.useState([]);
   const [moduleKey, setModuleKey] = React.useState("");
@@ -251,6 +422,7 @@ export default function StatisticalSpreadsheet({ user }) {
   const [shares, setShares] = React.useState([]);
   const cancelBlurSave = React.useRef(false);
   const [showAllSheets, setShowAllSheets] = React.useState(false);
+  const [formulaEditor, setFormulaEditor] = React.useState(null);
   const selectedModule = modules.find((module) => module.key === moduleKey);
   const selectedSheet = selectedModule?.sheets.find((sheet) => sheet.id === sheetMeta?.id);
   const canManage = user?.role === "super_admin";
@@ -276,12 +448,7 @@ export default function StatisticalSpreadsheet({ user }) {
 
   React.useEffect(() => {
     const sheets = selectedModule?.sheets || [];
-    const visible = sheets.filter((sheet) => {
-      if (group === "primary") return sheet.primary;
-      if (group === "parameters") return sheet.parameter;
-      if (group === "other") return !sheet.primary && !sheet.parameter;
-      return true;
-    });
+    const visible = filterSheetsByGroup(sheets, group);
     const available = showAllSheets ? visible : visible.slice(0, 6);
     if (!available.some((sheet) => sheet.id === sheetMeta?.id) && available[0]) {
       setSheetMeta((current) => current?.id === available[0].id ? current : { id: available[0].id });
@@ -376,6 +543,10 @@ export default function StatisticalSpreadsheet({ user }) {
   };
 
   const addYear = async () => {
+    if (atMaxYear) {
+      setError(`Tahun sudah mencapai batas template (${maxTahun}). Tidak dapat menambah tahun lagi.`);
+      return;
+    }
     if (!sheetMeta || !window.confirm(`Tambahkan tahun berikutnya pada lembar "${sheetMeta.name}"?`)) return;
     setSaveState({ type: "saving", text: "Menyiapkan kolom tahun baru…" });
     setError("");
@@ -429,14 +600,53 @@ export default function StatisticalSpreadsheet({ user }) {
     }
   };
 
-  const visibleSheets = (selectedModule?.sheets || []).filter((sheet) => {
-    if (group === "primary") return sheet.primary;
-    if (group === "parameters") return sheet.parameter;
-    if (group === "other") return !sheet.primary && !sheet.parameter;
-    return true;
-  });
+  const visibleSheets = filterSheetsByGroup(selectedModule?.sheets || [], group);
   const shownSheets = showAllSheets ? visibleSheets : visibleSheets.slice(0, 6);
-  const structuredTables = sheetMeta ? buildStructuredTables(sheetMeta, cells) : [];
+  const structuredTables = sheetMeta ? buildStructuredTables(sheetMeta, cells, {
+    minYear: moduleKey === 'neraca-hutan' ? 2015 : undefined,
+    maxYear: moduleKey === 'neraca-hutan' ? 2024 : undefined,
+  }) : [];
+  const rawLatestYear = React.useMemo(() => {
+    if (!cells.length) return null;
+    const blocks = findYearBlocks(cells);
+    if (!blocks.length) return null;
+    return Math.max(...blocks.map((b) => b.lastYear));
+  }, [cells]);
+  const maxTahun = selectedModule?.maxTahun ?? null;
+  const atMaxYear = !!(maxTahun && rawLatestYear !== null && rawLatestYear >= maxTahun);
+  const cellsByKey = React.useMemo(() => new Map(cells.map((cell) => [cellKey(cell.row, cell.col), cell])), [cells]);
+
+  const handleFormulaSaved = async () => {
+    setFormulaEditor(null);
+    setSaveState({ type: "saving", text: "Memperbarui nilai setelah perubahan rumus…" });
+    setError("");
+    if (sheetMeta?.id) await loadSheet(sheetMeta.id);
+    setSaveState({ type: "saved", text: "Rumus tersimpan dan nilai dihitung ulang" });
+  };
+
+  const renderFormulaContent = (formulaCell) => (
+    <>
+      <span className="stat-formula-value">{formatValue(formulaCell.value)}</span>
+      <span className="stat-formula-badge" title="Dihitung otomatis">ƒ</span>
+    </>
+  );
+
+  const renderLabelCell = (rowNo, sourceCol) => {
+    const labelCell = cellsByKey.get(cellKey(rowNo, sourceCol));
+    if (labelCell?.kind === "formula" && canManage) {
+      return (
+        <button
+          type="button"
+          className="stat-formula-edit stat-formula-edit-label"
+          title={`Ubah rumus ${sheetMeta?.name}!${labelCell.ref}`}
+          onClick={() => setFormulaEditor(labelCell)}
+        >
+          {renderFormulaContent(labelCell)}
+        </button>
+      );
+    }
+    return formatValue(labelCell?.value);
+  };
 
   return (
     <section className={`stat-page${darkMode ? " stat-dark" : ""}`}>
@@ -455,7 +665,14 @@ export default function StatisticalSpreadsheet({ user }) {
           </button>
           {canManage && <button className="stat-secondary" onClick={openShares} disabled={!selectedModule}>Bagikan Modul</button>}
           {canManage && <>
-            <button className="stat-secondary" onClick={addYear} disabled={!sheetMeta}>Tambah Tahun</button>
+            <button
+              className="stat-secondary"
+              onClick={addYear}
+              disabled={!sheetMeta || atMaxYear}
+              title={atMaxYear ? `Sudah di batas template (${maxTahun})` : undefined}
+            >
+              Tambah Tahun
+            </button>
             <button className="stat-danger" onClick={resetModule} disabled={!selectedModule}>Reset Angka</button>
           </>}
         </div>
@@ -505,6 +722,7 @@ export default function StatisticalSpreadsheet({ user }) {
               onClick={() => setSheetMeta({ id: sheet.id })}
             >
               {sheet.name}
+              {sheet.hidden && <span className="stat-hidden-badge" title="Sheet tersembunyi, hanya muncul di Lembar Lainnya">tersembunyi</span>}
             </button>
           ))}
           {!showAllSheets && visibleSheets.length > 6 &&
@@ -600,7 +818,7 @@ export default function StatisticalSpreadsheet({ user }) {
                                 key={column.key || column.sourceCol}
                                 className={index < 2 ? `stat-sticky-col stat-sticky-${index}` : ""}
                               >
-                                {formatValue(row.labelValues[column.sourceCol - 1])}
+                                {renderLabelCell(row.rowNo, column.sourceCol)}
                               </td>
                             );
                           })}
@@ -614,7 +832,7 @@ export default function StatisticalSpreadsheet({ user }) {
                             return (
                               <td
                                 key={table.firstYear + index}
-                                className={cell?.kind === "formula" ? "stat-formula-cell" : cell?.kind === "input" ? "stat-input-cell" : ""}
+                                className={row.typeLabel === "Formula" || cell?.kind === "formula" ? "stat-formula-cell" : cell?.kind === "input" ? "stat-input-cell" : ""}
                               >
                                 {editable ? (
                                   <input
@@ -643,6 +861,15 @@ export default function StatisticalSpreadsheet({ user }) {
                                     }}
                                     disabled={saving.has(key)}
                                   />
+                                ) : cell?.kind === "formula" && canManage ? (
+                                  <button
+                                    type="button"
+                                    className="stat-formula-edit"
+                                    title={`Ubah rumus ${sheetMeta.name}!${cell.ref}`}
+                                    onClick={() => setFormulaEditor(cell)}
+                                  >
+                                    {renderFormulaContent(cell)}
+                                  </button>
                                 ) : (
                                   <span className={cell?.kind === "formula" ? "stat-formula-value" : ""}>
                                     {value}
@@ -694,6 +921,15 @@ export default function StatisticalSpreadsheet({ user }) {
             }
           }}
           onClose={() => setShowShares(false)}
+        />
+      )}
+      {formulaEditor && sheetMeta && (
+        <FormulaEditorDialog
+          sheetId={sheetMeta.id}
+          sheetName={sheetMeta.name}
+          cell={formulaEditor}
+          onClose={() => setFormulaEditor(null)}
+          onSaved={handleFormulaSaved}
         />
       )}
     </section>

@@ -116,6 +116,8 @@ CREATE TABLE IF NOT EXISTS statistical_sheets (
   merges JSON NULL,
   column_widths JSON NULL,
   row_heights JSON NULL,
+  permission_sheet_id INT NULL,
+  hidden TINYINT(1) NOT NULL DEFAULT 0,
   UNIQUE KEY uk_stat_sheet (module_key, nama),
   KEY idx_stat_module (module_key, urutan),
   CONSTRAINT fk_stat_module FOREIGN KEY (module_key)
@@ -152,6 +154,23 @@ CREATE TABLE IF NOT EXISTS statistical_module_state (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_stat_state_module FOREIGN KEY (module_key)
     REFERENCES statistical_modules(module_key) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Riwayat perubahan rumus sel statistik. Menyimpan rumus & hasil lama sebagai
+-- backup sehingga Super Admin dapat memulihkannya lewat dialog editor rumus.
+CREATE TABLE IF NOT EXISTS statistical_formula_history (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  sheet_id INT NOT NULL,
+  row_no INT NOT NULL,
+  col_no INT NOT NULL,
+  old_formula LONGTEXT NULL,
+  new_formula LONGTEXT NULL,
+  old_hasil JSON NULL,
+  changed_by INT NULL,
+  changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_stat_hist_cell (sheet_id, row_no, col_no),
+  CONSTRAINT fk_stat_hist_sheet FOREIGN KEY (sheet_id)
+    REFERENCES statistical_sheets(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS riwayat (
