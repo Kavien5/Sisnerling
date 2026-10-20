@@ -75,7 +75,8 @@ router.get("/logs", async (req, res, next) => {
 
     const [rows] = await pool.query(
       `SELECT al.id, al.user_id, al.action, al.description, al.module, al.record_id,
-              al.old_data, al.new_data, al.ip_address, al.user_agent, al.created_at,
+              al.old_data, al.new_data, al.ip_address, al.user_agent, al.created_at, al.is_saved,
+              DATE_ADD(al.created_at, INTERVAL 3 DAY) AS expires_at,
               u.nama AS nama_user, u.email AS email_user, u.role AS role_user
        FROM audit_logs al
        LEFT JOIN users u ON u.id = al.user_id
@@ -92,6 +93,43 @@ router.get("/logs", async (req, res, next) => {
       perPage,
       totalPages: Math.max(1, Math.ceil(total / perPage)),
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put("/logs/:id/saved", async (req, res, next) => {
+  try {
+    if (!/^\d+$/.test(String(req.params.id)) || Number(req.params.id) < 1) {
+      return res.status(400).json({ error: "ID log tidak valid" });
+    }
+    if (!req.body || typeof req.body.isSaved !== "boolean") {
+      return res.status(400).json({ error: "Status simpan harus berupa boolean" });
+    }
+    const [result] = await pool.query(
+      "UPDATE audit_logs SET is_saved = ? WHERE id = ?",
+      [req.body.isSaved ? 1 : 0, req.params.id]
+    );
+    if (result.affectedRows === 0) {
+      const [[row]] = await pool.query("SELECT id FROM audit_logs WHERE id = ?", [req.params.id]);
+      if (!row) return res.status(404).json({ error: "Log tidak ditemukan" });
+    }
+    res.json({ id: Number(req.params.id), is_saved: req.body.isSaved });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete("/logs/:id", async (req, res, next) => {
+  try {
+    if (!/^\d+$/.test(String(req.params.id)) || Number(req.params.id) < 1) {
+      return res.status(400).json({ error: "ID log tidak valid" });
+    }
+    const [result] = await pool.query("DELETE FROM audit_logs WHERE id = ?", [req.params.id]);
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: "Log tidak ditemukan" });
+    }
+    res.json({ id: Number(req.params.id), message: "Log audit berhasil dihapus" });
   } catch (err) {
     next(err);
   }

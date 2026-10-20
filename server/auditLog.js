@@ -86,4 +86,12 @@ async function logAudit({ userId, action, module = "system", description, record
   }
 }
 
-module.exports = { logAudit, normalizeJson, captureReqInfo };
+async function purgeExpiredAuditLogs() {
+  const [result] = await pool.query(
+    `DELETE FROM audit_logs
+     WHERE is_saved = 0 AND created_at < DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 3 DAY)`
+  );
+  return result.affectedRows;
+}
+
+module.exports = { logAudit, normalizeJson, captureReqInfo, purgeExpiredAuditLogs };

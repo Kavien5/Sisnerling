@@ -181,6 +181,12 @@ export const api = {
   },
   getAuditMeta: () => request("/api/audit/meta"),
   getAuditLogDetail: (id) => request(`/api/audit/logs/${id}`),
+  setAuditLogSaved: (id, isSaved) =>
+    request(`/api/audit/logs/${id}/saved`, {
+      method: "PUT",
+      body: JSON.stringify({ isSaved }),
+    }),
+  deleteAuditLog: (id) => request(`/api/audit/logs/${id}`, { method: "DELETE" }),
   getDashboardGreeting: () => request("/api/dashboard/greeting"),
   setDashboardGreeting: (body) =>
     request("/api/dashboard/greeting", { method: "PUT", body: JSON.stringify(body) }),

@@ -80,6 +80,21 @@ const fmtFull = (d) => {
   return `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())} ${p(dt.getHours())}:${p(dt.getMinutes())}:${p(dt.getSeconds())}`;
 };
 
+function expiryWarning(row, now) {
+  if (Boolean(Number(row.is_saved))) return null;
+  const expiry = new Date(row.expires_at || new Date(row.created_at).getTime() + 3 * 24 * 60 * 60 * 1000);
+  const remaining = expiry.getTime() - now;
+  if (!Number.isFinite(remaining) || remaining > 24 * 60 * 60 * 1000) return null;
+  if (remaining <= 0) return { text: "Segera dihapus", urgent: true };
+  const minutes = Math.ceil(remaining / 60000);
+  const hours = Math.floor(minutes / 60);
+  const restMinutes = minutes % 60;
+  return {
+    text: hours > 0 ? `Habis dalam ${hours} jam ${restMinutes} menit` : `Habis dalam ${minutes} menit`,
+    urgent: remaining <= 6 * 60 * 60 * 1000,
+  };
+}
+
 const fmtVal = (v) => {
   if (v === null || v === undefined) return "–";
   if (v === true || v === false) return v ? "Ya" : "Tidak";
@@ -118,6 +133,15 @@ export default function AuditLogs({ user }) {
   const [meta, setMeta] = React.useState({ users: [], actions: [], modules: [] });
   const [detail, setDetail] = React.useState(null);
   const [detailLoading, setDetailLoading] = React.useState(false);
+  const [savingIds, setSavingIds] = React.useState([]);
+  const [deletingIds, setDeletingIds] = React.useState([]);
+  const [saveError, setSaveError] = React.useState("");
+  const [clockNow, setClockNow] = React.useState(Date.now());
+
+  React.useEffect(() => {
+    const interval = setInterval(() => setClockNow(Date.now()), 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   React.useEffect(() => {
     api
@@ -182,6 +206,40 @@ export default function AuditLogs({ user }) {
     }
   };
 
+  const toggleSaved = async (row) => {
+    const isSaved = !Boolean(Number(row.is_saved));
+    setSaveError("");
+    setSavingIds((ids) => [...ids, row.id]);
+    try {
+      await api.setAuditLogSaved(row.id, isSaved);
+      setData((rows) => rows.map((item) => item.id === row.id ? { ...item, is_saved: isSaved ? 1 : 0 } : item));
+      setDetail((item) => item && item.id === row.id ? { ...item, is_saved: isSaved ? 1 : 0 } : item);
+    } catch (err) {
+      setSaveError(err.message || "Status simpan audit log gagal diperbarui.");
+    } finally {
+      setSavingIds((ids) => ids.filter((id) => id !== row.id));
+    }
+  };
+
+  const deleteLog = async (row) => {
+    if (!window.confirm(`Hapus audit log "${row.description || row.action}"? Tindakan ini tidak dapat dibatalkan.`)) return;
+    setSaveError("");
+    setDeletingIds((ids) => [...ids, row.id]);
+    try {
+      await api.deleteAuditLog(row.id);
+      setData((rows) => rows.filter((item) => item.id !== row.id));
+      setTotal((count) => Math.max(0, count - 1));
+      setDetail((item) => item && item.id === row.id ? null : item);
+      if (data.length === 1 && page > 1) {
+        await fetchLogs(page - 1, perPage);
+      }
+    } catch (err) {
+      setSaveError(err.message || "Audit log gagal dihapus.");
+    } finally {
+      setDeletingIds((ids) => ids.filter((id) => id !== row.id));
+    }
+  };
+
   const hasFilters = !!(q || userId || action || module || from || to);
 
   const resetFilters = () => {
@@ -201,8 +259,15 @@ export default function AuditLogs({ user }) {
         <div>
           <h2>Audit Log</h2>
           <p style={{ color: "var(--ink-3)", fontSize: 13 }}>Jejak aktivitas pengguna di seluruh sistem (khusus Super Admin).</p>
+          <p style={{ color: "var(--ink-3)", fontSize: 12, marginTop: 4 }}>Log yang tidak disimpan akan dihapus otomatis setelah 3 hari. Log yang disimpan tidak akan kedaluwarsa.</p>
         </div>
       </div>
+
+      {saveError && (
+        <div role="alert" style={{ color: "#b91c1c", background: "#fef2f2", padding: "10px 14px", borderRadius: 8, marginBottom: 12 }}>
+          {saveError}
+        </div>
+      )}
 
       <div className="card">
         <div className="card-body">
@@ -280,7 +345,7 @@ export default function AuditLogs({ user }) {
                 <th>Modul</th>
                 <th>Deskripsi</th>
                 <th>IP</th>
-                <th style={{ width: 90 }}></th>
+                <th style={{ width: 170 }}></th>
               </tr>
             </thead>
             <tbody>
@@ -302,7 +367,26 @@ export default function AuditLogs({ user }) {
               ) : (
                 data.map((r) => (
                   <tr key={r.id}>
-                    <td className="text-nowrap">{fmtFull(r.created_at)}</td>
+                    <td className="text-nowrap">
+                      {fmtFull(r.created_at)}
+                      {(() => {
+                        const warning = expiryWarning(r, clockNow);
+                        return warning ? (
+                          <span
+                            role="status"
+                            style={{
+                              display: "block",
+                              marginTop: 4,
+                              color: warning.urgent ? "#b91c1c" : "#b45309",
+                              fontSize: 11,
+                              fontWeight: 600,
+                            }}
+                          >
+                            {warning.text}
+                          </span>
+                        ) : null;
+                      })()}
+                    </td>
                     <td>
                       {r.nama_user ? (
                         <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
@@ -318,9 +402,27 @@ export default function AuditLogs({ user }) {
                     <td style={{ maxWidth: 420 }}>{r.description || "-"}</td>
                     <td className="text-nowrap" style={{ color: "var(--ink-3)", fontSize: 12 }}>{r.ip_address || "-"}</td>
                     <td>
-                      <button className="btn btn-outline btn-sm" onClick={() => openDetail(r)}>
-                        Detail
-                      </button>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button
+                          className="btn btn-outline btn-sm"
+                          onClick={() => toggleSaved(r)}
+                          disabled={savingIds.includes(r.id) || deletingIds.includes(r.id)}
+                          aria-label={Boolean(Number(r.is_saved)) ? "Lepas simpan log" : "Simpan log"}
+                        >
+                          {Boolean(Number(r.is_saved)) ? "Tersimpan" : "Simpan"}
+                        </button>
+                        <button
+                          className="btn btn-outline btn-sm"
+                          onClick={() => deleteLog(r)}
+                          disabled={savingIds.includes(r.id) || deletingIds.includes(r.id)}
+                          aria-label="Hapus log"
+                        >
+                          Hapus
+                        </button>
+                        <button className="btn btn-outline btn-sm" onClick={() => openDetail(r)}>
+                          Detail
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))

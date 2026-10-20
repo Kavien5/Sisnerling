@@ -308,6 +308,7 @@ async function initDatabase() {
     new_data JSON NULL,
     ip_address VARCHAR(45) NULL,
     user_agent VARCHAR(300) NULL,
+    is_saved TINYINT(1) NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     KEY idx_audit_user (user_id),
@@ -316,6 +317,14 @@ async function initDatabase() {
     KEY idx_audit_action (action),
     CONSTRAINT fk_audit_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+  const [[colAuditSaved]] = await admin.query(
+    `SELECT COUNT(*) AS n FROM information_schema.columns
+     WHERE table_schema = DATABASE() AND table_name = 'audit_logs' AND column_name = 'is_saved'`
+  );
+  if (Number(colAuditSaved.n) === 0) {
+    await admin.query("ALTER TABLE audit_logs ADD COLUMN is_saved TINYINT(1) NOT NULL DEFAULT 0");
+  }
 
   // ---- Seed SUPER ADMIN (hanya bila variabel env diset & belum ada) ----
   const seedEmail = (process.env.SEED_SUPER_ADMIN_EMAIL || "").trim().toLowerCase();
