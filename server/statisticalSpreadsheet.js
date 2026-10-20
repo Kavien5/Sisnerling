@@ -995,6 +995,38 @@ async function createStatisticalRouter({ pool: db = pool } = {}) {
       changedCell.nilai = jsonValue(newValue);
       const recalculated = await recalculateAndSave(connection, sheet.module_key, sheets, cells, affected, engine);
       await connection.commit();
+
+      const cellRef = engine.cellAddress(colNo - 1, rowNo - 1);
+      const oldVal = cell.nilai !== null && cell.nilai !== undefined ? (typeof cell.nilai === "string" ? JSON.parse(cell.nilai) : cell.nilai) : null;
+      logAudit({
+        userId: req.user.id,
+        action: "update",
+        module: "statistical",
+        description: `Ubah nilai sel ${sheet.nama}!${cellRef} (${oldVal ?? "-"} → ${newValue ?? "-"})`,
+        recordId: sheetId,
+        oldData: {
+          sheet_id: sheetId,
+          sheet_nama: sheet.nama,
+          module_key: sheet.module_key,
+          row: rowNo,
+          col: colNo,
+          cellRef,
+          nilai: oldVal,
+          versi: cell.versi,
+        },
+        newData: {
+          sheet_id: sheetId,
+          sheet_nama: sheet.nama,
+          module_key: sheet.module_key,
+          row: rowNo,
+          col: colNo,
+          cellRef,
+          nilai: newValue,
+          versi: baseVersion + 1,
+        },
+        req,
+      });
+
       res.json({
         message: "Perubahan tersimpan",
         cell: { row: rowNo, col: colNo, value: newValue, version: baseVersion + 1 },

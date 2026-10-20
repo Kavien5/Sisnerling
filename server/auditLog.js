@@ -65,7 +65,7 @@ async function logAudit({ userId, action, module = "system", description, record
     const { ipAddress, userAgent } = captureReqInfo(req);
     const desc =
       String(description || ACTION_LABELS[action] || action || "Aktivitas").slice(0, 500);
-    await pool.query(
+    const [ins] = await pool.query(
       `INSERT INTO audit_logs
          (user_id, action, description, module, record_id, old_data, new_data, ip_address, user_agent)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -81,8 +81,34 @@ async function logAudit({ userId, action, module = "system", description, record
         userAgent,
       ]
     );
+
+    // Simpan snapshot pemulihan terpisah dari tabel log aktif.
+    // Menjamin data pemulihan tetap aman meskipun audit log aktif kedaluwarsa setelah 72 jam.
+    if (ins && ins.insertId && (oldData || newData)) {
+      try {
+        await pool.query(
+          `INSERT INTO audit_restore_snapshots
+             (audit_log_id, module, action, target_type, target_id, snapshot_before, snapshot_after, created_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            ins.insertId,
+            String(module || "system").slice(0, 50),
+            String(action || "unknown").slice(0, 50),
+            String(module || "system"),
+            recordId !== null && recordId !== undefined ? String(recordId) : null,
+            oldData === null || oldData === undefined ? null : JSON.stringify(oldData),
+            newData === null || newData === undefined ? null : JSON.stringify(newData),
+            userId || null,
+          ]
+        );
+      } catch (snapErr) {
+        console.error("[AUDIT] gagal mencatat snapshot pemulihan:", snapErr && snapErr.message ? snapErr.message : snapErr);
+      }
+    }
+    return ins ? ins.insertId : null;
   } catch (err) {
     console.error("[AUDIT] gagal mencatat log:", err && err.message ? err.message : err);
+    return null;
   }
 }
 

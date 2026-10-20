@@ -181,6 +181,17 @@ export const api = {
   },
   getAuditMeta: () => request("/api/audit/meta"),
   getAuditLogDetail: (id) => request(`/api/audit/logs/${id}`),
+  getAuditRetentionStatus: () => request("/api/audit/retention-status"),
+  archiveAuditLog: (id) => request(`/api/audit/logs/${id}/archive`, { method: "POST" }),
+  unarchiveAuditLog: (id) => request(`/api/audit/logs/${id}/unarchive`, { method: "POST" }),
+  batchArchiveAuditLogs: (ids) =>
+    request("/api/audit/logs/batch-archive", { method: "POST", body: JSON.stringify({ ids }) }),
+  archiveExpiringAuditLogs: () =>
+    request("/api/audit/archive-expiring", { method: "POST" }),
+  cleanupExpiredAuditLogs: () =>
+    request("/api/audit/cleanup-expired", { method: "POST" }),
+  getAuditRestorePreview: (id) => request(`/api/audit/logs/${id}/restore-preview`),
+  executeAuditRestore: (id) => request(`/api/audit/logs/${id}/restore`, { method: "POST" }),
   getDashboardGreeting: () => request("/api/dashboard/greeting"),
   setDashboardGreeting: (body) =>
     request("/api/dashboard/greeting", { method: "PUT", body: JSON.stringify(body) }),

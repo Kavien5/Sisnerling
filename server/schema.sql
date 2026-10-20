@@ -205,14 +205,42 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   new_data JSON NULL,
   ip_address VARCHAR(45) NULL,
   user_agent VARCHAR(300) NULL,
+  is_archived TINYINT(1) NOT NULL DEFAULT 0,
+  archived_at TIMESTAMP NULL,
+  archived_by INT NULL,
+  restored_at TIMESTAMP NULL,
+  restored_by INT NULL,
+  source_log_id INT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   KEY idx_audit_user (user_id),
   KEY idx_audit_created (created_at),
   KEY idx_audit_module (module),
   KEY idx_audit_action (action),
+  KEY idx_audit_archived (is_archived),
   CONSTRAINT fk_audit_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
+
+-- Snapshot riwayat pemulihan / version history data terpisah dari log aktif.
+-- Memastikan data pemulihan tidak terhapus saat pembersihan retensi log 72 jam.
+CREATE TABLE IF NOT EXISTS audit_restore_snapshots (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  audit_log_id INT NULL,
+  module VARCHAR(50) NOT NULL,
+  action VARCHAR(50) NOT NULL,
+  target_type VARCHAR(50) NOT NULL,
+  target_id VARCHAR(100) NULL,
+  snapshot_before JSON NULL,
+  snapshot_after JSON NULL,
+  metadata JSON NULL,
+  created_by INT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  restored_at TIMESTAMP NULL,
+  restored_by INT NULL,
+  KEY idx_ars_audit (audit_log_id),
+  KEY idx_ars_target (target_type, target_id),
+  KEY idx_ars_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Sesi login. Token dapat dihapus (logout) untuk mencabut akses secara server-side.
 CREATE TABLE IF NOT EXISTS sessions (
