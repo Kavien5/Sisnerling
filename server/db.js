@@ -206,6 +206,8 @@ async function initDatabase() {
     "ALTER TABLE spreadsheet ADD COLUMN worksheet_index INT NULL AFTER kolom");
   await ensureCol("spreadsheet", "hidden",
     "ALTER TABLE spreadsheet ADD COLUMN hidden TINYINT(1) NOT NULL DEFAULT 0 AFTER worksheet_index");
+  await ensureCol("statistical_sheets", "hidden",
+    "ALTER TABLE statistical_sheets ADD COLUMN hidden TINYINT(1) NOT NULL DEFAULT 0 AFTER permission_sheet_id");
 
   // Perluas indeks unik agar satu penugasan per (user, tipe, tabel, section).
   const [[uqRow]] = await admin.query(

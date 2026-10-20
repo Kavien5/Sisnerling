@@ -116,7 +116,6 @@ CREATE TABLE IF NOT EXISTS statistical_sheets (
   merges JSON NULL,
   column_widths JSON NULL,
   row_heights JSON NULL,
-  permission_sheet_id INT NULL,
   hidden TINYINT(1) NOT NULL DEFAULT 0,
   UNIQUE KEY uk_stat_sheet (module_key, nama),
   KEY idx_stat_module (module_key, urutan),
