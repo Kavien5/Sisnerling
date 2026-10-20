@@ -9,6 +9,7 @@ const cellKey = (row, col) => `${row}:${col}`;
 function formatValue(value) {
   if (value === null || value === undefined || value === "") return "";
   if (typeof value === "number") {
+    if (Number.isInteger(value) && value >= 1800 && value <= 2199) return String(value);
     return new Intl.NumberFormat("id-ID", { maximumFractionDigits: 15 }).format(value);
   }
   if (value && typeof value === "object" && value.$date) {
@@ -109,19 +110,169 @@ function buildStructuredTables(sheet, cells, opts = {}) {
       .filter(Boolean);
   }
   if (!blocks.length) {
-    const columnCount = Math.max(...cells.map((cell) => cell.col));
     const populatedRows = new Map();
     for (const cell of cells) {
       const row = populatedRows.get(cell.row) || [];
       row.push(cell);
       populatedRows.set(cell.row, row);
     }
-    const headingRow = [...populatedRows.entries()]
-      .map(([rowNo, row]) => ({
-        rowNo,
-        score: row.filter((cell) => typeof cell.value === "string" && cell.value.trim()).length,
-      }))
-      .sort((left, right) => right.score - left.score || left.rowNo - right.rowNo)[0]?.rowNo;
+    const sortedRowNos = [...populatedRows.keys()].sort((a, b) => a - b);
+
+    const rowStringScore = (rowNo) => {
+      const row = populatedRows.get(rowNo) || [];
+      return row.filter((cell) => typeof cell.value === "string" && String(cell.value).trim()).length;
+    };
+
+    const isYearLike = (value) => /^((?:18|19|20|21)\d{2})\*{0,3}$/.test(String(value ?? "").trim());
+    const isHeaderCandidate = (rowNo) => {
+      const row = populatedRows.get(rowNo) || [];
+      const strings = row.map((cell) => (typeof cell?.value === "string" ? cell.value.trim() : "")).filter(Boolean);
+      const labelStrings = strings.filter((value) => !isYearLike(value) && value.toUpperCase() !== "NA");
+      if (labelStrings.length < 2) return false;
+      const joined = strings.join(" ").toLowerCase();
+      if (/tabel|note:|sumber:|catatan/i.test(joined)) return false;
+      if (strings.length > 1 && new Set(strings).size === 1) return false;
+      return true;
+    };
+
+    const hasNumeric = (rowNo) => {
+      const row = populatedRows.get(rowNo) || [];
+      return row.some((cell) => typeof cell.value === "number" || (cell.value && typeof cell.value === "object" && cell.value.$date));
+    };
+
+    // Split rows into chunks separated by empty rows, then sub-split by title rows and header groups
+    const rawChunks = [];
+    let currentChunk = [];
+    for (const rowNo of sortedRowNos) {
+      if (currentChunk.length && rowNo > currentChunk[currentChunk.length - 1] + 1) {
+        rawChunks.push(currentChunk);
+        currentChunk = [];
+      }
+      currentChunk.push(rowNo);
+    }
+    if (currentChunk.length) rawChunks.push(currentChunk);
+
+    // Split a chunk into segments separated by title rows (rows matching /tabel/i)
+    const splitByTitle = (chunk) => {
+      const segments = [];
+      let seg = [];
+      for (const rowNo of chunk) {
+        const row = populatedRows.get(rowNo) || [];
+        const joined = row.map((c) => String(c?.value ?? "")).join(" ").toLowerCase();
+        if (/tabel/i.test(joined)) {
+          if (seg.length) segments.push(seg);
+          seg = [];
+        } else {
+          seg.push(rowNo);
+        }
+      }
+      if (seg.length) segments.push(seg);
+      return segments;
+    };
+
+    // Split a title-free segment into table segments at header groups
+    const splitByHeaderGroups = (seg) => {
+      const segments = [];
+      let headers = [];
+      let data = [];
+      for (const rowNo of seg) {
+        if (isHeaderCandidate(rowNo)) {
+          if (data.length > 0) {
+            segments.push({ headers, data });
+            headers = [];
+            data = [];
+          }
+          headers.push(rowNo);
+        } else if (hasNumeric(rowNo)) {
+          data.push(rowNo);
+        }
+        // text-only non-title rows are skipped
+      }
+      if (headers.length || data.length) segments.push({ headers, data });
+      return segments;
+    };
+
+    const allSegments = [];
+    for (const chunk of rawChunks) {
+      for (const seg of splitByTitle(chunk)) {
+        for (const s of splitByHeaderGroups(seg)) {
+          allSegments.push(s);
+        }
+      }
+    }
+
+    const tables = [];
+    for (const seg of allSegments) {
+      const headerRow = seg.headers.length ? Math.max(...seg.headers) : null;
+      const dataRows = seg.data.filter((rn) => hasNumeric(rn));
+      if (dataRows.length < 2) continue;
+
+      const rowSet = new Set(dataRows);
+      if (headerRow !== null) rowSet.add(headerRow);
+      const colCount = Math.max(
+        ...[...rowSet].map((rn) => {
+          const r = populatedRows.get(rn) || [];
+          return r.length ? Math.max(...r.map((c) => c.col)) : 0;
+        }),
+        1
+      );
+
+      const columns = Array.from({ length: colCount }, (_, index) => {
+        const sourceName = headerRow === null
+          ? ""
+          : formatValue(cellsByKey.get(cellKey(headerRow, index + 1))?.value).trim();
+        const label = /^description$/i.test(sourceName) || /^perincian$/i.test(sourceName)
+          ? "Komponen / Indikator"
+          : /^unit$/i.test(sourceName)
+            ? "Satuan"
+            : sourceName || (index === 0 ? "Komponen / Indikator" : `Parameter ${index + 1}`);
+        return { sourceCol: index + 1, label };
+      });
+      if (!columns.some((column) => column.label.toLowerCase() === "satuan")) {
+        columns.push({ key: "unit", label: "Satuan" });
+      }
+      columns.push({ key: "kind", label: "Tipe Sel" });
+
+      const rows = [];
+      for (const rowNo of dataRows) {
+        const rowCells = populatedRows.get(rowNo) || [];
+        const values = Array.from({ length: colCount }, (_, index) =>
+          cellsByKey.get(cellKey(rowNo, index + 1))?.value
+        );
+        if (!values.some((value) => formatValue(value).trim())) continue;
+        const kinds = new Set(rowCells.map((cell) => cell.kind));
+        const typeLabel = kinds.has("formula")
+          ? "Formula"
+          : kinds.has("input")
+            ? "Input"
+            : "Data tetap";
+        rows.push({
+          rowNo,
+          section: false,
+          labelText: values.map((value) => formatValue(value).trim()).filter(Boolean).join(" "),
+          labelValues: values,
+          unit: "",
+          typeLabel,
+          yearCells: [],
+        });
+      }
+      if (rows.length) {
+        tables.push({
+          key: `table-${headerRow ?? dataRows[0]}`,
+          firstYear: null,
+          lastYear: null,
+          startCol: null,
+          columns,
+          rows,
+        });
+      }
+    }
+
+    if (tables.length) return tables;
+
+    // Ultimate fallback: single table using original logic
+    const columnCount = Math.max(...cells.map((cell) => cell.col));
+    const headingRow = sortedRowNos[0] || 1;
     const columns = Array.from({ length: columnCount }, (_, index) => {
       const sourceName = formatValue(cellsByKey.get(cellKey(headingRow, index + 1))?.value).trim();
       const label = /^description$/i.test(sourceName) || /^perincian$/i.test(sourceName)
@@ -136,7 +287,7 @@ function buildStructuredTables(sheet, cells, opts = {}) {
     }
     columns.push({ key: "kind", label: "Tipe Sel" });
     const rows = [];
-    for (let rowNo = headingRow + 1; rowNo <= lastRow; rowNo++) {
+    for (let rowNo = headingRow; rowNo <= lastRow; rowNo++) {
       const rowCells = populatedRows.get(rowNo) || [];
       const values = Array.from({ length: columnCount }, (_, index) =>
         cellsByKey.get(cellKey(rowNo, index + 1))?.value

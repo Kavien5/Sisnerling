@@ -147,6 +147,10 @@ app.use("/api/statistical", (req, res, next) => {
   statisticalRouterPromise.then((router) => router(req, res, next)).catch(next);
 });
 
+// ===== Input & Pengolahan Neraca Hutan & Timber (spreadsheet formulasi) =====
+const { createNeracaRouter } = require("./neracaHutan");
+app.use("/api/neraca", createNeracaRouter());
+
 // ===== Sambutan Dashboard (dapat diedit oleh Super Admin) =====
 // Judul & deskripsi kartu "Selamat Datang" disimpan di app_settings.
 const DEFAULT_GREETING = {

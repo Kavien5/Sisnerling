@@ -2,11 +2,11 @@ import React from "react";
 import Layout from "./components/Layout.jsx";
 import { ToastProvider } from "./components/Toast.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
-import KategoriPage from "./pages/KategoriPage.jsx";
 import Laporan from "./pages/Laporan.jsx";
 import ExcelResult from "./pages/ExcelResult.jsx";
 import ExcelEditor from "./pages/ExcelEditor.jsx";
 import StatisticalSpreadsheet from "./pages/StatisticalSpreadsheet.jsx";
+import InputPengolahanNeraca from "./pages/InputPengolahanNeraca.jsx";
 import FilesPage from "./pages/FilesPage.jsx";
 import Panduan from "./pages/Panduan.jsx";
 import AuditLogs from "./pages/AuditLogs.jsx";
@@ -288,6 +288,7 @@ export default function App() {
           )
         )}
         {page === "statistik" && <StatisticalSpreadsheet user={user} />}
+        {page === "neraca-input" && <InputPengolahanNeraca />}
         {page === "files" && (
           <FilesPage
             files={importedFiles}
@@ -299,7 +300,6 @@ export default function App() {
             canPublish={isSuperAdmin(user)}
           />
         )}
-        {page === "kategori" && <KategoriPage />}
         {page === "laporan" && <Laporan />}
         {page === "panduan" && <Panduan user={user} />}
         {isSuperAdmin(user) && page === "audit-log" && <AuditLogs user={user} />}

@@ -1,7 +1,7 @@
-import React from "react";
+﻿import React from "react";
 import { api } from "../api.js";
 import { useToast } from "../components/Toast.jsx";
-import AuthField from "../components/AuthField.jsx";
+import AuthField from "../components/AuthField.jsx"; import Logo from "../components/Logo.jsx";
 
 export default function Login({ onLogin, onSwitchToRegister }) {
   const toast = useToast();
@@ -41,7 +41,7 @@ export default function Login({ onLogin, onSwitchToRegister }) {
       <div className="auth-wrap">
         <div className="auth-hero">
           <div className="auth-brand">
-            <div className="brand-logo">S</div>
+            <div className="brand-logo"><Logo size={40} /></div>
             <div className="auth-brand-text">
               <strong>SISNERLING</strong>
               <span>Sistem Neraca Lingkungan</span>
@@ -99,7 +99,7 @@ export default function Login({ onLogin, onSwitchToRegister }) {
         <div className="auth-col">
           <div className="auth-card">
             <div className="auth-brand">
-              <div className="brand-logo">S</div>
+              <div className="brand-logo"><Logo size={40} /></div>
               <div className="auth-brand-text">
                 <strong>SISNERLING</strong>
                 <span>Sistem Neraca Lingkungan</span>
@@ -135,7 +135,7 @@ export default function Login({ onLogin, onSwitchToRegister }) {
                 icon="lock"
                 type="password"
                 autoComplete="current-password"
-                placeholder="••••••••"
+                placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
                 value={form.password}
                 onChange={set("password")}
               />
@@ -163,3 +163,4 @@ export default function Login({ onLogin, onSwitchToRegister }) {
     </div>
   );
 }
+

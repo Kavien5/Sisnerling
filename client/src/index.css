@@ -106,13 +106,14 @@ a { color: var(--primary-600); text-decoration: none; }
   width: 40px;
   height: 40px;
   border-radius: 12px;
-  background: linear-gradient(135deg, #8b5cf6, #6366f1);
+  background: none;
   display: grid;
   place-items: center;
   font-weight: 800;
   font-size: 18px;
   color: #fff;
   flex-shrink: 0;
+  overflow: hidden;
 }
 
 .brand-text { display: flex; flex-direction: column; }
@@ -4296,7 +4297,7 @@ td.cell.cell-match {
   gap: 0 14px;
 }
 
-/* ===== Spreadsheet Viewer (Dashboard / Kategori / Laporan) ===== */
+/* ===== Spreadsheet Viewer (Dashboard / Laporan) ===== */
 .sv-wrap {
   display: flex;
   flex-direction: column;
@@ -4351,7 +4352,7 @@ td.cell.cell-match {
   z-index: 1;
 }
 
-/* ===== Spreadsheet Charts (Dashboard / Kategori / Laporan) ===== */
+/* ===== Spreadsheet Charts (Dashboard / Laporan) ===== */
 .sv-charts-wrap {
   display: flex;
   flex-direction: column;
@@ -5971,5 +5972,6 @@ td.cell.cell-match {
 @media (max-width: 640px) {
   .maint-user-card { padding: 22px 18px; }
 }
+
 
 

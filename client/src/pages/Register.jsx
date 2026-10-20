@@ -1,7 +1,7 @@
-import React from "react";
+﻿import React from "react";
 import { api } from "../api.js";
 import { useToast } from "../components/Toast.jsx";
-import AuthField from "../components/AuthField.jsx";
+import AuthField from "../components/AuthField.jsx"; import Logo from "../components/Logo.jsx";
 
 export default function Register({ onRegister, onSwitchToLogin }) {
   const toast = useToast();
@@ -57,7 +57,7 @@ export default function Register({ onRegister, onSwitchToLogin }) {
       <div className="auth-wrap">
         <div className="auth-hero">
           <div className="auth-brand">
-            <div className="brand-logo">S</div>
+            <div className="brand-logo"><Logo size={40} /></div>
             <div className="auth-brand-text">
               <strong>SISNERLING</strong>
               <span>Sistem Neraca Lingkungan</span>
@@ -115,7 +115,7 @@ export default function Register({ onRegister, onSwitchToLogin }) {
         <div className="auth-col">
           <div className="auth-card">
             <div className="auth-brand">
-              <div className="brand-logo">S</div>
+              <div className="brand-logo"><Logo size={40} /></div>
               <div className="auth-brand-text">
                 <strong>SISNERLING</strong>
                 <span>Sistem Neraca Lingkungan</span>
@@ -197,3 +197,4 @@ export default function Register({ onRegister, onSwitchToLogin }) {
     </div>
   );
 }
+

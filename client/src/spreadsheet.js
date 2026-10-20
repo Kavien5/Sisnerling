@@ -833,9 +833,42 @@ function tryEval(node, ctx) {
   }
 }
 
+// INDIRECT: teks argumen diparse sebagai referensi A1 (mis. "'Sheet'!C4"
+// hasil konkatenasi "…!C" & baris) lalu diselesaikan melalui ctx, sehingga
+// referensi lintas-sheet ikut terbaca. Rentang menghasilkan ARRAY agar
+// SUM(INDIRECT("A1:B2")) tetap valid; sel tunggal menghasilkan skalar.
+function resolveIndirect(text, ctx) {
+  if (isErrorValue(text)) throw new EvalError(text);
+  const src = String(text ?? "").trim();
+  if (!src) throw new EvalError(ERR.REF);
+  let parser;
+  let ast;
+  try {
+    parser = new Parser(tokenize(src));
+    ast = parser.parseExpr();
+  } catch (e) {
+    throw new EvalError(ERR.REF);
+  }
+  if (parser.pos < parser.toks.length) throw new EvalError(ERR.REF);
+  switch (ast.type) {
+    case "ref":
+      return ctx.resolveRef(ast.ref);
+    case "sheetRef":
+      return ctx.resolveSheetRef(ast.sheet, ast.ref);
+    case "range":
+      return ctx.resolveRangeCells(ast.from, ast.to);
+    case "sheetRange":
+      return ctx.resolveSheetRangeCells(ast.sheet, ast.from, ast.to);
+    case "fileSheetRef":
+      return ctx.resolveFileSheetRef(ast.file, ast.sheet, ast.ref);
+    case "fileSheetRange":
+      return ctx.resolveFileSheetRangeCells(ast.file, ast.sheet, ast.from, ast.to);
+    default:
+      throw new EvalError(ERR.REF);
+  }
+}
+
 function applyFunc(name, args, ctx) {
-  const fn = FUNCS[name];
-  if (!fn) throw new EvalError(ERR.NAME);
   // PENTING: argumen rentang (range/sheetRange/fileSheetRange) diteruskan
   // sebagai ARRAY agar fungsi bersyarat (COUNTIF/SUMIF/COUNTIFS/SUMIFS/
   // AVERAGEIF) menerima batas rentangnya. Fungsi agregat sederhana
@@ -846,6 +879,22 @@ function applyFunc(name, args, ctx) {
     if (a.type === "fileSheetRange") return ctx.resolveFileSheetRangeCells(a.file, a.sheet, a.from, a.to);
     return evaluateAST(a, ctx);
   };
+  // INDIRECT diproses di sini (bukan lewat FUNCS) karena membutuhkan ctx
+  // untuk menyelesaikan teks referensi dinamis terhadap workbook aktif.
+  if (name === "INDIRECT") {
+    if (args.length < 1 || args.length > 2) throw new EvalError(ERR.VALUE);
+    const text = scalar(resolveArg(args[0]));
+    if (args.length === 2) {
+      // Gaya R1C1 (argumen kedua FALSE/0) belum didukung parser A1.
+      const a1Style = scalar(resolveArg(args[1]));
+      if (a1Style === 0 || a1Style === false || String(a1Style).toUpperCase() === "FALSE") {
+        throw new EvalError(ERR.VALUE);
+      }
+    }
+    return resolveIndirect(text, ctx);
+  }
+  const fn = FUNCS[name];
+  if (!fn) throw new EvalError(ERR.NAME);
   if (GUARDED_FUNCS.has(name) && args.length > 0) {
     const first = tryEval(args[0], ctx);
     return fn([first.v, ...args.slice(1).map(resolveArg)]);
@@ -1099,6 +1148,10 @@ export function evaluateGrid(grid, columns, allSheets, currentSheetName, opts) {
     } catch (e) {
       value = e instanceof EvalError ? e.message : ERR.ERR;
     }
+    // Nilai rentang (mis. INDIRECT yang menunjuk A1:B2) tidak punya tempat
+    // di satu sel — Excel menampilkan #VALUE!; array hanya sah sebagai
+    // argumen fungsi (ditangani di applyFunc, bukan di sini).
+    if (Array.isArray(value)) value = ERR.VALUE;
     resolving.delete(ckey);
     const v = { value, formula: true };
     cache.set(ckey, v);

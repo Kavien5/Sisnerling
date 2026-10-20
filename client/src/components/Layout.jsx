@@ -21,6 +21,7 @@ import {
   IconAlert,
 } from "./Icons.jsx";
 import Modal from "./Modal.jsx";
+import Logo from "./Logo.jsx";
 import ProfileModal from "./ProfileModal.jsx";
 import { useToast } from "./Toast.jsx";
 import { roleLabel, isSuperAdmin } from "../auth.js";
@@ -762,6 +763,7 @@ export default function Layout({ page, setPage, children, importedFiles, user, o
     if (page === "import-result") return "Hasil Import";
     if (page === "spreadsheet") return "Spreadsheet";
     if (page === "statistik") return "Spreadsheet Statistik";
+    if (page === "neraca-input") return "Input & Pengolahan Neraca";
     if (page === "files") return "File & Import";
     if (page === "panduan") return "Panduan Penggunaan";
     if (page === "audit-log") return "Audit Log";
@@ -922,7 +924,9 @@ export default function Layout({ page, setPage, children, importedFiles, user, o
     <div className="layout">
       <aside className={`sidebar${open ? " open" : ""}`}>
         <div className="sidebar-brand" onClick={() => setPage("dashboard")} style={{ cursor: "pointer" }}>
-          <div className="brand-logo">S</div>
+          <div className="brand-logo">
+            <Logo size={40} />
+          </div>
           <div className="brand-text">
             <strong>SISNERLING</strong>
             <span>Sistem Neraca Lingkungan</span>
@@ -932,8 +936,8 @@ export default function Layout({ page, setPage, children, importedFiles, user, o
           {renderLeaf({ key: "dashboard", label: "Dashboard", icon: IconDashboard })}
           {renderLeaf({ key: "spreadsheet", label: "Spreadsheet", icon: IconFileSpreadsheet })}
           {renderLeaf({ key: "statistik", label: "Spreadsheet Statistik", icon: IconFileSpreadsheet })}
+          {renderLeaf({ key: "neraca-input", label: "Input & Pengolahan Neraca", icon: IconGrid })}
           {renderLeaf({ key: "files", label: "File & Import", icon: IconDatabase })}
-          {renderLeaf({ key: "kategori", label: "Kategori", icon: IconTag })}
           {renderLeaf({ key: "laporan", label: "Laporan", icon: IconFileText })}
           {renderLeaf({ key: "panduan", label: "Panduan", icon: IconBox })}
           {isSuperAdmin(user) && renderLeaf({ key: "audit-log", label: "Audit Log", icon: IconHistory })}

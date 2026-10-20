@@ -230,6 +230,28 @@ export const api = {
     request("/api/statistical/formula", { method: "PUT", body: JSON.stringify(body) }),
   statisticalFormulaHistory: (sheetId, row, col) =>
     request(`/api/statistical/formula/history?sheet_id=${sheetId}&row=${row}&col=${col}`),
+  neracaSpreadsheet: () => request("/api/neraca"),
+  neracaUpdateCell: (body) =>
+    request("/api/neraca/cell", { method: "POST", body: JSON.stringify(body) }),
+  neracaAddYear: (year) =>
+    request("/api/neraca/tahun", { method: "POST", body: JSON.stringify({ year }) }),
+  neracaReset: () => request("/api/neraca/reset", { method: "POST", body: "{}" }),
+  neracaExportCsvUrl: (sheet = "Indonesia") =>
+    `/api/neraca/export/csv?sheet=${encodeURIComponent(sheet)}`,
+  neracaTemplateUrl: () => "/api/neraca/template",
+  neracaImport: (body) =>
+    request("/api/neraca/import", { method: "POST", body: JSON.stringify(body) }),
+  neracaSelectDataset: (id) =>
+    request("/api/neraca/datasets/select", { method: "POST", body: JSON.stringify({ id }) }),
+  neracaRenameDataset: (id, name) =>
+    request("/api/neraca/datasets/rename", { method: "POST", body: JSON.stringify({ id, name }) }),
+  neracaDeleteDataset: (id) =>
+    request(`/api/neraca/datasets/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  neracaReimportHidden: (includeHidden) =>
+    request("/api/neraca/reimport-hidden", {
+      method: "POST",
+      body: JSON.stringify({ includeHidden }),
+    }),
 };
 
 export const formatRupiah = (n) =>

@@ -9,14 +9,13 @@ const SECTIONS = [
   { id: "file-terimport", label: "5. File Terimport" },
   { id: "import-excel", label: "6. Import Excel (Super Admin)" },
   { id: "hasil-import", label: "7. Hasil Import & Visualisasi" },
-  { id: "kategori", label: "8. Kategori" },
-  { id: "laporan", label: "9. Laporan" },
-  { id: "admin-user", label: "10. Kelola Akun & Role (Super Admin)" },
-  { id: "admin-tugas", label: "11. Penugasan Tabel ke Admin" },
-  { id: "admin-maintenance", label: "12. Maintenance Mode" },
-  { id: "admin-backup", label: "13. Backup & Restore" },
-  { id: "admin-pengaturan", label: "14. Pengaturan Umum" },
-  { id: "tips", label: "15. Tips & Catatan Penting" },
+  { id: "laporan", label: "8. Laporan & Kategori" },
+  { id: "admin-user", label: "9. Kelola Akun & Role (Super Admin)" },
+  { id: "admin-tugas", label: "10. Penugasan Tabel ke Admin" },
+  { id: "admin-maintenance", label: "11. Maintenance Mode" },
+  { id: "admin-backup", label: "12. Backup & Restore" },
+  { id: "admin-pengaturan", label: "13. Pengaturan Umum" },
+  { id: "tips", label: "14. Tips & Catatan Penting" },
 ];
 
 function Step({ n, children }) {
@@ -243,27 +242,16 @@ export default function Panduan({ user }) {
             </div>
           </div>
 
-          {/* 8. KATEGORI */}
-          <div id="pd-kategori" className="card pd-section">
-            <div className="card-header"><h2>Kategori</h2></div>
-            <div className="card-body">
-              <p>Kategori digunakan untuk mengelompokkan data berdasarkan bidang tertentu (misalnya Hutan, Mineral, Energi, Uang, dan lain-lain).</p>
-              <ol className="pd-ol">
-                <Step n="1">Buka menu <b>Kategori</b>. Terlihat daftar kategori (sheet) dengan baris berisi, sel terisi, dan total nilai.</Step>
-                <Step n="2">Di halaman ini Anda hanya melihat rekap. Penambahan/kategorisasi dilakukan di halaman <b>Spreadsheet</b> (tambah sheet dengan nama sesuai kategori).</Step>
-              </ol>
-            </div>
-          </div>
-
-          {/* 9. LAPORAN */}
+          {/* 8. LAPORAN & KATEGORI */}
           <div id="pd-laporan" className="card pd-section">
-            <div className="card-header"><h2>Laporan</h2></div>
+            <div className="card-header"><h2>Laporan &amp; Kategori</h2></div>
             <div className="card-body">
               <ol className="pd-ol">
-                <Step n="1">Buka menu <b>Laporan</b>. Ditampilkan rekap per sheet: jumlah kolom, baris berisi, sel terisi, dan total nilai.</Step>
+                <Step n="1">Buka menu <b>Laporan</b>. Ditampilkan rekap per kategori (sheet): nomor, jumlah kolom, baris berisi, sel terisi, dan total nilai.</Step>
                 <Step n="2">Klik <b>Perbandingan Antar Periode</b> untuk membandingkan data antar waktu.</Step>
                 <Step n="3">Gunakan tabel <b>Perbandingan Data</b> di bagian bawah untuk analisis lebih lanjut.</Step>
               </ol>
+              <p className="pd-note">Rekap kategori kini menyatu di halaman ini. Untuk menambah/mengubah kategori, tambah atau ganti nama sheet di halaman <b>Spreadsheet</b>.</p>
             </div>
           </div>
 

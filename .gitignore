@@ -21,6 +21,7 @@ server/public/assets/*.map
 uploads/
 tmp/
 temp/
+server/data/
 
 # OS/IDE
 .DS_Store
