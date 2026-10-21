@@ -375,6 +375,8 @@ export default function InputPengolahanNeraca() {
   );
   const [theme, setTheme] = React.useState(() => localStorage.getItem("sisnerling_neraca_theme") || "light");
   const saveTimer = React.useRef(null);
+  const pendingCellUpdates = React.useRef(new Map());
+  const saveChain = React.useRef(Promise.resolve());
   const fileInputRef = React.useRef(null);
 
   const loadSpreadsheet = React.useCallback(async () => {
@@ -396,7 +398,19 @@ export default function InputPengolahanNeraca() {
 
   React.useEffect(() => {
     loadSpreadsheet();
-    return () => clearTimeout(saveTimer.current);
+    return () => {
+      clearTimeout(saveTimer.current);
+      const updates = Array.from(pendingCellUpdates.current.values());
+      pendingCellUpdates.current.clear();
+      if (updates.length) {
+        saveChain.current = saveChain.current
+          .catch(() => {})
+          .then(() => api.neracaUpdateCell({ updates }))
+          .catch((err) => {
+            console.error("Gagal menyimpan perubahan neraca sebelum meninggalkan halaman:", err);
+          });
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -500,9 +514,43 @@ export default function InputPengolahanNeraca() {
     toast("Nilai dikembalikan ke angka awal.", "info");
   };
 
+  const flushPendingCellUpdates = async () => {
+    clearTimeout(saveTimer.current);
+    const updates = Array.from(pendingCellUpdates.current.values());
+    pendingCellUpdates.current.clear();
+    if (!updates.length) {
+      await saveChain.current;
+      return;
+    }
+
+    const request = saveChain.current
+      .catch(() => {})
+      .then(() => api.neracaUpdateCell({ updates }));
+    saveChain.current = request;
+
+    try {
+      await request;
+      setStatus("saved");
+    } catch (err) {
+      updates.forEach((update) => {
+        const key = getCellDraftKey(update.sheet, update.section, update.row, update.year);
+        if (!pendingCellUpdates.current.has(key)) pendingCellUpdates.current.set(key, update);
+      });
+      setStatus("error");
+      toast(err.message, "error");
+      throw err;
+    }
+  };
+
   const handleSaveRowInputModal = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
     if (!activeInputRow || !data) return;
+
+    try {
+      await flushPendingCellUpdates();
+    } catch {
+      return;
+    }
 
     const updates = [];
     const updatedData = JSON.parse(JSON.stringify(data));
@@ -533,11 +581,14 @@ export default function InputPengolahanNeraca() {
     setStatus("saving");
 
     try {
+      let savedData;
       try {
-        await api.neracaUpdateCell({ updates });
-      } catch (_) {
-        await Promise.all(updates.map((u) => api.neracaUpdateCell(u)));
+        savedData = await api.neracaUpdateCell({ updates });
+      } catch {
+        await Promise.all(updates.map((update) => api.neracaUpdateCell(update)));
+        savedData = await api.neracaSpreadsheet();
       }
+      setData(savedData);
       setStatus("saved");
       toast(`Data "${activeInputRow.label}" berhasil disimpan dan seluruh neraca dihitung ulang!`, "success");
     } catch (err) {
@@ -548,15 +599,11 @@ export default function InputPengolahanNeraca() {
 
   const queueSave = (payload) => {
     setStatus("saving");
+    const key = getCellDraftKey(payload.sheet, payload.section, payload.row, payload.year);
+    pendingCellUpdates.current.set(key, payload);
     clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(async () => {
-      try {
-        await api.neracaUpdateCell(payload);
-        setStatus("saved");
-      } catch (err) {
-        setStatus("error");
-        toast(err.message, "error");
-      }
+    saveTimer.current = setTimeout(() => {
+      flushPendingCellUpdates().catch(() => {});
     }, 400);
   };
 
@@ -1453,4 +1500,3 @@ export default function InputPengolahanNeraca() {
     </div>
   );
 }
-
