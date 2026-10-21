@@ -11,6 +11,7 @@ const { isMaintenanceActive } = require("./auth");
 const { getWorkbookAccess, resolveWorkbookKey, applyCellOp } = require("./collab");
 
 const roomOf = (workbookKey) => `file:${workbookKey}`;
+const NERACA_PRESENCE_ROOM = "presence:neraca-hutan";
 
 // Instance io untuk broadcast dari jalur REST (mis. row-created).
 let ioInstance = null;
@@ -96,8 +97,25 @@ function attachRealtime(httpServer) {
     socket.data.rooms = new Set();
 
     const broadcastPresence = (room) => {
-      io.to(room).emit("presence", { users: presenceList(room) });
+      const event = room === NERACA_PRESENCE_ROOM ? "neraca-presence" : "presence";
+      io.to(room).emit(event, { users: presenceList(room) });
     };
+
+    socket.on("join-neraca-presence", (ack) => {
+      socket.join(NERACA_PRESENCE_ROOM);
+      socket.data.rooms.add(NERACA_PRESENCE_ROOM);
+      trackJoin(NERACA_PRESENCE_ROOM, user, socket.id);
+      if (typeof ack === "function") ack({ ok: true });
+      broadcastPresence(NERACA_PRESENCE_ROOM);
+    });
+
+    socket.on("leave-neraca-presence", () => {
+      if (!socket.data.rooms.has(NERACA_PRESENCE_ROOM)) return;
+      socket.leave(NERACA_PRESENCE_ROOM);
+      socket.data.rooms.delete(NERACA_PRESENCE_ROOM);
+      trackLeave(NERACA_PRESENCE_ROOM, user.id, socket.id);
+      broadcastPresence(NERACA_PRESENCE_ROOM);
+    });
 
     socket.on("join-file", async (payload, ack) => {
       try {

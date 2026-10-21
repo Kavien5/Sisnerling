@@ -1,6 +1,7 @@
 import React from "react";
 import { api } from "../api.js";
-import { getToken } from "../auth.js";
+import { getToken, getUser } from "../auth.js";
+import { ensureCollabSocket } from "../collabSocket.js";
 import Modal from "../components/Modal.jsx";
 import { useToast } from "../components/Toast.jsx";
 import {
@@ -359,9 +360,28 @@ function InputButton({ onClick, title = "Klik untuk input data komponen ini" }) 
   );
 }
 
+function initials(name) {
+  return String(name || "?")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((word) => word[0].toUpperCase())
+    .join("");
+}
+
+function avatarColor(id) {
+  let hue = 0;
+  const value = String(id);
+  for (let i = 0; i < value.length; i++) hue = (hue * 31 + value.charCodeAt(i)) % 360;
+  return `hsl(${hue}, 70%, 45%)`;
+}
+
 export default function InputPengolahanNeraca() {
   const toast = useToast();
+  const currentUser = getUser();
   const [data, setData] = React.useState(null);
+  const [activeUsers, setActiveUsers] = React.useState([]);
+  const [presenceStatus, setPresenceStatus] = React.useState("connecting");
   const [loadError, setLoadError] = React.useState(null);
   const [activeSheet, setActiveSheet] = React.useState("Jati Jawa");
   const [rawSheetIdx, setRawSheetIdx] = React.useState(0);
@@ -378,6 +398,51 @@ export default function InputPengolahanNeraca() {
   const pendingCellUpdates = React.useRef(new Map());
   const saveChain = React.useRef(Promise.resolve());
   const fileInputRef = React.useRef(null);
+
+  React.useEffect(() => {
+    const socket = ensureCollabSocket();
+    if (!socket) {
+      setPresenceStatus("offline");
+      return undefined;
+    }
+
+    const onPresence = ({ users } = {}) => {
+      setActiveUsers(Array.isArray(users) ? users : []);
+    };
+    const joinPresence = () => {
+      setPresenceStatus("connecting");
+      socket.emit("join-neraca-presence", (result) => {
+        if (result && result.ok) {
+          setPresenceStatus("live");
+        } else {
+          setPresenceStatus("offline");
+          console.error("Gagal bergabung ke presence Neraca Hutan:", result && result.error);
+        }
+      });
+    };
+    const onDisconnect = () => {
+      setPresenceStatus("offline");
+      setActiveUsers([]);
+    };
+    const onConnectError = (error) => {
+      setPresenceStatus("offline");
+      console.error("Koneksi presence Neraca Hutan gagal:", error.message);
+    };
+
+    socket.on("neraca-presence", onPresence);
+    socket.on("connect", joinPresence);
+    socket.on("disconnect", onDisconnect);
+    socket.on("connect_error", onConnectError);
+    if (socket.connected) joinPresence();
+
+    return () => {
+      socket.off("neraca-presence", onPresence);
+      socket.off("connect", joinPresence);
+      socket.off("disconnect", onDisconnect);
+      socket.off("connect_error", onConnectError);
+      if (socket.connected) socket.emit("leave-neraca-presence");
+    };
+  }, []);
 
   const loadSpreadsheet = React.useCallback(async () => {
     setLoadError(null);
@@ -1024,6 +1089,42 @@ export default function InputPengolahanNeraca() {
               <FormulaChip />
               <span>Otomatis Real-Time</span>
             </div>
+          </div>
+
+          <div
+            className="ipn-presence"
+            role="status"
+            aria-live="polite"
+            title={
+              activeUsers.length
+                ? activeUsers.map((user) => user.nama).join(", ")
+                : "Tidak ada pengguna yang sedang membuka halaman ini"
+            }
+          >
+            <span className={`ipn-presence-dot ${presenceStatus}`} />
+            <div className="ipn-presence-avatars" aria-label="Pengguna yang sedang online">
+              {activeUsers.slice(0, 4).map((user) => (
+                <span
+                  key={user.id}
+                  className="ipn-presence-avatar"
+                  style={{ backgroundColor: avatarColor(user.id) }}
+                  title={`${user.nama}${String(user.id) === String(currentUser?.id) ? " (Anda)" : ""}`}
+                  aria-label={user.nama}
+                >
+                  {initials(user.nama)}
+                </span>
+              ))}
+              {activeUsers.length > 4 && (
+                <span className="ipn-presence-overflow">+{activeUsers.length - 4}</span>
+              )}
+            </div>
+            <span className="ipn-presence-label">
+              {presenceStatus === "live"
+                ? `${activeUsers.length} online`
+                : presenceStatus === "connecting"
+                  ? "Menghubungkan…"
+                  : "Offline"}
+            </span>
           </div>
 
           <div className="header-buttons">

@@ -188,6 +188,67 @@
   gap: 0.5rem;
 }
 
+.ipn-root .ipn-presence {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 34px;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--border-light);
+  border-radius: 9999px;
+  background: var(--bg-card);
+  white-space: nowrap;
+}
+
+.ipn-root .ipn-presence-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #94a3b8;
+}
+
+.ipn-root .ipn-presence-dot.live {
+  background: #22c55e;
+}
+
+.ipn-root .ipn-presence-dot.connecting {
+  background: #f59e0b;
+}
+
+.ipn-root .ipn-presence-avatars {
+  display: inline-flex;
+  align-items: center;
+  padding-left: 5px;
+}
+
+.ipn-root .ipn-presence-avatar,
+.ipn-root .ipn-presence-overflow {
+  display: inline-flex;
+  width: 27px;
+  height: 27px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  margin-left: -5px;
+  border: 2px solid var(--bg-card);
+  border-radius: 50%;
+  color: #ffffff;
+  font-size: 0.62rem;
+  font-weight: 800;
+  box-shadow: var(--shadow-sm);
+}
+
+.ipn-root .ipn-presence-overflow {
+  background: var(--text-muted);
+}
+
+.ipn-root .ipn-presence-label {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
 .ipn-root .btn {
   display: inline-flex;
   align-items: center;
@@ -841,4 +902,3 @@
   font-style: italic;
   line-height: 1.2;
 }
-
