@@ -404,13 +404,55 @@
 
 .ipn-root .col-tipe {
   text-align: center !important;
-  width: 110px;
+  width: 135px;
+  min-width: 125px;
+}
+
+.ipn-root .ipn-btn-input-col {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.28rem 0.65rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: #ffffff;
+  background: var(--ipn-primary, #0284c7);
+  border: 1px solid var(--ipn-primary, #0284c7);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 2px rgba(2, 132, 199, 0.2);
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.ipn-root .ipn-btn-input-col:hover {
+  background: var(--ipn-primary-hover, #0369a1);
+  border-color: var(--ipn-primary-hover, #0369a1);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 6px rgba(2, 132, 199, 0.25);
+}
+
+.ipn-root .ipn-btn-input-col:active {
+  transform: translateY(0);
+}
+
+.ipn-root .chip-clickable {
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ipn-root .chip-clickable:hover {
+  opacity: 0.85;
+  transform: translateY(-1px);
 }
 
 .ipn-root .cell-input {
   background: var(--cell-input-bg);
   padding: 0 !important;
   position: relative;
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.25);
 }
 
 .ipn-root .cell-input-field {
@@ -429,13 +471,14 @@
 }
 
 .ipn-root .cell-input-field:hover {
-  background: rgba(2, 132, 199, 0.06);
+  background: rgba(2, 132, 199, 0.08);
+  box-shadow: inset 0 0 0 1px var(--cell-input-focus);
 }
 
 .ipn-root .cell-input-field:focus {
   background: var(--cell-input-bg);
   border-color: var(--cell-input-focus);
-  box-shadow: inset 0 0 0 1px var(--cell-input-focus);
+  box-shadow: inset 0 0 0 2px var(--cell-input-focus);
 }
 
 .ipn-root .cell-formula {
@@ -633,5 +676,169 @@
   background: color-mix(in srgb, var(--bg-app) 82%, transparent);
   backdrop-filter: blur(2px);
   pointer-events: none;
+}
+
+/* Modal Input Data Neraca */
+.ipn-modal-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.ipn-modal-meta-banner {
+  background: var(--ipn-primary-light, #e0f2fe);
+  border: 1px solid var(--border-light, #bae6fd);
+  border-radius: var(--radius-md, 10px);
+  padding: 0.85rem 1.1rem;
+}
+
+.ipn-modal-badge {
+  background: var(--ipn-primary, #0284c7);
+  color: #ffffff;
+  border-radius: 9999px;
+  padding: 0.15rem 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  margin-left: 0.5rem;
+  display: inline-block;
+}
+
+.ipn-modal-sheet-info {
+  font-size: 0.82rem;
+  color: var(--text-secondary, #334155);
+  margin-top: 0.25rem;
+}
+
+.ipn-modal-quickfill {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: var(--bg-app, #f4f7fb);
+  border: 1px dashed var(--border-table, #cbd5e1);
+  border-radius: var(--radius-sm, 6px);
+  padding: 0.65rem 0.95rem;
+  flex-wrap: wrap;
+}
+
+.ipn-modal-quickfill-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-main, #0f172a);
+}
+
+.ipn-modal-quickfill-input {
+  padding: 0.38rem 0.65rem;
+  font-size: 0.84rem;
+  font-family: var(--font-mono);
+  border: 1px solid var(--border-table, #cbd5e1);
+  border-radius: 4px;
+  background: var(--bg-card, #ffffff);
+  color: var(--text-main, #0f172a);
+  width: 140px;
+  text-align: right;
+  outline: none;
+}
+
+.ipn-modal-quickfill-input:focus {
+  border-color: var(--ipn-primary, #0284c7);
+}
+
+.ipn-modal-years-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.75rem;
+  max-height: 380px;
+  overflow-y: auto;
+  padding: 0.2rem;
+}
+
+.ipn-modal-year-card {
+  border: 1px solid var(--border-table, #cbd5e1);
+  border-radius: var(--radius-sm, 6px);
+  padding: 0.55rem 0.7rem;
+  background: var(--bg-card, #ffffff);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  transition: all 0.15s ease;
+}
+
+.ipn-modal-year-card:hover {
+  border-color: var(--ipn-primary, #0284c7);
+  box-shadow: var(--shadow-sm);
+}
+
+.ipn-modal-year-card.is-auto {
+  background: var(--cell-formula-bg, #f0f9ff);
+  border-color: var(--cell-formula-border, #bae6fd);
+}
+
+.ipn-modal-year-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ipn-modal-year-title {
+  font-weight: 800;
+  font-size: 0.86rem;
+  color: var(--text-main, #0f172a);
+}
+
+.ipn-modal-year-tag {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: var(--border-light, #e2e8f0);
+  color: var(--text-muted, #64748b);
+}
+
+.ipn-modal-year-card.is-auto .ipn-modal-year-tag {
+  background: var(--cell-formula-tag, #0284c7);
+  color: #ffffff;
+}
+
+.ipn-modal-input-wrapper {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--border-table, #cbd5e1);
+  border-radius: 4px;
+  background: var(--bg-app, #f4f7fb);
+  overflow: hidden;
+  transition: all 0.15s ease;
+}
+
+.ipn-modal-input-wrapper:focus-within {
+  border-color: var(--ipn-primary, #0284c7);
+  box-shadow: inset 0 0 0 1px var(--ipn-primary, #0284c7);
+  background: var(--bg-card, #ffffff);
+}
+
+.ipn-modal-year-input {
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 0.86rem;
+  font-weight: 700;
+  width: 100%;
+  padding: 0.38rem 0.5rem;
+  text-align: right;
+  color: var(--text-main, #0f172a);
+}
+
+.ipn-modal-input-unit {
+  font-size: 0.68rem;
+  color: var(--text-muted, #64748b);
+  padding-right: 0.5rem;
+  white-space: nowrap;
+}
+
+.ipn-modal-year-hint {
+  font-size: 0.66rem;
+  color: var(--text-muted, #64748b);
+  font-style: italic;
+  line-height: 1.2;
 }
 

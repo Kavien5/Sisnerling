@@ -1,4 +1,4 @@
-﻿const fs = require("fs");
+const fs = require("fs");
 const path = require("path");
 const express = require("express");
 const ExcelJS = require("exceljs");
@@ -1382,7 +1382,36 @@ function createNeracaRouter() {
   });
 
   router.post("/cell", (req, res) => {
-    const { sheet, section, row, year, value } = req.body || {};
+    const { updates, sheet, section, row, year, value } = req.body || {};
+    if (Array.isArray(updates) && updates.length > 0) {
+      try {
+        const ds = activeDataset();
+        const data = ds.data;
+        updates.forEach((u) => {
+          const sh = data.sheets[u.sheet];
+          if (!sh) return;
+          const numVal = parseFloat(u.value);
+          const cleanVal = isNaN(numVal) ? 0 : numVal;
+          if (u.section === "data_penunjang") {
+            const rec = (sh.records || []).find((r) => r.id === u.row);
+            if (rec) rec.values[u.year] = cleanVal;
+          } else {
+            if (!sh[u.section]) sh[u.section] = {};
+            if (!sh[u.section][u.row]) sh[u.section][u.row] = {};
+            sh[u.section][u.row][u.year] = cleanVal;
+          }
+        });
+        recalculateAll(data);
+        ds.updatedAt = new Date().toISOString();
+        save();
+        return res.json({
+          message: "Seluruh data berhasil diperbarui dan formulasi dihitung ulang!",
+          ...neracaResponse(),
+        });
+      } catch (err) {
+        return res.status(err.status || 500).json({ error: err.message });
+      }
+    }
     if (!sheet || !section || !row || !year) {
       return res.status(400).json({ error: "Parameter sheet, section, row, dan year wajib diisi!" });
     }

@@ -1,4 +1,4 @@
-﻿import React from "react";
+import React from "react";
 import { api } from "../api.js";
 import { getToken } from "../auth.js";
 import Modal from "../components/Modal.jsx";
@@ -43,6 +43,14 @@ function round4(v) {
 function num(v) {
   const n = parseFloat(v);
   return isNaN(n) ? 0 : n;
+}
+
+function parseInputValue(raw) {
+  if (raw === "" || raw === null || raw === undefined) return 0;
+  if (typeof raw === "number") return Number.isFinite(raw) ? raw : 0;
+  const clean = String(raw).trim().replace(/\s+/g, "").replace(",", ".");
+  const parsed = parseFloat(clean);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function recalculateLocal(data) {
@@ -337,6 +345,20 @@ function InputChip() {
   );
 }
 
+function InputButton({ onClick, title = "Klik untuk input data komponen ini" }) {
+  return (
+    <button
+      type="button"
+      className="ipn-btn-input-col"
+      onClick={onClick}
+      title={title}
+    >
+      <IconEdit size={12} />
+      <span>Input Data</span>
+    </button>
+  );
+}
+
 export default function InputPengolahanNeraca() {
   const toast = useToast();
   const [data, setData] = React.useState(null);
@@ -400,6 +422,130 @@ export default function InputPengolahanNeraca() {
     }
   };
 
+  const [cellDrafts, setCellDrafts] = React.useState({});
+  const [inputModalOpen, setInputModalOpen] = React.useState(false);
+  const [activeInputRow, setActiveInputRow] = React.useState(null);
+  const [rowDraftValues, setRowDraftValues] = React.useState({});
+  const [originalRowValues, setOriginalRowValues] = React.useState({});
+  const [quickFillVal, setQuickFillVal] = React.useState("");
+
+  const getCellDraftKey = (sheet, section, row, year) => `${sheet}:${section}:${row}:${year}`;
+
+  const commitCellDraft = (sheet, section, row, year) => {
+    const key = getCellDraftKey(sheet, section, row, year);
+    if (!(key in cellDrafts)) return;
+    const raw = cellDrafts[key];
+    const value = parseInputValue(raw);
+    setCellDrafts((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    handleCellChange(sheet, section, row, year, value);
+  };
+
+  const cancelCellDraft = (sheet, section, row, year) => {
+    const key = getCellDraftKey(sheet, section, row, year);
+    setCellDrafts((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const openRowInputModal = ({ def, section, source, isPenunjang }) => {
+    if (!data) return;
+    const rowId = def.id;
+    const currentValues = {};
+    const yearsList = data.years || [];
+    yearsList.forEach((y) => {
+      if (isPenunjang) {
+        const rec = (data.sheets["Data Penunjang"]?.records || []).find((r) => r.id === rowId);
+        currentValues[y] = rec && rec.values && rec.values[y] !== undefined ? String(rec.values[y]) : "0";
+      } else {
+        const s = data.sheets[activeSheet]?.[source]?.[rowId];
+        currentValues[y] = s && s[y] !== undefined ? String(s[y]) : "0";
+      }
+    });
+    setActiveInputRow({
+      id: rowId,
+      label: def.label || def.name,
+      satuan: def.satuan,
+      section,
+      source,
+      isPenunjang: !!isPenunjang,
+      isFormula: def.isFormula,
+    });
+    setRowDraftValues({ ...currentValues });
+    setOriginalRowValues({ ...currentValues });
+    setQuickFillVal("");
+    setInputModalOpen(true);
+  };
+
+  const applyQuickFill = () => {
+    const clean = quickFillVal.trim();
+    if (!clean) return;
+    const num = parseInputValue(clean);
+    const nextDraft = {};
+    (data?.years || []).forEach((y) => {
+      nextDraft[y] = String(num);
+    });
+    setRowDraftValues(nextDraft);
+    toast(`Nilai ${num} diterapkan ke semua tahun. Tekan "Simpan Data" untuk konfirmasi.`, "info");
+  };
+
+  const handleResetRowDraftToOriginal = () => {
+    setRowDraftValues({ ...originalRowValues });
+    setQuickFillVal("");
+    toast("Nilai dikembalikan ke angka awal.", "info");
+  };
+
+  const handleSaveRowInputModal = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!activeInputRow || !data) return;
+
+    const updates = [];
+    const updatedData = JSON.parse(JSON.stringify(data));
+    const yearsList = data.years || [];
+
+    yearsList.forEach((y) => {
+      const raw = rowDraftValues[y];
+      const clean = parseInputValue(raw);
+      if (activeInputRow.isPenunjang) {
+        const rec = updatedData.sheets["Data Penunjang"]?.records?.find((r) => r.id === activeInputRow.id);
+        if (rec) rec.values[y] = clean;
+        updates.push({ sheet: "Data Penunjang", section: "data_penunjang", row: activeInputRow.id, year: y, value: clean });
+      } else {
+        if (!updatedData.sheets[activeSheet][activeInputRow.section]) {
+          updatedData.sheets[activeSheet][activeInputRow.section] = {};
+        }
+        if (!updatedData.sheets[activeSheet][activeInputRow.section][activeInputRow.id]) {
+          updatedData.sheets[activeSheet][activeInputRow.section][activeInputRow.id] = {};
+        }
+        updatedData.sheets[activeSheet][activeInputRow.section][activeInputRow.id][y] = clean;
+        updates.push({ sheet: activeSheet, section: activeInputRow.section, row: activeInputRow.id, year: y, value: clean });
+      }
+    });
+
+    recalculateLocal(updatedData);
+    setData(updatedData);
+    setInputModalOpen(false);
+    setStatus("saving");
+
+    try {
+      try {
+        await api.neracaUpdateCell({ updates });
+      } catch (_) {
+        await Promise.all(updates.map((u) => api.neracaUpdateCell(u)));
+      }
+      setStatus("saved");
+      toast(`Data "${activeInputRow.label}" berhasil disimpan dan seluruh neraca dihitung ulang!`, "success");
+    } catch (err) {
+      setStatus("error");
+      toast(err.message, "error");
+    }
+  };
+
   const queueSave = (payload) => {
     setStatus("saving");
     clearTimeout(saveTimer.current);
@@ -415,8 +561,7 @@ export default function InputPengolahanNeraca() {
   };
 
   const handleCellChange = (sheet, section, row, year, raw) => {
-    const parsed = raw === "" ? 0 : Number(raw);
-    const value = Number.isFinite(parsed) ? parsed : 0;
+    const value = parseInputValue(raw);
     setData((prev) => {
       const next = JSON.parse(JSON.stringify(prev));
       if (section === "data_penunjang") {
@@ -700,7 +845,9 @@ export default function InputPengolahanNeraca() {
       <tr>
         <th className="col-indicator">Komponen / Indikator</th>
         <th className="col-satuan">Satuan</th>
-        <th className="col-tipe">Tipe Cell</th>
+        <th className="col-tipe" title="Gunakan tombol 'Input Data' untuk membuka form input, atau ketik langsung pada sel tahun">
+          Kolom Input
+        </th>
         {years.map((y) => (
           <th key={y} style={{ textAlign: "right", minWidth: 100 }}>
             {y}
@@ -720,7 +867,27 @@ export default function InputPengolahanNeraca() {
           <tr key={def.id} className={trClass}>
             <td className="col-indicator">{def.label}</td>
             <td className="col-satuan">{def.satuan}</td>
-            <td className="col-tipe">{firstFormula ? <FormulaChip /> : <InputChip />}</td>
+            <td className="col-tipe">
+              {isNational ? (
+                <span
+                  className="legend-chip chip-formula chip-clickable"
+                  onClick={() => {
+                    setActiveSheet("Jati Jawa");
+                    toast("Membuka lembar 'Jati Jawa' untuk input data wilayah.", "info");
+                  }}
+                  title="Agregasi nasional otomatis (Jati Jawa + Rimba Jawa + Rimba Luar Jawa). Klik untuk beralih ke Jati Jawa untuk input data."
+                >
+                  <IconCheck size={11} /> Agregasi
+                </span>
+              ) : firstFormula ? (
+                <FormulaChip />
+              ) : (
+                <InputButton
+                  onClick={() => openRowInputModal({ def, section, source, isPenunjang: false })}
+                  title={`Klik untuk membuka form input data ${def.label}`}
+                />
+              )}
+            </td>
             {years.map((y, yIdx) => {
               const val = series[y] || 0;
               const isFormula = def.isFormula ? def.isFormula(isNational, yIdx) : true;
@@ -732,14 +899,29 @@ export default function InputPengolahanNeraca() {
                   </td>
                 );
               }
+              const draftKey = getCellDraftKey(activeSheet, section, def.id, y);
+              const isDraft = draftKey in cellDrafts;
+              const displayVal = isDraft ? cellDrafts[draftKey] : (val !== undefined && val !== null ? val : 0);
               return (
-                <td key={y} className="cell-input">
+                <td key={y} className="cell-input" title={`Klik atau ketik untuk mengedit ${def.label} (${y})`}>
                   <input
-                    type="number"
-                    step="any"
+                    type="text"
+                    inputMode="decimal"
                     className="cell-input-field"
-                    value={val}
-                    onChange={(e) => handleCellChange(activeSheet, section, def.id, y, e.target.value)}
+                    value={displayVal}
+                    onFocus={(e) => e.target.select()}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setCellDrafts((prev) => ({ ...prev, [draftKey]: v }));
+                    }}
+                    onBlur={() => commitCellDraft(activeSheet, section, def.id, y)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.currentTarget.blur();
+                      } else if (e.key === "Escape") {
+                        cancelCellDraft(activeSheet, section, def.id, y);
+                      }
+                    }}
                   />
                 </td>
               );
@@ -779,9 +961,17 @@ export default function InputPengolahanNeraca() {
           </div>
 
           <div className="cell-legend">
-            <div className="legend-item" title="Sel putih adalah sel input manual yang dapat diketik langsung">
-              <InputChip />
-              <span>Bisa Diedit</span>
+            <div className="legend-item" title="Tombol 'Input Data' pada Kolom Input membuka form entri komprehensif">
+              <span className="ipn-btn-input-col" style={{ pointerEvents: "none", padding: "0.15rem 0.5rem", fontSize: "0.68rem" }}>
+                <IconEdit size={10} /> Input Data
+              </span>
+              <span>Form Input per Komponen</span>
+            </div>
+            <div className="legend-item" title="Sel putih pada kolom tahun dapat diketik langsung">
+              <span className="legend-chip chip-input">
+                <IconTable size={11} /> Sel Putih
+              </span>
+              <span>Ketik Langsung di Sel</span>
             </div>
             <div className="legend-item" title="Sel biru bertanda fx dihitung otomatis oleh formula di belakang layar">
               <FormulaChip />
@@ -990,7 +1180,9 @@ export default function InputPengolahanNeraca() {
                   <tr>
                     <th className="col-indicator">Indikator Parameter</th>
                     <th className="col-satuan">Satuan</th>
-                    <th className="col-tipe">Tipe</th>
+                    <th className="col-tipe" title="Gunakan tombol 'Input Data' untuk membuka form input, atau ketik langsung pada sel tahun">
+                      Kolom Input
+                    </th>
                     {years.map((y) => (
                       <th key={y} style={{ textAlign: "right", minWidth: 100 }}>
                         {y}
@@ -1004,18 +1196,36 @@ export default function InputPengolahanNeraca() {
                       <td className="col-indicator">{rec.name}</td>
                       <td className="col-satuan">{rec.satuan}</td>
                       <td className="col-tipe">
-                        <InputChip />
+                        <InputButton
+                          onClick={() => openRowInputModal({ def: rec, section: "data_penunjang", source: "records", isPenunjang: true })}
+                          title={`Klik untuk membuka form input data ${rec.name}`}
+                        />
                       </td>
                       {years.map((y) => {
                         const val = rec.values[y] || 0;
+                        const draftKey = getCellDraftKey("Data Penunjang", "data_penunjang", rec.id, y);
+                        const isDraft = draftKey in cellDrafts;
+                        const displayVal = isDraft ? cellDrafts[draftKey] : (val !== undefined && val !== null ? val : 0);
                         return (
-                          <td key={y} className="cell-input">
+                          <td key={y} className="cell-input" title={`Klik atau ketik untuk mengedit ${rec.name} (${y})`}>
                             <input
-                              type="number"
-                              step="any"
+                              type="text"
+                              inputMode="decimal"
                               className="cell-input-field"
-                              value={val}
-                              onChange={(e) => handleCellChange("Data Penunjang", "data_penunjang", rec.id, y, e.target.value)}
+                              value={displayVal}
+                              onFocus={(e) => e.target.select()}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setCellDrafts((prev) => ({ ...prev, [draftKey]: v }));
+                              }}
+                              onBlur={() => commitCellDraft("Data Penunjang", "data_penunjang", rec.id, y)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.currentTarget.blur();
+                                } else if (e.key === "Escape") {
+                                  cancelCellDraft("Data Penunjang", "data_penunjang", rec.id, y);
+                                }
+                              }}
                             />
                           </td>
                         );
@@ -1086,6 +1296,128 @@ export default function InputPengolahanNeraca() {
           </div>
         )}
       </div>
+
+      {inputModalOpen && activeInputRow && (
+        <Modal
+          title={
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <IconEdit size={16} />
+              <span>Input Data: {activeInputRow.label}</span>
+            </div>
+          }
+          onClose={() => setInputModalOpen(false)}
+          width="760px"
+          footer={
+            <div style={{ display: "flex", justifyContent: "space-between", width: "100%", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setInputModalOpen(false)}
+              >
+                Batal
+              </button>
+              <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={handleResetRowDraftToOriginal}
+                  title="Kembalikan angka ke nilai saat modal dibuka"
+                >
+                  <IconRotate size={13} /> Reset
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleSaveRowInputModal}
+                >
+                  <IconCheck size={13} /> Simpan Data &amp; Hitung Neraca
+                </button>
+              </div>
+            </div>
+          }
+        >
+          <div className="ipn-modal-content">
+            <div className="ipn-modal-meta-banner">
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
+                <div>
+                  <strong style={{ fontSize: "1rem", color: "var(--text-main)" }}>{activeInputRow.label}</strong>
+                  <span className="ipn-modal-badge">{activeInputRow.satuan}</span>
+                </div>
+                <div className="ipn-modal-sheet-info">
+                  Lembar: <strong>{activeSheet}</strong>
+                </div>
+              </div>
+              <p style={{ margin: "0.4rem 0 0", fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                Ketik angka untuk tahun yang ingin diubah. Gunakan <b>Isi Cepat</b> bila ingin mengisi seluruh tahun dengan angka yang sama sekaligus. Tekan tombol <b>Simpan Data &amp; Hitung Neraca</b> untuk menerapkan ke tabel dan menghitung formula real-time.
+              </p>
+            </div>
+
+            <div className="ipn-modal-quickfill">
+              <span className="ipn-modal-quickfill-label">Isi Cepat (Semua Tahun):</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                className="ipn-modal-quickfill-input"
+                placeholder="Contoh: 5000"
+                value={quickFillVal}
+                onChange={(e) => setQuickFillVal(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    applyQuickFill();
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{ padding: "0.38rem 0.75rem", fontSize: "0.8rem" }}
+                onClick={applyQuickFill}
+                title="Terapkan nilai ini ke semua kotak tahun di bawah"
+              >
+                <IconCheck size={12} /> Terapkan ke Semua Tahun
+              </button>
+            </div>
+
+            <div className="ipn-modal-years-grid">
+              {(data?.years || []).map((y, yIdx) => {
+                const isPersediaanAwalAuto = activeInputRow.id === "persediaanAwal" && yIdx > 0;
+                return (
+                  <div key={y} className={`ipn-modal-year-card${isPersediaanAwalAuto ? " is-auto" : ""}`}>
+                    <div className="ipn-modal-year-header">
+                      <span className="ipn-modal-year-title">{y}</span>
+                      {activeInputRow.id === "persediaanAwal" && (
+                        <span className="ipn-modal-year-tag">
+                          {yIdx === 0 ? "Tahun Awal" : "fx Otomatis"}
+                        </span>
+                      )}
+                    </div>
+                    <div className="ipn-modal-input-wrapper">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        className="ipn-modal-year-input"
+                        value={rowDraftValues[y] !== undefined ? rowDraftValues[y] : ""}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setRowDraftValues((prev) => ({ ...prev, [y]: val }));
+                        }}
+                        placeholder="0"
+                      />
+                      <span className="ipn-modal-input-unit">{activeInputRow.satuan}</span>
+                    </div>
+                    {isPersediaanAwalAuto && (
+                      <span className="ipn-modal-year-hint">
+                        * Mengikuti persediaan akhir {data.years[yIdx - 1]}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {addYearOpen && (
         <Modal
