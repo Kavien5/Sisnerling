@@ -21,6 +21,9 @@ function getIO() {
 function emitToFile(workbookKey, event, payload) {
   if (ioInstance && workbookKey) ioInstance.to(roomOf(String(workbookKey))).emit(event, payload);
 }
+function emitNeracaUpdate(payload) {
+  if (ioInstance) ioInstance.to(NERACA_PRESENCE_ROOM).emit("neraca-updated", payload || {});
+}
 
 // presence: Map<room, Map<userId, { user, sockets: Set<socketId> }>>
 const presence = new Map();
@@ -227,4 +230,4 @@ function attachRealtime(httpServer) {
   return io;
 }
 
-module.exports = { attachRealtime, getIO, emitToFile };
+module.exports = { attachRealtime, getIO, emitToFile, emitNeracaUpdate };

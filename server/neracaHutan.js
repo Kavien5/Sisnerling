@@ -1374,8 +1374,11 @@ async function reimportActiveDataset(includeHidden) {
   return { stats };
 }
 
-function createNeracaRouter() {
+function createNeracaRouter({ onChange } = {}) {
   const router = express.Router();
+  const notifyChange = (action) => {
+    if (onChange) onChange({ action, updatedAt: new Date().toISOString() });
+  };
 
   router.get("/", (_req, res) => {
     res.json(neracaResponse());
@@ -1404,6 +1407,7 @@ function createNeracaRouter() {
         recalculateAll(data);
         ds.updatedAt = new Date().toISOString();
         save();
+        notifyChange("cell");
         return res.json({
           message: "Seluruh data berhasil diperbarui dan formulasi dihitung ulang!",
           ...neracaResponse(),
@@ -1417,6 +1421,7 @@ function createNeracaRouter() {
     }
     try {
       updateCell({ sheet, section, row, year, value });
+      notifyChange("cell");
       res.json({ message: "Sel berhasil diperbarui dan formulasi dihitung ulang!", ...neracaResponse() });
     } catch (err) {
       res.status(err.status || 500).json({ error: err.message });
@@ -1426,6 +1431,7 @@ function createNeracaRouter() {
   router.post("/tahun", (req, res) => {
     try {
       const data = addYear(req.body ? req.body.year : undefined);
+      notifyChange("year");
       res.json({
         message: `Tahun ${data.years[data.years.length - 1]} berhasil ditambahkan ke seluruh tabel!`,
         ...neracaResponse(),
@@ -1437,6 +1443,7 @@ function createNeracaRouter() {
 
   router.post("/reset", (_req, res) => {
     resetData();
+    notifyChange("reset");
     res.json({
       message: "Angka dataset aktif dikembalikan ke baseline acuan BPS!",
       ...neracaResponse(),
@@ -1452,6 +1459,7 @@ function createNeracaRouter() {
   router.post("/datasets/select", (req, res) => {
     try {
       selectDataset((req.body || {}).id);
+      notifyChange("dataset-selected");
       res.json({ message: "Dataset aktif diganti.", ...neracaResponse() });
     } catch (err) {
       res.status(err.status || 500).json({ error: err.message });
@@ -1461,6 +1469,7 @@ function createNeracaRouter() {
   router.post("/datasets/rename", (req, res) => {
     try {
       renameDataset((req.body || {}).id, (req.body || {}).name);
+      notifyChange("dataset-renamed");
       res.json({ message: "Nama dataset diperbarui.", ...neracaResponse() });
     } catch (err) {
       res.status(err.status || 500).json({ error: err.message });
@@ -1470,6 +1479,7 @@ function createNeracaRouter() {
   router.delete("/datasets/:id", (req, res) => {
     try {
       deleteDataset(req.params.id);
+      notifyChange("dataset-deleted");
       res.json({ message: "Dataset dihapus.", ...neracaResponse() });
     } catch (err) {
       res.status(err.status || 500).json({ error: err.message });
@@ -1514,6 +1524,7 @@ function createNeracaRouter() {
         includeHidden: includeHidden !== false,
         sourceBase64: base64,
       });
+      notifyChange("dataset-imported");
       res.json({
         message:
           `Dataset baru dibuat dari "${filename || "file.xlsx"}" (${stats.cells} sel, ${stats.sheets} sheet` +
@@ -1530,6 +1541,7 @@ function createNeracaRouter() {
     try {
       const includeHidden = (req.body || {}).includeHidden !== false;
       const { stats } = await reimportActiveDataset(includeHidden);
+      notifyChange("dataset-reimported");
       res.json({
         message:
           `Dataset diperbarui: ${stats.cells} sel` +
@@ -1555,5 +1567,4 @@ module.exports = {
   matchPenunjangRecord,
   detectWideUnitRent,
 };
-
 

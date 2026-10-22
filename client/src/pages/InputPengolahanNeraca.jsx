@@ -409,11 +409,15 @@ export default function InputPengolahanNeraca() {
     const onPresence = ({ users } = {}) => {
       setActiveUsers(Array.isArray(users) ? users : []);
     };
+    const onNeracaUpdated = () => {
+      loadSpreadsheet();
+    };
     const joinPresence = () => {
       setPresenceStatus("connecting");
       socket.emit("join-neraca-presence", (result) => {
         if (result && result.ok) {
           setPresenceStatus("live");
+          loadSpreadsheet();
         } else {
           setPresenceStatus("offline");
           console.error("Gagal bergabung ke presence Neraca Hutan:", result && result.error);
@@ -430,6 +434,7 @@ export default function InputPengolahanNeraca() {
     };
 
     socket.on("neraca-presence", onPresence);
+    socket.on("neraca-updated", onNeracaUpdated);
     socket.on("connect", joinPresence);
     socket.on("disconnect", onDisconnect);
     socket.on("connect_error", onConnectError);
@@ -437,6 +442,7 @@ export default function InputPengolahanNeraca() {
 
     return () => {
       socket.off("neraca-presence", onPresence);
+      socket.off("neraca-updated", onNeracaUpdated);
       socket.off("connect", joinPresence);
       socket.off("disconnect", onDisconnect);
       socket.off("connect_error", onConnectError);
