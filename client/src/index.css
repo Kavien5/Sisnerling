@@ -1876,6 +1876,12 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--primary)
   color: var(--primary-700);
 }
 
+.sheet .col-label.in-selection,
+.sheet .col-label.preview-selected {
+  background: var(--primary-100) !important;
+  color: var(--primary-700);
+}
+
 .sheet .corner {
   position: sticky;
   left: 0;

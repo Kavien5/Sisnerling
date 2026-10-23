@@ -2015,6 +2015,7 @@ onChart={() => setShowChart((v) => !v)}
           readOnly={effectiveReadOnly}
           rangeHighlights={mergedHighlights}
           onLockedCell={handleLockedCell}
+          highlightSelectionColumns
         />
       )}
 

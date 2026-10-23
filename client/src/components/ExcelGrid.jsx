@@ -538,6 +538,7 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
     onSelectionChange = null,
     rangeHighlights = null,
     onLockedCell = null,
+    highlightSelectionColumns = false,
   } = props;
   const [active, setActiveState] = React.useState(null);
   const [draft, setDraft] = React.useState("");
@@ -1294,6 +1295,13 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
   const paintPreview = React.useCallback(() => {
     const el = previewRef.current;
     const p = pvRef.current;
+    if (highlightSelectionColumns) {
+      const headers = theadRef.current?.querySelectorAll(".col-label[data-cidx]");
+      headers?.forEach((header) => {
+        const ci = Number(header.dataset.cidx);
+        header.classList.toggle("preview-selected", !!p && ci >= p.c1 && ci <= p.c2);
+      });
+    }
     if (el) {
       if (!p) {
         el.style.display = "none";
@@ -1309,7 +1317,7 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
       el.style.height = `${h}px`;
       el.style.display = "block";
     }
-  }, [cumW, cumH]);
+  }, [cumW, cumH, highlightSelectionColumns]);
   const schedulePreview = React.useCallback(() => {
     if (pvRafRef.current) return;
     pvRafRef.current = true;
@@ -2500,6 +2508,11 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
                           : undefined;
                       const w = allColWidth[i] || DEFAULT_COL_WIDTH;
                       const colActive = active !== null && allKeys.indexOf(active.key) === i;
+                      const colSelected =
+                        highlightSelectionColumns &&
+                        selRange !== null &&
+                        i >= selRange.c1 &&
+                        i <= selRange.c2;
                       const colActiveFilter =
                         !!colFilter && Array.isArray(colFilter[key]) && colFilter[key].length > 0;
                       return (
@@ -2507,7 +2520,7 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
                           key={key}
                           data-cidx={i}
                           colSpan={thSpan}
-                          className={`col-label${col && col.label ? "" : " empty"}${colActive ? " active" : ""}${hiddenGapBefore ? " has-hidden-gap" : ""}`}
+                          className={`col-label${col && col.label ? "" : " empty"}${colActive ? " active" : ""}${colSelected ? " in-selection" : ""}${hiddenGapBefore ? " has-hidden-gap" : ""}`}
                           style={{
                             minWidth: w,
                             width: w,
