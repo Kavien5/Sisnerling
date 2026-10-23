@@ -1220,6 +1220,9 @@ export default function ExcelEditor({ importedFiles = [], onFilesChanged, readOn
   const handleFindNext = () => {
     setMatchCount(gridRef.current?.goNextMatch() ?? 0);
   };
+  const handleFindPrevious = () => {
+    setMatchCount(gridRef.current?.goPreviousMatch() ?? 0);
+  };
 
   const handleInsertRowBtn = () => handleInsertRow(Math.max(0, activeCellRow ?? 0), 1);
   const handleDeleteRowBtn = () => handleDeleteRows(Math.max(0, activeCellRow ?? 0), Math.max(0, activeCellRow ?? 0));
@@ -1792,6 +1795,8 @@ export default function ExcelEditor({ importedFiles = [], onFilesChanged, readOn
           setMatchCount(null);
         }}
         onFindNext={handleFindNext}
+        onFindPrevious={handleFindPrevious}
+        onSelectAll={() => gridRef.current?.selectAllCells()}
         matchCount={matchCount}
         freezeOn={frozen}
         onToggleFreeze={handleToggleFreeze}

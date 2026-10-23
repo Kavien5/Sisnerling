@@ -934,6 +934,20 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
 
   // Normalisasi query pencarian SEKALI (dipakai per-sel, jangan di-uppercase ulang).
   const sq = React.useMemo(() => (props.searchQuery || "").toLowerCase(), [props.searchQuery]);
+  const searchMatches = React.useMemo(() => {
+    if (!sq || !rows.length) return [];
+    const matches = [];
+    for (let r = 0; r < rows.length; r++) {
+      if (hiddenRows && hiddenRows.has(r)) continue;
+      for (let c = 0; c < allKeys.length; c++) {
+        const value = rows[r][allKeys[c]];
+        if (value !== null && value !== undefined && String(value).toLowerCase().includes(sq)) {
+          matches.push({ r, c });
+        }
+      }
+    }
+    return matches;
+  }, [sq, rows, hiddenRows, allKeys]);
 
   // Area terseleksi: selRange bila ada, jika tidak cukup cell aktif.
   const sel = React.useMemo(() => {
@@ -2037,6 +2051,9 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
     hasSelection() {
       return !!(selRange || active);
     },
+    selectAllCells() {
+      selectAllCells();
+    },
     mergeSelection() {
       if (readOnly) return;
       if (!sel) return;
@@ -2109,23 +2126,29 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
       onChange(newRows);
     },
     goNextMatch() {
-      const q = (props.searchQuery || "").toLowerCase();
-      if (!q || !rows.length) return 0;
-      const matches = [];
-      for (let r = 0; r < rows.length; r++) {
-        if (hiddenRows && hiddenRows.has(r)) continue;
-        for (let c = 0; c < allKeys.length; c++) {
-          const v = rows[r][allKeys[c]];
-          if (v !== null && v !== undefined && String(v).toLowerCase().includes(q)) {
-            matches.push({ r, c });
-          }
-        }
-      }
+      const matches = searchMatches;
       if (!matches.length) return 0;
       let idx = 0;
       if (active) {
         const ai = allKeys.indexOf(active.key);
         const found = matches.findIndex((m) => m.r > active.r || (m.r === active.r && m.c > ai));
+        if (found >= 0) idx = found;
+      }
+      const t = matches[idx];
+      selectCell(t.r, allKeys[t.c]);
+      scrollToCell(t.r, t.c);
+      return matches.length;
+    },
+    goPreviousMatch() {
+      const matches = searchMatches;
+      if (!matches.length) return 0;
+      let idx = matches.length - 1;
+      if (active) {
+        const ai = allKeys.indexOf(active.key);
+        const found = matches.reduce(
+          (last, m, i) => (m.r < active.r || (m.r === active.r && m.c < ai) ? i : last),
+          -1
+        );
         if (found >= 0) idx = found;
       }
       const t = matches[idx];
