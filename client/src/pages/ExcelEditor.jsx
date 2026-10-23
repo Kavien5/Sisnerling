@@ -57,6 +57,17 @@ const CHART_COLORS = [
 ];
 
 const LEGACY_KEY = "sisnerling_spreadsheet_workbook1";
+const COLUMN_VISIBILITY_KEY = "sisnerling_column_visibility";
+
+function loadColumnVisibility(userId) {
+  try {
+    const saved = localStorage.getItem(`${COLUMN_VISIBILITY_KEY}:${userId}`);
+    return saved ? JSON.parse(saved) : {};
+  } catch (err) {
+    console.error("[ExcelEditor] Gagal membaca preferensi visibilitas kolom:", err);
+    return {};
+  }
+}
 
 function formatDate(iso) {
   try {
@@ -105,11 +116,14 @@ export default function ExcelEditor({ importedFiles = [], onFilesChanged, readOn
   const [publishing, setPublishing] = React.useState(false);
   const gridRef = React.useRef(null);
   const prevFileIdRef = React.useRef(null);
-  const [activeFileId, setActiveFileId] = React.useState(() => openFileId || importedFiles[importedFiles.length - 1]?.id || null);
+  const [activeFileId, setActiveFileId] = React.useState(() => openFileId || null);
   const [sheets, setSheets] = React.useState(() =>
-    importedFiles.length
-      ? [autoFitSheet(firstSheetFromWorkbook((importedFiles.find((f) => f.id === openFileId) || importedFiles[importedFiles.length - 1]).workbook, { native: true }))]
+    openFileId && importedFiles.some((f) => f.id === openFileId)
+      ? [autoFitSheet(firstSheetFromWorkbook(importedFiles.find((f) => f.id === openFileId).workbook, { native: true }))]
       : [createEmptySheet("Sheet1")]
+  );
+  const [columnVisibilityPrefs, setColumnVisibilityPrefs] = React.useState(() =>
+    loadColumnVisibility(getUser()?.id || "anonymous")
   );
   const sheetsRef = React.useRef(sheets);
   const [activeSheetIdx, setActiveSheetIdx] = React.useState(0);
@@ -190,6 +204,16 @@ export default function ExcelEditor({ importedFiles = [], onFilesChanged, readOn
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeFileId, activeFile]);
   const activeSheet = sheets[activeSheetIdx];
+  const visibilityScopeKey = `${activeFileId || "new"}:${activeSheet?.name || "Sheet1"}`;
+  const activeColumnVisibility = columnVisibilityPrefs[visibilityScopeKey] || null;
+  const visibilityStorageKey = `${COLUMN_VISIBILITY_KEY}:${getUser()?.id || "anonymous"}`;
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(visibilityStorageKey, JSON.stringify(columnVisibilityPrefs));
+    } catch (err) {
+      console.error("[ExcelEditor] Gagal menyimpan preferensi visibilitas kolom:", err);
+    }
+  }, [columnVisibilityPrefs, visibilityStorageKey]);
   // Bentuk/gambar yang sedang diklik di grid — untuk diubah warnanya lewat menu Format.
   const selShape = activeSheet && selImgIdx >= 0 ? (activeSheet.images || [])[selImgIdx] || null : null;
 
@@ -488,18 +512,24 @@ export default function ExcelEditor({ importedFiles = [], onFilesChanged, readOn
   };
 
   const handleSelectFile = (id) => {
-    if (id === activeFileId) return;
+    if (id && id === activeFileId) return;
     // Commit edit yang belum selesai lalu simpan ke file yang sedang ditinggalkan.
     flushGrid();
     persistActive();
     const next = importedFiles.find((f) => f.id === id);
     if (next) {
       loadFileWithDraft(next);
+    } else {
+      const empty = [createEmptySheet("Sheet1")];
+      resetUndoHistory();
+      sheetsRef.current = empty;
+      setSheets(empty);
+      setActiveSheetIdx(0);
+      setVersions([]);
     }
-    setActiveFileId(id);
-    prevFileIdRef.current = id;
+    setActiveFileId(next ? id : null);
+    prevFileIdRef.current = next ? id : null;
     onFilesChanged?.();
-    setActiveFileId(id);
   };
   const handleRenameFile = () => {
     const trimmed = renameFileName.trim();
@@ -950,6 +980,25 @@ export default function ExcelEditor({ importedFiles = [], onFilesChanged, readOn
       newCols[ci] = { ...newCols[ci], width: newWidth, manual: true };
       return { ...s, columns: newCols };
     }, false);
+  };
+
+  const handleColumnVisibilityChange = (indices, hidden) => {
+    if (effectiveReadOnly || !Array.isArray(indices) || !indices.length) return;
+    const sheet = sheetsRef.current[activeSheetIdx];
+    if (!sheet) return;
+    setColumnVisibilityPrefs((prev) => {
+      const next = { ...prev };
+      const visibility = { ...(prev[visibilityScopeKey] || {}) };
+      for (const index of indices) {
+        const column = sheet.columns[index];
+        if (!column || column.mergeHidden) continue;
+        if (hidden === !!column.hidden) delete visibility[column.key];
+        else visibility[column.key] = hidden;
+      }
+      if (Object.keys(visibility).length) next[visibilityScopeKey] = visibility;
+      else delete next[visibilityScopeKey];
+      return next;
+    });
   };
 
   const handleInsertRow = (atIndex, count = 1) => {
@@ -1943,6 +1992,8 @@ onChart={() => setShowChart((v) => !v)}
           onInsertColumn={handleInsertColumn}
           onDeleteColumns={handleDeleteColumns}
           onColumnResize={handleColumnResize}
+          onColumnVisibilityChange={effectiveReadOnly ? null : handleColumnVisibilityChange}
+          columnVisibility={activeColumnVisibility}
           onRowResize={handleRowResize}
           onFxStateChange={handleFxStateChange}
           onImagesChange={handleImagesChange}

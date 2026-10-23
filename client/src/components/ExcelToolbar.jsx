@@ -593,6 +593,7 @@ const ExcelToolbar = ({
         </div>
         {importedFiles.length === 0 ? <span className="ee-top-none">Belum ada file</span> : (
           <select className="ee-top-select" value={activeFileId || ""} onChange={(e) => onSelectFile && onSelectFile(e.target.value)} title="Pilih file">
+            <option value="">Spreadsheet baru</option>
             {importedFiles.map((f) => (<option key={f.id} value={f.id}>{f.fileName}</option>))}
           </select>
         )}

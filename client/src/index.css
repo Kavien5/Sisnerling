@@ -2069,6 +2069,10 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--primary)
   background: var(--primary-50);
   color: var(--primary-700);
 }
+.sheet-context button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 .sheet-context button:active {
   background: var(--primary-100);
   transform: scale(0.97);
@@ -2091,6 +2095,51 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--primary)
   height: 1px;
   background: var(--border);
   margin: 4px 8px;
+}
+
+.col-label.has-hidden-gap {
+  box-shadow: inset 3px 0 0 #f59e0b;
+}
+
+.ee-hidden-column-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px;
+}
+
+.ee-hidden-column-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--card);
+  color: var(--ink-2);
+  font-size: 12px;
+}
+
+.ee-hidden-column-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 9px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.ee-hidden-column-item:hover {
+  background: var(--primary-50);
+}
+
+.ee-hidden-column-item small {
+  color: var(--ink-3);
 }
 
 /* ============ YEARLY GRID (SPLIT PANEL) ============ */
@@ -5972,6 +6021,3 @@ td.cell.cell-match {
 @media (max-width: 640px) {
   .maint-user-card { padding: 22px 18px; }
 }
-
-
-

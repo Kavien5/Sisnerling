@@ -270,22 +270,12 @@ export default function App() {
       >
         {page === "dashboard" && <Dashboard user={user} onNavigate={handleNavigate} />}
         {page === "spreadsheet" && (
-          activeFileId ? (
-            <ExcelEditor
-              importedFiles={importedFiles}
-              onFilesChanged={() => setImportedFiles(loadFiles())}
-              readOnly={!canEditData(user)}
-              openFileId={activeFileId}
-            />
-          ) : (
-            <div className="empty-state">
-              <h2 style={{ marginBottom: 8 }}>Belum ada file dibuka</h2>
-              <p>Pilih file dari menu <strong>File &amp; Import</strong> untuk mulai mengedit di sini.</p>
-              <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => setPage("files")}>
-                Buka File &amp; Import
-              </button>
-            </div>
-          )
+          <ExcelEditor
+            importedFiles={importedFiles}
+            onFilesChanged={() => setImportedFiles(loadFiles())}
+            readOnly={!canEditData(user)}
+            openFileId={activeFileId}
+          />
         )}
         {page === "statistik" && <StatisticalSpreadsheet user={user} />}
         {page === "neraca-input" && <InputPengolahanNeraca />}
