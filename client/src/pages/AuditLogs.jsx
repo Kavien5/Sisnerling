@@ -99,6 +99,21 @@ const fmtFull = (d) => {
   return `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())} ${p(dt.getHours())}:${p(dt.getMinutes())}:${p(dt.getSeconds())}`;
 };
 
+<<<<<<< HEAD
+function expiryWarning(row, now) {
+  if (Boolean(Number(row.is_saved))) return null;
+  const expiry = new Date(row.expires_at || new Date(row.created_at).getTime() + 3 * 24 * 60 * 60 * 1000);
+  const remaining = expiry.getTime() - now;
+  if (!Number.isFinite(remaining) || remaining > 24 * 60 * 60 * 1000) return null;
+  if (remaining <= 0) return { text: "Segera dihapus", urgent: true };
+  const minutes = Math.ceil(remaining / 60000);
+  const hours = Math.floor(minutes / 60);
+  const restMinutes = minutes % 60;
+  return {
+    text: hours > 0 ? `Habis dalam ${hours} jam ${restMinutes} menit` : `Habis dalam ${minutes} menit`,
+    urgent: remaining <= 6 * 60 * 60 * 1000,
+  };
+=======
 function groupLogsByUser(logs) {
   const groups = new Map();
   logs.forEach((log) => {
@@ -119,6 +134,7 @@ function userInitials(name) {
     .map((part) => part[0] || "")
     .join("")
     .toUpperCase();
+>>>>>>> 1f7ba671be2dbad36d5988aecd9014a3e13cc3da
 }
 
 const fmtVal = (v) => {
@@ -297,6 +313,15 @@ function SuperAdminAuditLogs({ user }) {
   // Modal states
   const [detail, setDetail] = React.useState(null);
   const [detailLoading, setDetailLoading] = React.useState(false);
+  const [savingIds, setSavingIds] = React.useState([]);
+  const [deletingIds, setDeletingIds] = React.useState([]);
+  const [saveError, setSaveError] = React.useState("");
+  const [clockNow, setClockNow] = React.useState(Date.now());
+
+  React.useEffect(() => {
+    const interval = setInterval(() => setClockNow(Date.now()), 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Restore Modal State
   const [restoreModal, setRestoreModal] = React.useState(null);
@@ -426,6 +451,42 @@ function SuperAdminAuditLogs({ user }) {
     }
   };
 
+<<<<<<< HEAD
+  const toggleSaved = async (row) => {
+    const isSaved = !Boolean(Number(row.is_saved));
+    setSaveError("");
+    setSavingIds((ids) => [...ids, row.id]);
+    try {
+      await api.setAuditLogSaved(row.id, isSaved);
+      setData((rows) => rows.map((item) => item.id === row.id ? { ...item, is_saved: isSaved ? 1 : 0 } : item));
+      setDetail((item) => item && item.id === row.id ? { ...item, is_saved: isSaved ? 1 : 0 } : item);
+    } catch (err) {
+      setSaveError(err.message || "Status simpan audit log gagal diperbarui.");
+    } finally {
+      setSavingIds((ids) => ids.filter((id) => id !== row.id));
+    }
+  };
+
+  const deleteLog = async (row) => {
+    if (!window.confirm(`Hapus audit log "${row.description || row.action}"? Tindakan ini tidak dapat dibatalkan.`)) return;
+    setSaveError("");
+    setDeletingIds((ids) => [...ids, row.id]);
+    try {
+      await api.deleteAuditLog(row.id);
+      setData((rows) => rows.filter((item) => item.id !== row.id));
+      setTotal((count) => Math.max(0, count - 1));
+      setDetail((item) => item && item.id === row.id ? null : item);
+      if (data.length === 1 && page > 1) {
+        await fetchLogs(page - 1, perPage);
+      }
+    } catch (err) {
+      setSaveError(err.message || "Audit log gagal dihapus.");
+    } finally {
+      setDeletingIds((ids) => ids.filter((id) => id !== row.id));
+    }
+  };
+
+=======
   // Buka Pratinjau Restore (3 Kolom + Deteksi Konflik)
   const openRestoreModal = async (row) => {
     setRestoreModal(row);
@@ -519,6 +580,7 @@ function SuperAdminAuditLogs({ user }) {
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
+>>>>>>> 1f7ba671be2dbad36d5988aecd9014a3e13cc3da
   const hasFilters = !!(q || userId || action || module || from || to);
 
   const resetFilters = () => {
@@ -533,6 +595,23 @@ function SuperAdminAuditLogs({ user }) {
   };
 
   return (
+<<<<<<< HEAD
+    <div className="page">
+      <div className="page-head">
+        <div>
+          <h2>Audit Log</h2>
+          <p style={{ color: "var(--ink-3)", fontSize: 13 }}>Jejak aktivitas pengguna di seluruh sistem (khusus Super Admin).</p>
+          <p style={{ color: "var(--ink-3)", fontSize: 12, marginTop: 4 }}>Log yang tidak disimpan akan dihapus otomatis setelah 3 hari. Log yang disimpan tidak akan kedaluwarsa.</p>
+        </div>
+      </div>
+
+      {saveError && (
+        <div role="alert" style={{ color: "#b91c1c", background: "#fef2f2", padding: "10px 14px", borderRadius: 8, marginBottom: 12 }}>
+          {saveError}
+        </div>
+      )}
+
+=======
     <div className="page audit-page">
       {/* Toast Notifikasi */}
       {toast && (
@@ -666,6 +745,7 @@ function SuperAdminAuditLogs({ user }) {
       )}
 
       {/* Card Utama */}
+>>>>>>> 1f7ba671be2dbad36d5988aecd9014a3e13cc3da
       <div className="card">
         {/* Tab Switcher Scope Riwayat */}
         <div style={{ padding: "12px 18px", borderBottom: "1px solid var(--border-color, #e2e8f0)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -803,8 +883,13 @@ function SuperAdminAuditLogs({ user }) {
                 <th>Aktivitas</th>
                 <th>Modul</th>
                 <th>Deskripsi</th>
+<<<<<<< HEAD
+                <th>IP</th>
+                <th style={{ width: 170 }}></th>
+=======
                 <th>Status Pemulihan</th>
                 <th style={{ width: 190, textAlign: "right" }}>Aksi</th>
+>>>>>>> 1f7ba671be2dbad36d5988aecd9014a3e13cc3da
               </tr>
             </thead>
             <tbody>
@@ -824,6 +909,68 @@ function SuperAdminAuditLogs({ user }) {
                   </td>
                 </tr>
               ) : (
+<<<<<<< HEAD
+                data.map((r) => (
+                  <tr key={r.id}>
+                    <td className="text-nowrap">
+                      {fmtFull(r.created_at)}
+                      {(() => {
+                        const warning = expiryWarning(r, clockNow);
+                        return warning ? (
+                          <span
+                            role="status"
+                            style={{
+                              display: "block",
+                              marginTop: 4,
+                              color: warning.urgent ? "#b91c1c" : "#b45309",
+                              fontSize: 11,
+                              fontWeight: 600,
+                            }}
+                          >
+                            {warning.text}
+                          </span>
+                        ) : null;
+                      })()}
+                    </td>
+                    <td>
+                      {r.nama_user ? (
+                        <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                          <span style={{ fontWeight: 600 }}>{r.nama_user}</span>
+                          <span style={{ fontSize: 11, color: "var(--ink-3)" }}>{roleLabel(r.role_user || "user")}</span>
+                        </span>
+                      ) : (
+                        <span className="text-muted">(akun terhapus)</span>
+                      )}
+                    </td>
+                    <td><span style={badgeStyle(r.action)}>{actionLabel(r.action)}</span></td>
+                    <td>{moduleLabel(r.module)}</td>
+                    <td style={{ maxWidth: 420 }}>{r.description || "-"}</td>
+                    <td className="text-nowrap" style={{ color: "var(--ink-3)", fontSize: 12 }}>{r.ip_address || "-"}</td>
+                    <td>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button
+                          className="btn btn-outline btn-sm"
+                          onClick={() => toggleSaved(r)}
+                          disabled={savingIds.includes(r.id) || deletingIds.includes(r.id)}
+                          aria-label={Boolean(Number(r.is_saved)) ? "Lepas simpan log" : "Simpan log"}
+                        >
+                          {Boolean(Number(r.is_saved)) ? "Tersimpan" : "Simpan"}
+                        </button>
+                        <button
+                          className="btn btn-outline btn-sm"
+                          onClick={() => deleteLog(r)}
+                          disabled={savingIds.includes(r.id) || deletingIds.includes(r.id)}
+                          aria-label="Hapus log"
+                        >
+                          Hapus
+                        </button>
+                        <button className="btn btn-outline btn-sm" onClick={() => openDetail(r)}>
+                          Detail
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+=======
                 logGroups.map((group) => (
                   <React.Fragment key={group.key}>
                     <tr className="audit-group-header">
@@ -975,6 +1122,7 @@ function SuperAdminAuditLogs({ user }) {
                   );
                     })}
                   </React.Fragment>
+>>>>>>> 1f7ba671be2dbad36d5988aecd9014a3e13cc3da
                 ))
               )}
             </tbody>

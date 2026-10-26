@@ -7,7 +7,7 @@ const { pool, initDatabase } = require("./db");
 const { authRouter, authRequired, requireRole, maintenanceGuard, isMaintenanceActive } = require("./auth");
 const { adminRouter } = require("./admin");
 const { auditRouter } = require("./audit");
-const { logAudit } = require("./auditLog");
+const { logAudit, purgeExpiredAuditLogs } = require("./auditLog");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -3790,6 +3790,16 @@ const { attachRealtime } = require("./realtime");
 initDatabase()
   .then(async () => {
     await initializeStatisticalWorkbooks();
+    const cleanExpiredAuditLogs = async () => {
+      try {
+        const deleted = await purgeExpiredAuditLogs();
+        if (deleted > 0) console.log(`[AUDIT] ${deleted} log kedaluwarsa dihapus`);
+      } catch (err) {
+        console.error("[AUDIT] gagal menghapus log kedaluwarsa:", err && err.message ? err.message : err);
+      }
+    };
+    await cleanExpiredAuditLogs();
+    setInterval(cleanExpiredAuditLogs, 15 * 60 * 1000).unref();
     const httpServer = http.createServer(app);
     attachRealtime(httpServer);
     httpServer.listen(PORT, () => {
