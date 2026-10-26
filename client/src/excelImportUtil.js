@@ -968,7 +968,7 @@ const headerBg = [];
     const label = h !== "" ? String(h).trim() : colName(i);
     const col = { key: colName(i), label, type: "text", width: Math.max(90, label.length * 9 + 40) };
     if (headerBg[i]) col.bg = headerBg[i];
-    const fcDef = fileCols[i];
+    const fcDef = fileCols[offsetCol + i];
     if (fcDef && (fcDef.wpx || fcDef.wch)) {
       const px = fcDef.wpx || Math.round((fcDef.wch || 8) * 7);
       if (px > 0) {
@@ -979,7 +979,7 @@ const headerBg = [];
     // Kolom yang disembunyikan file ikut disembunyikan (kolom hidden tidak
     // mengambil slot <td>, jadi tanpa ini semua kolom tampil dan data bergeser
     // ke kanan — tidak lagi 1:1 dengan file asli).
-    if (fcDef && fcDef.hidden) col.hidden = true;
+    if (fcDef && (fcDef.hidden || fcDef.Hidden || fcDef.h)) col.hidden = true;
     columns.push(col);
   }
 
@@ -993,7 +993,12 @@ const headerBg = [];
       const c2 = m.e.c - offsetCol;
       if (c1 < 0 || c2 >= maxCols || c2 <= c1) continue;
       columns[c1].span = c2 - c1 + 1;
-      for (let i = c1 + 1; i <= c2; i++) columns[i].hidden = true;
+      for (let i = c1 + 1; i <= c2; i++) {
+        if (!columns[i].hidden) {
+          columns[i].hidden = true;
+          columns[i].mergeHidden = true;
+        }
+      }
     }
   }
 
@@ -1706,7 +1711,9 @@ function buildSheetFromCtx(ctx, name) {
       ws &&
       (typeof ws["!ref"] === "string" ||
         (Array.isArray(ws["!cols"]) && ws["!cols"].some((c) => c && (typeof c.wch === "number" || typeof c.wpx === "number"))));
-    if (!(isNative(name) && hasLayout)) return createEmptySheet(sh && sh.name ? sh.name : name);
+    const hasHiddenColumns =
+      ws && Array.isArray(ws["!cols"]) && ws["!cols"].some((col) => col && (col.hidden || col.Hidden || col.h));
+    if (!(isNative(name) && (hasLayout || hasHiddenColumns))) return createEmptySheet(sh && sh.name ? sh.name : name);
   }
   return sh;
 }
@@ -2031,7 +2038,7 @@ const idxOf = {};
     const colW = cols.map((c) => {
       let wch = Math.max(3, Math.ceil(((c.width && c.width > 0 ? c.width : 100) - 6) / 7));
       if (c.label && String(c.label).length > wch) wch = Math.max(wch, 10);
-      return { wch };
+      return { wch, ...(c.hidden ? { hidden: true } : {}) };
     });
     if (colW.length) ws["!cols"] = colW;
     const totalRows = headerGlobal + validRowIndices.length + 1;

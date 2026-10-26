@@ -106,13 +106,14 @@ a { color: var(--primary-600); text-decoration: none; }
   width: 40px;
   height: 40px;
   border-radius: 12px;
-  background: linear-gradient(135deg, #8b5cf6, #6366f1);
+  background: none;
   display: grid;
   place-items: center;
   font-weight: 800;
   font-size: 18px;
   color: #fff;
   flex-shrink: 0;
+  overflow: hidden;
 }
 
 .brand-text { display: flex; flex-direction: column; }
@@ -1875,6 +1876,12 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--primary)
   color: var(--primary-700);
 }
 
+.sheet .col-label.in-selection,
+.sheet .col-label.preview-selected {
+  background: var(--primary-100) !important;
+  color: var(--primary-700);
+}
+
 .sheet .corner {
   position: sticky;
   left: 0;
@@ -2068,6 +2075,10 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--primary)
   background: var(--primary-50);
   color: var(--primary-700);
 }
+.sheet-context button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 .sheet-context button:active {
   background: var(--primary-100);
   transform: scale(0.97);
@@ -2090,6 +2101,51 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--primary)
   height: 1px;
   background: var(--border);
   margin: 4px 8px;
+}
+
+.col-label.has-hidden-gap {
+  box-shadow: inset 3px 0 0 #f59e0b;
+}
+
+.ee-hidden-column-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px;
+}
+
+.ee-hidden-column-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--card);
+  color: var(--ink-2);
+  font-size: 12px;
+}
+
+.ee-hidden-column-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 9px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.ee-hidden-column-item:hover {
+  background: var(--primary-50);
+}
+
+.ee-hidden-column-item small {
+  color: var(--ink-3);
 }
 
 /* ============ YEARLY GRID (SPLIT PANEL) ============ */
@@ -3436,6 +3492,11 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--primary)
 }
 .ee-mm-search-btn:hover { background: #f6e3ae; }
 
+.ee-find-select-body { flex-direction: column; align-items: stretch; gap: 5px; }
+.ee-find-select-trigger { width: 100%; justify-content: space-between; }
+.ee-find-select-pop { top: calc(100% + 4px); }
+.ee-mm-item:disabled { opacity: 0.5; cursor: not-allowed; }
+
 /* Saat toolbar disembunyikan */
 .ee-top.collapsed .ee-top-row { padding: 6px; min-height: auto; }
 
@@ -4296,7 +4357,7 @@ td.cell.cell-match {
   gap: 0 14px;
 }
 
-/* ===== Spreadsheet Viewer (Dashboard / Kategori / Laporan) ===== */
+/* ===== Spreadsheet Viewer (Dashboard / Laporan) ===== */
 .sv-wrap {
   display: flex;
   flex-direction: column;
@@ -4351,7 +4412,7 @@ td.cell.cell-match {
   z-index: 1;
 }
 
-/* ===== Spreadsheet Charts (Dashboard / Kategori / Laporan) ===== */
+/* ===== Spreadsheet Charts (Dashboard / Laporan) ===== */
 .sv-charts-wrap {
   display: flex;
   flex-direction: column;
@@ -5971,5 +6032,3 @@ td.cell.cell-match {
 @media (max-width: 640px) {
   .maint-user-card { padding: 22px 18px; }
 }
-
-

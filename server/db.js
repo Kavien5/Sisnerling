@@ -206,6 +206,8 @@ async function initDatabase() {
     "ALTER TABLE spreadsheet ADD COLUMN worksheet_index INT NULL AFTER kolom");
   await ensureCol("spreadsheet", "hidden",
     "ALTER TABLE spreadsheet ADD COLUMN hidden TINYINT(1) NOT NULL DEFAULT 0 AFTER worksheet_index");
+  await ensureCol("statistical_sheets", "hidden",
+    "ALTER TABLE statistical_sheets ADD COLUMN hidden TINYINT(1) NOT NULL DEFAULT 0 AFTER permission_sheet_id");
 
   // Perluas indeks unik agar satu penugasan per (user, tipe, tabel, section).
   const [[uqRow]] = await admin.query(
@@ -308,16 +310,27 @@ async function initDatabase() {
     new_data JSON NULL,
     ip_address VARCHAR(45) NULL,
     user_agent VARCHAR(300) NULL,
+<<<<<<< HEAD
     is_saved TINYINT(1) NOT NULL DEFAULT 0,
+=======
+    is_archived TINYINT(1) NOT NULL DEFAULT 0,
+    archived_at TIMESTAMP NULL,
+    archived_by INT NULL,
+    restored_at TIMESTAMP NULL,
+    restored_by INT NULL,
+    source_log_id INT NULL,
+>>>>>>> 1f7ba671be2dbad36d5988aecd9014a3e13cc3da
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     KEY idx_audit_user (user_id),
     KEY idx_audit_created (created_at),
     KEY idx_audit_module (module),
     KEY idx_audit_action (action),
+    KEY idx_audit_archived (is_archived),
     CONSTRAINT fk_audit_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 
+<<<<<<< HEAD
   const [[colAuditSaved]] = await admin.query(
     `SELECT COUNT(*) AS n FROM information_schema.columns
      WHERE table_schema = DATABASE() AND table_name = 'audit_logs' AND column_name = 'is_saved'`
@@ -325,6 +338,40 @@ async function initDatabase() {
   if (Number(colAuditSaved.n) === 0) {
     await admin.query("ALTER TABLE audit_logs ADD COLUMN is_saved TINYINT(1) NOT NULL DEFAULT 0");
   }
+=======
+  await ensureCol("audit_logs", "is_archived",
+    "ALTER TABLE audit_logs ADD COLUMN is_archived TINYINT(1) NOT NULL DEFAULT 0 AFTER user_agent");
+  await ensureCol("audit_logs", "archived_at",
+    "ALTER TABLE audit_logs ADD COLUMN archived_at TIMESTAMP NULL AFTER is_archived");
+  await ensureCol("audit_logs", "archived_by",
+    "ALTER TABLE audit_logs ADD COLUMN archived_by INT NULL AFTER archived_at");
+  await ensureCol("audit_logs", "restored_at",
+    "ALTER TABLE audit_logs ADD COLUMN restored_at TIMESTAMP NULL AFTER archived_by");
+  await ensureCol("audit_logs", "restored_by",
+    "ALTER TABLE audit_logs ADD COLUMN restored_by INT NULL AFTER restored_at");
+  await ensureCol("audit_logs", "source_log_id",
+    "ALTER TABLE audit_logs ADD COLUMN source_log_id INT NULL AFTER restored_by");
+
+  // ---- Riwayat Pemulihan / Version History terpisah dari audit log aktif ----
+  await admin.query(`CREATE TABLE IF NOT EXISTS audit_restore_snapshots (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    audit_log_id INT NULL,
+    module VARCHAR(50) NOT NULL,
+    action VARCHAR(50) NOT NULL,
+    target_type VARCHAR(50) NOT NULL,
+    target_id VARCHAR(100) NULL,
+    snapshot_before JSON NULL,
+    snapshot_after JSON NULL,
+    metadata JSON NULL,
+    created_by INT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    restored_at TIMESTAMP NULL,
+    restored_by INT NULL,
+    KEY idx_ars_audit (audit_log_id),
+    KEY idx_ars_target (target_type, target_id),
+    KEY idx_ars_created (created_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+>>>>>>> 1f7ba671be2dbad36d5988aecd9014a3e13cc3da
 
   // ---- Seed SUPER ADMIN (hanya bila variabel env diset & belum ada) ----
   const seedEmail = (process.env.SEED_SUPER_ADMIN_EMAIL || "").trim().toLowerCase();

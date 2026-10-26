@@ -38,4 +38,23 @@ for (const file of fs.readdirSync(assets)) {
 }
 
 fs.copyFileSync(path.join(dist, "index.html"), path.join(pub, "index.html"));
-console.log(`[sync-build] server/public disinkronkan (${newAssets.length} aset).`);
+
+// Berkas statis di akar dist (mis. logo.svg / favicon) ikut disalin supaya
+// favicon tetap tampil saat aplikasi disajikan dari server Express.
+const rootFiles = fs
+  .readdirSync(dist, { withFileTypes: true })
+  .filter((entry) => entry.isFile() && entry.name !== "index.html")
+  .map((entry) => entry.name);
+
+for (const file of rootFiles) {
+  fs.copyFileSync(path.join(dist, file), path.join(pub, file));
+}
+
+for (const entry of fs.readdirSync(pub, { withFileTypes: true })) {
+  if (!entry.isFile() || entry.name === "index.html") continue;
+  if (!rootFiles.includes(entry.name)) {
+    fs.rmSync(path.join(pub, entry.name), { force: true });
+  }
+}
+
+console.log(`[sync-build] server/public disinkronkan (${newAssets.length} aset, ${rootFiles.length} berkas statis).`);

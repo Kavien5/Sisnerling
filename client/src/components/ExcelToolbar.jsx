@@ -115,6 +115,8 @@ const ExcelToolbar = ({
   searchText = "",
   onSearchChange,
   onFindNext,
+  onFindPrevious,
+  onSelectAll,
   matchCount = null,
   freezeOn = true,
   onToggleFreeze,
@@ -138,16 +140,45 @@ const ExcelToolbar = ({
 }) => {
   const [activeTab, setActiveTab] = React.useState("home");
   const [fileOpen, setFileOpen] = React.useState(false);
+  const [findSelectOpen, setFindSelectOpen] = React.useState(false);
   const rootRef = React.useRef(null);
   const tabsRef = React.useRef(null);
+  const findSelectRef = React.useRef(null);
+  const searchInputRef = React.useRef(null);
+  const focusSearchOnTabRef = React.useRef(false);
 
   React.useEffect(() => {
     const onDocDown = (e) => {
       if (rootRef.current && !rootRef.current.contains(e.target)) setFileOpen(false);
+      if (findSelectRef.current && !findSelectRef.current.contains(e.target)) setFindSelectOpen(false);
     };
     document.addEventListener("mousedown", onDocDown);
     return () => document.removeEventListener("mousedown", onDocDown);
   }, []);
+
+  React.useEffect(() => {
+    const onKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        setFindSelectOpen(false);
+        if (searchInputRef.current) {
+          searchInputRef.current.focus();
+        } else {
+          focusSearchOnTabRef.current = true;
+          setActiveTab("home");
+        }
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  React.useEffect(() => {
+    if (activeTab === "home" && focusSearchOnTabRef.current) {
+      focusSearchOnTabRef.current = false;
+      searchInputRef.current?.focus();
+    }
+  }, [activeTab]);
 
   const selectTab = (id) => {
     setActiveTab(id);
@@ -158,9 +189,10 @@ const ExcelToolbar = ({
     });
   };
 
-  const searchBox = (key) => (
+  const searchBox = (key, inputRef = null) => (
     <div className="ee-mm-search" key={key}>
       <input
+        ref={inputRef}
         className="ee-mm-search-input"
         type="text"
         placeholder="Cari nilai di sheet …"
@@ -176,6 +208,75 @@ const ExcelToolbar = ({
 
   const renderHome = () => (
     <div className="ee-rb-panel" role="tabpanel" aria-label="Home">
+      <div className="ee-rb-group">
+        <div className="ee-rb-group-body ee-find-select-body">
+          {searchBox("home-search", searchInputRef)}
+          <div className="ee-mm" ref={findSelectRef}>
+            <button
+              className="ee-mm-chip ee-find-select-trigger"
+              type="button"
+              title="Find and Select"
+              aria-haspopup="menu"
+              aria-expanded={findSelectOpen}
+              onClick={() => setFindSelectOpen((open) => !open)}
+            >
+              🔍 Find &amp; Select <span className="ee-caret" />
+            </button>
+            {findSelectOpen && (
+              <div className="ee-mm-pop ee-find-select-pop" role="menu">
+                <button
+                  className="ee-mm-item"
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setFindSelectOpen(false);
+                    searchInputRef.current?.focus();
+                  }}
+                >
+                  <span className="ee-mm-ic">⌕</span> Find…
+                </button>
+                <button
+                  className="ee-mm-item"
+                  type="button"
+                  role="menuitem"
+                  disabled={!searchText.trim()}
+                  onClick={() => {
+                    setFindSelectOpen(false);
+                    onFindNext && onFindNext();
+                  }}
+                >
+                  <span className="ee-mm-ic">↓</span> Find Next
+                </button>
+                <button
+                  className="ee-mm-item"
+                  type="button"
+                  role="menuitem"
+                  disabled={!searchText.trim()}
+                  onClick={() => {
+                    setFindSelectOpen(false);
+                    onFindPrevious && onFindPrevious();
+                  }}
+                >
+                  <span className="ee-mm-ic">↑</span> Find Previous
+                </button>
+                <div className="ee-mm-sep" />
+                <button
+                  className="ee-mm-item"
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setFindSelectOpen(false);
+                    onSelectAll && onSelectAll();
+                  }}
+                >
+                  <span className="ee-mm-ic">▦</span> Select All
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="ee-rb-group-label">Find &amp; Select</div>
+      </div>
       {readOnly ? (
         <div className="ee-rb-group">
           <div className="ee-rb-group-body"><span className="ee-mm-note">Mode hanya-lihat: pemformatan dinonaktifkan.</span></div>
@@ -593,6 +694,7 @@ const ExcelToolbar = ({
         </div>
         {importedFiles.length === 0 ? <span className="ee-top-none">Belum ada file</span> : (
           <select className="ee-top-select" value={activeFileId || ""} onChange={(e) => onSelectFile && onSelectFile(e.target.value)} title="Pilih file">
+            <option value="">Spreadsheet baru</option>
             {importedFiles.map((f) => (<option key={f.id} value={f.id}>{f.fileName}</option>))}
           </select>
         )}

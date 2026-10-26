@@ -84,8 +84,7 @@ export default function Dashboard({ user }) {
             <h4>Fungsi Utama</h4>
             <ul>
               <li><b>Spreadsheet:</b> halaman untuk membuat, mengisi, dan mengedit data dalam bentuk tabel spreadsheet.</li>
-              <li><b>Kategori:</b> mengelompokkan data ke dalam kategori seperti Hutan, Mineral, Energi, dan Uang, lengkap dengan sub-kategorinya.</li>
-              <li><b>Laporan &amp; Neraca:</b> menyusun ringkasan dan neraca dari data yang sudah dimasukkan.</li>
+              <li><b>Laporan:</b> rekapitulasi tiap kategori (sheet) — jumlah kolom, baris berisi, sel terisi, dan total nilai — lengkap dengan perbandingan antar periode.</li>
               <li><b>Import Excel:</b> mengimpor data dari berkas Excel (xlsx) agar tidak perlu mengetik ulang.</li>
               <li><b>Dashboard:</b> halaman saat ini yang menampilkan statistik dan grafik progres seluruh data secara ringkas.</li>
             </ul>
@@ -93,9 +92,9 @@ export default function Dashboard({ user }) {
             <h4>Cara Penggunaan</h4>
             <ol>
               <li>Mulai dari menu <b>Spreadsheet</b> untuk membuat atau mengimpor data Anda.</li>
-              <li>Gunakan menu <b>Kategori</b> apabila ingin mengelompokkan data berdasarkan jenis atau bidang tertentu.</li>
+              <li>Gunakan menu <b>Laporan</b> untuk melihat rekapitulasi data per kategori dan membandingkannya antar periode.</li>
               <li>Kembali ke <b>Dashboard</b> untuk melihat ringkasan statistik, total nilai, dan grafik setiap sheet.</li>
-              <li>Gunakan menu <b>Laporan</b>, <b>Neraca</b>, atau <b>Import Excel</b> sesuai kebutuhan pelaporan dan impor data.</li>
+              <li>Gunakan menu <b>Input &amp; Pengolahan Neraca</b> atau <b>File &amp; Import</b> sesuai kebutuhan pengolahan dan impor data.</li>
             </ol>
 
             <h4>Informasi Penting</h4>

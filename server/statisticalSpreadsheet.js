@@ -27,6 +27,16 @@ const MODULES = [
     parameterSheets: ["Lakin", "Conversion Factor", "Harga Acuan"],
     maxTahun: 2019,
   },
+
+  {
+    key: "lk-timber",
+    nama: "LK Timber",
+    workbookKey: "sisnerling-statistical:lk-timber",
+    sourceFile: "2. LK Timber.xlsx",
+    primarySheets: ["Rekap", "Rekap JJ", "Rekap RJ", "Rekap RLJ", "Rekap Transpose", "Jati Jawa", "Rimba Jawa", "Rimba Luar Jawa"],
+    parameterSheets: ["Rate of Return", "GOS per unit"],
+    maxTahun: 2024,
+  },
 ];
 
 const isExternalFormula = (formula) => /\[\d+\]/.test(String(formula || ""));
@@ -491,6 +501,22 @@ async function initializeModuleFormulaValues(moduleKey) {
   );
   if (state && state.seed_hash === hash) return;
 
+  // Deteksi ulang fallback harus dimulai dari kondisi bersih: flag lama
+  // direset dulu agar rumus yang kini didukung engine (mis. setelah fungsi
+  // baru ditambahkan) benar-benar dihitung ulang, bukan membaca nilai cache
+  // error lama yang terlanjur tersimpan.
+  if (cells.some((cell) => cell.jenis === "formula" && cell.formula_fallback)) {
+    await pool.query(
+      `UPDATE statistical_cells c JOIN statistical_sheets s ON s.id = c.sheet_id
+          SET c.formula_fallback = 0
+        WHERE s.module_key = ? AND c.jenis = 'formula' AND c.formula_fallback = 1`,
+      [moduleKey]
+    );
+    for (const cell of cells) {
+      if (cell.jenis === "formula") cell.formula_fallback = 0;
+    }
+  }
+
   const initialResults = await evaluateTargets(sheets, cells, engine);
   const fallbackKeys = [];
   for (const cell of cells) {
@@ -517,18 +543,30 @@ async function initializeModuleFormulaValues(moduleKey) {
     cells.filter((cell) => cell.jenis === "formula" && !cell.external_formula && !fallbackSet.has(toFormulaKey(cell.sheet_id, cell.row_no, cell.col_no)))
       .map((cell) => toFormulaKey(cell.sheet_id, cell.row_no, cell.col_no))
   );
-  const stableResults = await evaluateTargets(sheets, cells, engine, recalculationTargets);
-  for (const [key, result] of stableResults) {
+  // Hanya sel non-fallback yang hasilnya ditulis ulang. Sel fallback
+  // mempertahankan nilai cache sumber; menimpanya dengan hasil kalkulasi
+  // engine (yang justru gagal — itu sebabnya mereka ditandai) akan
+  // merusak nilai yang seharusnya dipertahankan.
+  for (const key of recalculationTargets) {
+    if (!initialResults.has(key)) continue;
     const [sheetId, rowNo, colNo] = key.split(":").map(Number);
     await pool.query(
       "UPDATE statistical_cells SET hasil = ? WHERE sheet_id = ? AND row_no = ? AND col_no = ?",
-      [serializeCellOutput(result), sheetId, rowNo, colNo]
+      [serializeCellOutput(initialResults.get(key)), sheetId, rowNo, colNo]
     );
   }
 
+  // Hash disimpan dari KONDISI AKHIR (flag fallback hasil deteksi ulang)
+  // supaya boot berikutnya dianggap sudah sinkron dan tidak mengulang
+  // kalkulasi yang tidak perlu.
+  const finalCells = cells.map((cell) => ({
+    ...cell,
+    formula_fallback: cell.jenis === "formula" && !cell.external_formula &&
+      fallbackSet.has(toFormulaKey(cell.sheet_id, cell.row_no, cell.col_no)) ? 1 : 0,
+  }));
   await pool.query(
     "INSERT INTO statistical_module_state (module_key, seed_hash) VALUES (?, ?) ON DUPLICATE KEY UPDATE seed_hash = VALUES(seed_hash)",
-    [moduleKey, hash]
+    [moduleKey, moduleStateHash(sheets, finalCells)]
   );
 }
 
@@ -957,6 +995,38 @@ async function createStatisticalRouter({ pool: db = pool } = {}) {
       changedCell.nilai = jsonValue(newValue);
       const recalculated = await recalculateAndSave(connection, sheet.module_key, sheets, cells, affected, engine);
       await connection.commit();
+
+      const cellRef = engine.cellAddress(colNo - 1, rowNo - 1);
+      const oldVal = cell.nilai !== null && cell.nilai !== undefined ? (typeof cell.nilai === "string" ? JSON.parse(cell.nilai) : cell.nilai) : null;
+      await logAudit({
+        userId: req.user.id,
+        action: "update",
+        module: "statistical",
+        description: `Mengubah nilai sel ${sheet.nama}!${cellRef} pada Spreadsheet Statistik`,
+        recordId: sheetId,
+        oldData: {
+          sheet_id: sheetId,
+          sheet_nama: sheet.nama,
+          module_key: sheet.module_key,
+          row: rowNo,
+          col: colNo,
+          cellRef,
+          nilai: oldVal,
+          versi: cell.versi,
+        },
+        newData: {
+          sheet_id: sheetId,
+          sheet_nama: sheet.nama,
+          module_key: sheet.module_key,
+          row: rowNo,
+          col: colNo,
+          cellRef,
+          nilai: newValue,
+          versi: baseVersion + 1,
+        },
+        req,
+      });
+
       res.json({
         message: "Perubahan tersimpan",
         cell: { row: rowNo, col: colNo, value: newValue, version: baseVersion + 1 },
@@ -1089,7 +1159,7 @@ async function createStatisticalRouter({ pool: db = pool } = {}) {
       const recalculated = await recalculateAndSave(connection, sheetRef.module_key, sheets, cells, affected, engine);
       await connection.commit();
 
-      logAudit({
+      await logAudit({
         userId: req.user.id,
         action: "update",
         module: "statistical",
@@ -1301,6 +1371,14 @@ async function createStatisticalRouter({ pool: db = pool } = {}) {
       }
       const results = await recalculateAndSave(connection, module.module_key, moduleSheets, moduleCells, yearTargets, engine);
       await connection.commit();
+      await logAudit({
+        userId: req.user.id,
+        action: "update",
+        module: "statistical",
+        description: `Menambahkan tahun pada Spreadsheet Statistik "${targetSheet.nama}" (${inserted.map((item) => item.year).join(", ")})`,
+        recordId: targetSheet.id,
+        req,
+      });
       res.json({ message: "Tahun baru ditambahkan", sheets: inserted, recalculated: results.length });
     } catch (error) {
       try {
@@ -1347,6 +1425,13 @@ async function createStatisticalRouter({ pool: db = pool } = {}) {
       );
       const recalculated = await recalculateAndSave(connection, req.params.moduleKey, sheets, cells, formulas, engine);
       await connection.commit();
+      await logAudit({
+        userId: req.user.id,
+        action: "clean",
+        module: "statistical",
+        description: `Mengembalikan input Spreadsheet Statistik modul "${req.params.moduleKey}" ke nilai awal template`,
+        req,
+      });
       res.json({ message: "Angka input dikembalikan ke nilai awal template", recalculated: recalculated.length });
     } catch (error) {
       try {

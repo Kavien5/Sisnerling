@@ -106,7 +106,8 @@ app.use("/api", authRequired);
 app.use("/api", maintenanceGuard);
 // Panel Super Admin (semua route di dalamnya sudah dikunci requireRole super_admin).
 app.use("/api/admin", adminRouter);
-// Audit log: dibaca Admin & Super Admin, route dalam sudah punya guard role.
+// Ringkasan audit dapat dibaca semua pengguna; detail dan pengelolaan dibatasi
+// ke Super Admin di router audit.
 app.use("/api/audit", auditRouter);
 // Kolaborasi multi-user (akses file, sel real-time, revisi). Berada di bawah
 // authRequired + maintenanceGuard sehingga otomatis terlindungi.
@@ -146,6 +147,11 @@ const statisticalRouterPromise = createStatisticalRouter();
 app.use("/api/statistical", (req, res, next) => {
   statisticalRouterPromise.then((router) => router(req, res, next)).catch(next);
 });
+
+// ===== Input & Pengolahan Neraca Hutan & Timber (spreadsheet formulasi) =====
+const { createNeracaRouter } = require("./neracaHutan");
+const { emitNeracaUpdate } = require("./realtime");
+app.use("/api/neraca", createNeracaRouter({ onChange: emitNeracaUpdate }));
 
 // ===== Sambutan Dashboard (dapat diedit oleh Super Admin) =====
 // Judul & deskripsi kartu "Selamat Datang" disimpan di app_settings.
@@ -834,10 +840,10 @@ app.post("/api/data", async (req, res, next) => {
         nilaiJson,
       ]
     );
-    logAudit({
+    await logAudit({
       userId: req.user.id,
       action: "create",
-      module: "data",
+      module: sheetId ? "spreadsheet" : "data",
       description: `Menambah data "${nama.trim()}" (${kode.trim()})`,
       recordId: result.insertId,
       newData: {
@@ -936,10 +942,10 @@ app.put("/api/data/:id", async (req, res, next) => {
     if (result.affectedRows === 0) {
       return res.status(404).json({ error: "Data tidak ditemukan" });
     }
-    logAudit({
+    await logAudit({
       userId: req.user.id,
       action: "edit",
-      module: "data",
+      module: cur.sheet_id ? "spreadsheet" : "data",
       description: `Mengubah data "${nama.trim()}" (${kode.trim()})`,
       recordId: req.params.id,
       oldData: {
@@ -996,10 +1002,10 @@ app.delete("/api/data/:id", async (req, res, next) => {
     if (result.affectedRows === 0) {
       return res.status(404).json({ error: "Data tidak ditemukan" });
     }
-    logAudit({
+    await logAudit({
       userId: req.user.id,
       action: "delete",
-      module: "data",
+      module: cur.sheet_id ? "spreadsheet" : "data",
       description: `Menghapus data "${cur.nama}" (${cur.kode})`,
       recordId: req.params.id,
       oldData: {
@@ -2680,7 +2686,7 @@ app.post("/api/import/excel", requireRole("super_admin"), async (req, res, next)
         }
 
         console.log(`[IMPORT] selesai ${JSON.stringify(results)}`);
-        logAudit({
+        await logAudit({
           userId: req.user.id,
           action: "import",
           module: "import",
@@ -2862,7 +2868,7 @@ app.post("/api/import/excel", requireRole("super_admin"), async (req, res, next)
       }
 
       console.log(`[IMPORT] selesai ${JSON.stringify(results)}`);
-      logAudit({
+      await logAudit({
         userId: req.user.id,
         action: "import",
         module: "import",
@@ -3055,7 +3061,7 @@ app.post("/api/import/excel", requireRole("super_admin"), async (req, res, next)
     }
 
     console.log(`[IMPORT] selesai ${JSON.stringify(results)}`);
-    logAudit({
+    await logAudit({
       userId: req.user.id,
       action: "import",
       module: "import",

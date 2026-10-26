@@ -1,5 +1,6 @@
 import React from "react";
 import { colName, cellAddress, evaluateGrid, formatCellValue, shiftFormulaRefs, shiftFormulaRefsInRange } from "../spreadsheet.js";
+import Modal from "./Modal.jsx";
 
 const DEFAULT_COL_WIDTH = 100;
 const MIN_COL_WIDTH = 40;
@@ -515,6 +516,8 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
     onColumnResize,
     onRowResize,
     onColumnHeaderEdit,
+    onColumnVisibilityChange = null,
+    columnVisibility = null,
     onFxStateChange,
     merges = [],
     banner = null,
@@ -535,6 +538,7 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
     onSelectionChange = null,
     rangeHighlights = null,
     onLockedCell = null,
+    highlightSelectionColumns = false,
   } = props;
   const [active, setActiveState] = React.useState(null);
   const [draft, setDraft] = React.useState("");
@@ -544,6 +548,8 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
   const [resizing, setResizing] = React.useState(null);
   const [rowResizing, setRowResizing] = React.useState(null);
   const [filterPopover, setFilterPopover] = React.useState(null);
+  const [showUnhideColumns, setShowUnhideColumns] = React.useState(false);
+  const [selectedUnhideColumns, setSelectedUnhideColumns] = React.useState([]);
   const [headH, setHeadH] = React.useState(26);
   // Tinggi BARIS PERTAMA thead (banner / label) — dipakai sebagai offset
   // sticky baris header kedua via CSS var --headrow-h (menggantikan 26px statis
@@ -890,6 +896,14 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
   const colByMap = React.useMemo(() => new Map(columns.map((c) => [c.key, c])), [columns]);
 
   const allKeys = React.useMemo(() => columns.map((c) => c.key), [columns]);
+  const isColumnHidden = (index) => {
+    const col = columns[index];
+    if (!col) return false;
+    if (col.mergeHidden) return true;
+    const override = columnVisibility && columnVisibility[col.key];
+    return typeof override === "boolean" ? override : !!col.hidden;
+  };
+  const hasUnhideableColumns = columns.some((col, index) => col && !col.mergeHidden && isColumnHidden(index));
 
   // Sorotan Lock/Unlock (Penugasan Tabel): overlay di atas tampilan asli tanpa
   // mengubah isi/format cell. peta "r:c" -> status.
@@ -920,6 +934,20 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
 
   // Normalisasi query pencarian SEKALI (dipakai per-sel, jangan di-uppercase ulang).
   const sq = React.useMemo(() => (props.searchQuery || "").toLowerCase(), [props.searchQuery]);
+  const searchMatches = React.useMemo(() => {
+    if (!sq || !rows.length) return [];
+    const matches = [];
+    for (let r = 0; r < rows.length; r++) {
+      if (hiddenRows && hiddenRows.has(r)) continue;
+      for (let c = 0; c < allKeys.length; c++) {
+        const value = rows[r][allKeys[c]];
+        if (value !== null && value !== undefined && String(value).toLowerCase().includes(sq)) {
+          matches.push({ r, c });
+        }
+      }
+    }
+    return matches;
+  }, [sq, rows, hiddenRows, allKeys]);
 
   // Area terseleksi: selRange bila ada, jika tidak cukup cell aktif.
   const sel = React.useMemo(() => {
@@ -1033,12 +1061,11 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
     const a = new Array(columns.length + 1);
     a[0] = RX_PX;
     for (let i = 0; i < columns.length; i++) {
-      const col = colByMap.get(columns[i].key);
-      const w = col && col.hidden ? 0 : (allColWidth[i] || DEFAULT_COL_WIDTH);
+      const w = isColumnHidden(i) ? 0 : (allColWidth[i] || DEFAULT_COL_WIDTH);
       a[i + 1] = a[i] + w;
     }
     return a;
-  }, [columns, colByMap, allColWidth, RX_PX]);
+  }, [columns, colByMap, allColWidth, RX_PX, columnVisibility]);
 
   // Geometri kolom KHUSUS overlay border: lebar kolom yang dirender + posisi x
   // kumulatifnya. Kolom hidden (renderCell mengembalikan null → di DOM kolom
@@ -1050,12 +1077,11 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
     const xs = new Array(columns.length + 1);
     xs[0] = RX_PX;
     for (let i = 0; i < columns.length; i++) {
-      const col = colByMap.get(columns[i].key);
-      ws[i] = col && col.hidden ? 0 : (allColWidth[i] || DEFAULT_COL_WIDTH);
+      ws[i] = isColumnHidden(i) ? 0 : (allColWidth[i] || DEFAULT_COL_WIDTH);
       xs[i + 1] = xs[i] + ws[i];
     }
     return { ws, xs };
-  }, [columns, colByMap, allColWidth, RX_PX]);
+  }, [columns, colByMap, allColWidth, RX_PX, columnVisibility]);
 
   // Bentang merge UNTUK RENDER: colspan/rowspan yang ditampilkan = jumlah
   // kolom/baris yang BENAR-BENAR dirender (visible). Kolom/baris hidden tidak
@@ -1283,6 +1309,13 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
   const paintPreview = React.useCallback(() => {
     const el = previewRef.current;
     const p = pvRef.current;
+    if (highlightSelectionColumns) {
+      const headers = theadRef.current?.querySelectorAll(".col-label[data-cidx]");
+      headers?.forEach((header) => {
+        const ci = Number(header.dataset.cidx);
+        header.classList.toggle("preview-selected", !!p && ci >= p.c1 && ci <= p.c2);
+      });
+    }
     if (el) {
       if (!p) {
         el.style.display = "none";
@@ -1298,7 +1331,7 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
       el.style.height = `${h}px`;
       el.style.display = "block";
     }
-  }, [cumW, cumH]);
+  }, [cumW, cumH, highlightSelectionColumns]);
   const schedulePreview = React.useCallback(() => {
     if (pvRafRef.current) return;
     pvRafRef.current = true;
@@ -2018,6 +2051,9 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
     hasSelection() {
       return !!(selRange || active);
     },
+    selectAllCells() {
+      selectAllCells();
+    },
     mergeSelection() {
       if (readOnly) return;
       if (!sel) return;
@@ -2090,23 +2126,29 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
       onChange(newRows);
     },
     goNextMatch() {
-      const q = (props.searchQuery || "").toLowerCase();
-      if (!q || !rows.length) return 0;
-      const matches = [];
-      for (let r = 0; r < rows.length; r++) {
-        if (hiddenRows && hiddenRows.has(r)) continue;
-        for (let c = 0; c < allKeys.length; c++) {
-          const v = rows[r][allKeys[c]];
-          if (v !== null && v !== undefined && String(v).toLowerCase().includes(q)) {
-            matches.push({ r, c });
-          }
-        }
-      }
+      const matches = searchMatches;
       if (!matches.length) return 0;
       let idx = 0;
       if (active) {
         const ai = allKeys.indexOf(active.key);
         const found = matches.findIndex((m) => m.r > active.r || (m.r === active.r && m.c > ai));
+        if (found >= 0) idx = found;
+      }
+      const t = matches[idx];
+      selectCell(t.r, allKeys[t.c]);
+      scrollToCell(t.r, t.c);
+      return matches.length;
+    },
+    goPreviousMatch() {
+      const matches = searchMatches;
+      if (!matches.length) return 0;
+      let idx = matches.length - 1;
+      if (active) {
+        const ai = allKeys.indexOf(active.key);
+        const found = matches.reduce(
+          (last, m, i) => (m.r < active.r || (m.r === active.r && m.c < ai) ? i : last),
+          -1
+        );
         if (found >= 0) idx = found;
       }
       const t = matches[idx];
@@ -2147,7 +2189,7 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
     const col = colByMap.get(key);
     // Kolom tersembunyi dari file (mis. kolom D–K di sheet Oil) tidak dirender,
     // konsisten dengan header (col.hidden => null) — layout mengikuti Excel.
-    if (col && col.hidden) return null;
+    if (isColumnHidden(ci)) return null;
     const occ = mergeMap.get(`${r}:${ci}`);
     // Bentang merge versi RENDER (kolom/baris yang benar-benar dirender saja).
     // colSpan/rowSpan HARUS memakai hitungan visible ini: kolom hidden tidak
@@ -2364,6 +2406,20 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
 
   return (
     <div className="spreadsheet excel-grid">
+      {hasUnhideableColumns && onColumnVisibilityChange && (
+        <div className="ee-hidden-column-bar">
+          <span>Kolom tersembunyi: {columns.filter((col, index) => col && !col.mergeHidden && isColumnHidden(index)).length}</span>
+          <button
+            className="btn btn-outline btn-sm"
+            onClick={() => {
+              setSelectedUnhideColumns([]);
+              setShowUnhideColumns(true);
+            }}
+          >
+            Tampilkan Kolom
+          </button>
+        </div>
+      )}
       <div className="sheet-scroll" tabIndex={0} ref={sheetRef} onKeyDown={onSheetKeyDown} onScroll={handleSheetScroll}>
         {rows.length === 0 ? (
           <div className="empty-state">
@@ -2458,7 +2514,8 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
                     <th className="corner" title="Pilih semua" onClick={selectAllCells} style={{ width: RX_PX, minWidth: RX_PX }} />
                     {allKeys.map((key, i) => {
                       const col = colByMap.get(key);
-                      if (col && col.hidden) return null;
+                      if (isColumnHidden(i)) return null;
+                      const hiddenGapBefore = i > 0 && isColumnHidden(i - 1);
                       // span header (kolom yang digabung saat impor legacy) dihitung
                       // dari kolom yang BENAR-BENAR dirender — kolom hidden tidak
                       // punya slot <th>, jadi span mentah menggeser label berikutnya.
@@ -2474,6 +2531,11 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
                           : undefined;
                       const w = allColWidth[i] || DEFAULT_COL_WIDTH;
                       const colActive = active !== null && allKeys.indexOf(active.key) === i;
+                      const colSelected =
+                        highlightSelectionColumns &&
+                        selRange !== null &&
+                        i >= selRange.c1 &&
+                        i <= selRange.c2;
                       const colActiveFilter =
                         !!colFilter && Array.isArray(colFilter[key]) && colFilter[key].length > 0;
                       return (
@@ -2481,7 +2543,7 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
                           key={key}
                           data-cidx={i}
                           colSpan={thSpan}
-                          className={`col-label${col && col.label ? "" : " empty"}${colActive ? " active" : ""}`}
+                          className={`col-label${col && col.label ? "" : " empty"}${colActive ? " active" : ""}${colSelected ? " in-selection" : ""}${hiddenGapBefore ? " has-hidden-gap" : ""}`}
                           style={{
                             minWidth: w,
                             width: w,
@@ -2492,7 +2554,7 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
                               ? { position: "sticky", left: cumW[i] ?? 0, zIndex: i < 2 ? 7 : 4 }
                               : undefined),
                           }}
-                          title={col && col.label ? col.label : ""}
+                          title={`${col && col.label ? col.label : ""}${hiddenGapBefore ? " — terdapat kolom tersembunyi sebelumnya" : ""}`}
                           onMouseDown={(e) => onColHeaderMouseDown(i, e)}
                           onMouseOver={() => onColHeaderMouseOver(i)}
                           onClick={(e) => {
@@ -2506,7 +2568,16 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
                           }}
                           onContextMenu={(e) => {
                             e.preventDefault();
-                            setContextMenu({ x: e.clientX, y: e.clientY, r: 0, ci: i });
+                            const selectedRange =
+                              selRange &&
+                              selRange.r1 === 0 &&
+                              selRange.r2 === rows.length - 1 &&
+                              i >= selRange.c1 &&
+                              i <= selRange.c2
+                                ? selRange
+                                : { r1: 0, r2: rows.length - 1, c1: i, c2: i };
+                            if (selectedRange !== selRange) selectColumn(i, e);
+                            setContextMenu({ x: e.clientX, y: e.clientY, r: 0, ci: i, header: true, selectedRange });
                           }}
                         >
                           <span>{col?.label || colName(i)}</span>
@@ -2706,8 +2777,83 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
         </div>
       )}
 
+      {showUnhideColumns && (
+        <Modal
+          title="Tampilkan Kolom"
+          onClose={() => setShowUnhideColumns(false)}
+          width={440}
+          footer={
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button className="btn btn-outline btn-sm" onClick={() => setShowUnhideColumns(false)}>Batal</button>
+              <button
+                className="btn btn-primary btn-sm"
+                disabled={!selectedUnhideColumns.length}
+                onClick={() => {
+                  onColumnVisibilityChange?.(selectedUnhideColumns, false);
+                  setShowUnhideColumns(false);
+                }}
+              >
+                Tampilkan ({selectedUnhideColumns.length})
+              </button>
+            </div>
+          }
+        >
+          <p style={{ marginTop: 0, color: "var(--ink-2)", fontSize: 13 }}>Pilih satu atau beberapa kolom yang ingin ditampilkan kembali.</p>
+          <div className="ee-hidden-column-list">
+            {columns.map((col, index) => (
+              isColumnHidden(index) && !col.mergeHidden ? (
+                <label key={col.key} className="ee-hidden-column-item">
+                  <input
+                    type="checkbox"
+                    checked={selectedUnhideColumns.includes(index)}
+                    onChange={(e) => setSelectedUnhideColumns((prev) =>
+                      e.target.checked ? [...prev, index] : prev.filter((ci) => ci !== index)
+                    )}
+                  />
+                  <span>{col.label || colName(index)} <small>({colName(index)})</small></span>
+                </label>
+              ) : null
+            ))}
+          </div>
+        </Modal>
+      )}
+
       {contextMenu && (
         <div className="sheet-context" style={{ left: contextMenu.x, top: contextMenu.y }}>
+          {contextMenu.header && (
+            <>
+              {onColumnVisibilityChange && (
+                <button onClick={() => {
+                  const range = contextMenu.selectedRange || { c1: contextMenu.ci, c2: contextMenu.ci };
+                  const indices = [];
+                  for (let ci = range.c1; ci <= range.c2; ci++) {
+                    if (columns[ci] && !isColumnHidden(ci)) indices.push(ci);
+                  }
+                  onColumnVisibilityChange(indices, true);
+                  setContextMenu(null);
+                }}
+                  disabled={!columns.some((col, index) =>
+                    col && !isColumnHidden(index) &&
+                    (index < (contextMenu.selectedRange?.c1 ?? contextMenu.ci) ||
+                      index > (contextMenu.selectedRange?.c2 ?? contextMenu.ci))
+                  )}
+                  title="Setidaknya satu kolom harus tetap terlihat"
+                >
+                  <span className="sc-key">Hide</span> Sembunyikan Kolom Terpilih
+                </button>
+              )}
+              {hasUnhideableColumns && onColumnVisibilityChange && (
+                <button onClick={() => {
+                  setSelectedUnhideColumns([]);
+                  setShowUnhideColumns(true);
+                  setContextMenu(null);
+                }}>
+                  <span className="sc-key">Unhide</span> Tampilkan Kolom...
+                </button>
+              )}
+              <div className="sheet-context-sep" />
+            </>
+          )}
           <button onClick={() => { handleCopy(); setContextMenu(null); }}>
             <span className="sc-key">Ctrl+C</span> Salin
           </button>

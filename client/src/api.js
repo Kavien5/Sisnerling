@@ -181,12 +181,26 @@ export const api = {
   },
   getAuditMeta: () => request("/api/audit/meta"),
   getAuditLogDetail: (id) => request(`/api/audit/logs/${id}`),
+<<<<<<< HEAD
   setAuditLogSaved: (id, isSaved) =>
     request(`/api/audit/logs/${id}/saved`, {
       method: "PUT",
       body: JSON.stringify({ isSaved }),
     }),
   deleteAuditLog: (id) => request(`/api/audit/logs/${id}`, { method: "DELETE" }),
+=======
+  getAuditRetentionStatus: () => request("/api/audit/retention-status"),
+  archiveAuditLog: (id) => request(`/api/audit/logs/${id}/archive`, { method: "POST" }),
+  unarchiveAuditLog: (id) => request(`/api/audit/logs/${id}/unarchive`, { method: "POST" }),
+  batchArchiveAuditLogs: (ids) =>
+    request("/api/audit/logs/batch-archive", { method: "POST", body: JSON.stringify({ ids }) }),
+  archiveExpiringAuditLogs: () =>
+    request("/api/audit/archive-expiring", { method: "POST" }),
+  cleanupExpiredAuditLogs: () =>
+    request("/api/audit/cleanup-expired", { method: "POST" }),
+  getAuditRestorePreview: (id) => request(`/api/audit/logs/${id}/restore-preview`),
+  executeAuditRestore: (id) => request(`/api/audit/logs/${id}/restore`, { method: "POST" }),
+>>>>>>> 1f7ba671be2dbad36d5988aecd9014a3e13cc3da
   getDashboardGreeting: () => request("/api/dashboard/greeting"),
   setDashboardGreeting: (body) =>
     request("/api/dashboard/greeting", { method: "PUT", body: JSON.stringify(body) }),
@@ -236,6 +250,28 @@ export const api = {
     request("/api/statistical/formula", { method: "PUT", body: JSON.stringify(body) }),
   statisticalFormulaHistory: (sheetId, row, col) =>
     request(`/api/statistical/formula/history?sheet_id=${sheetId}&row=${row}&col=${col}`),
+  neracaSpreadsheet: () => request("/api/neraca"),
+  neracaUpdateCell: (body) =>
+    request("/api/neraca/cell", { method: "POST", body: JSON.stringify(body) }),
+  neracaAddYear: (year) =>
+    request("/api/neraca/tahun", { method: "POST", body: JSON.stringify({ year }) }),
+  neracaReset: () => request("/api/neraca/reset", { method: "POST", body: "{}" }),
+  neracaExportCsvUrl: (sheet = "Indonesia") =>
+    `/api/neraca/export/csv?sheet=${encodeURIComponent(sheet)}`,
+  neracaTemplateUrl: () => "/api/neraca/template",
+  neracaImport: (body) =>
+    request("/api/neraca/import", { method: "POST", body: JSON.stringify(body) }),
+  neracaSelectDataset: (id) =>
+    request("/api/neraca/datasets/select", { method: "POST", body: JSON.stringify({ id }) }),
+  neracaRenameDataset: (id, name) =>
+    request("/api/neraca/datasets/rename", { method: "POST", body: JSON.stringify({ id, name }) }),
+  neracaDeleteDataset: (id) =>
+    request(`/api/neraca/datasets/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  neracaReimportHidden: (includeHidden) =>
+    request("/api/neraca/reimport-hidden", {
+      method: "POST",
+      body: JSON.stringify({ includeHidden }),
+    }),
 };
 
 export const formatRupiah = (n) =>

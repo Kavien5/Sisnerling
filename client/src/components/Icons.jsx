@@ -225,3 +225,24 @@ export const IconUser = (p) => (
     <circle cx="12" cy="7" r="4" />
   </Svg>
 );
+
+export const IconArchive = (p) => (
+  <Svg {...p}>
+    <polyline points="21 8 21 21 3 21 3 8" />
+    <rect x="1" y="3" width="22" height="5" />
+    <line x1="10" y1="12" x2="14" y2="12" />
+  </Svg>
+);
+
+export const IconUndo = (p) => (
+  <Svg {...p}>
+    <path d="M3 7v6h6" />
+    <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" />
+  </Svg>
+);
+
+export const IconBookmark = (p) => (
+  <Svg {...p}>
+    <path d="m19 21-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+  </Svg>
+);

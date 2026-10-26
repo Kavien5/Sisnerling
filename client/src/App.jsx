@@ -2,11 +2,11 @@ import React from "react";
 import Layout from "./components/Layout.jsx";
 import { ToastProvider } from "./components/Toast.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
-import KategoriPage from "./pages/KategoriPage.jsx";
 import Laporan from "./pages/Laporan.jsx";
 import ExcelResult from "./pages/ExcelResult.jsx";
 import ExcelEditor from "./pages/ExcelEditor.jsx";
 import StatisticalSpreadsheet from "./pages/StatisticalSpreadsheet.jsx";
+import InputPengolahanNeraca from "./pages/InputPengolahanNeraca.jsx";
 import FilesPage from "./pages/FilesPage.jsx";
 import Panduan from "./pages/Panduan.jsx";
 import AuditLogs from "./pages/AuditLogs.jsx";
@@ -49,7 +49,7 @@ export default function App() {
   // Pertahanan ekstra: halaman terbatas untuk role (hanya dieksekusi saat sudah login).
   React.useEffect(() => {
     if (user) {
-      if (!isSuperAdmin(user) && (page.startsWith("admin-") || page === "audit-log")) {
+      if (!isSuperAdmin(user) && page.startsWith("admin-")) {
         setPage("dashboard");
       }
     }
@@ -270,24 +270,15 @@ export default function App() {
       >
         {page === "dashboard" && <Dashboard user={user} onNavigate={handleNavigate} />}
         {page === "spreadsheet" && (
-          activeFileId ? (
-            <ExcelEditor
-              importedFiles={importedFiles}
-              onFilesChanged={() => setImportedFiles(loadFiles())}
-              readOnly={!canEditData(user)}
-              openFileId={activeFileId}
-            />
-          ) : (
-            <div className="empty-state">
-              <h2 style={{ marginBottom: 8 }}>Belum ada file dibuka</h2>
-              <p>Pilih file dari menu <strong>File &amp; Import</strong> untuk mulai mengedit di sini.</p>
-              <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => setPage("files")}>
-                Buka File &amp; Import
-              </button>
-            </div>
-          )
+          <ExcelEditor
+            importedFiles={importedFiles}
+            onFilesChanged={() => setImportedFiles(loadFiles())}
+            readOnly={!canEditData(user)}
+            openFileId={activeFileId}
+          />
         )}
         {page === "statistik" && <StatisticalSpreadsheet user={user} />}
+        {page === "neraca-input" && <InputPengolahanNeraca />}
         {page === "files" && (
           <FilesPage
             files={importedFiles}
@@ -299,10 +290,9 @@ export default function App() {
             canPublish={isSuperAdmin(user)}
           />
         )}
-        {page === "kategori" && <KategoriPage />}
         {page === "laporan" && <Laporan />}
         {page === "panduan" && <Panduan user={user} />}
-        {isSuperAdmin(user) && page === "audit-log" && <AuditLogs user={user} />}
+        {page === "audit-log" && <AuditLogs user={user} />}
         {page === "import-result" && activeFile && (
           <ExcelResult
             importedData={activeFile}

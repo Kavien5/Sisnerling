@@ -46,7 +46,7 @@ export default function Laporan() {
       <div className="page-title" style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
         <div>
           <h2>Laporan</h2>
-          <p>Rekapitulasi data per sheet dari halaman Spreadsheet</p>
+          <p>Rekapitulasi data per kategori (sheet) dari halaman Spreadsheet</p>
         </div>
         <button
           type="button"
@@ -63,7 +63,8 @@ export default function Laporan() {
           <table className="table">
             <thead>
               <tr>
-                <th>Sheet / Kategori</th>
+                <th style={{ width: 60 }}>No</th>
+                <th>Kategori (Sheet)</th>
                 <th>Kolom</th>
                 <th>Baris Berisi</th>
                 <th>Sel Terisi</th>
@@ -73,6 +74,7 @@ export default function Laporan() {
             <tbody>
               {rows.map((r, i) => (
                 <tr key={i}>
+                  <td className="text-muted">{formatNumber(i + 1)}</td>
                   <td className="font-bold">{r.nama}</td>
                   <td>{formatNumber(r.kolom)}</td>
                   <td>{formatNumber(r.jumlahBaris)}</td>
@@ -81,6 +83,7 @@ export default function Laporan() {
                 </tr>
               ))}
               <tr className="row-active" style={{ fontWeight: 700 }}>
+                <td />
                 <td>TOTAL</td>
                 <td />
                 <td>{formatNumber(sumBaris)}</td>
@@ -89,7 +92,7 @@ export default function Laporan() {
               </tr>
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan="5">
+                  <td colSpan="6">
                     <div className="empty-state">Belum ada data. Isi/import data di halaman Spreadsheet.</div>
                   </td>
                 </tr>

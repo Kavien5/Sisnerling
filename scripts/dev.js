@@ -110,6 +110,13 @@ async function portInUse(port) {
 }
 
 async function preflight() {
+  const serverNodeModules = path.join(root, "server", "node_modules");
+  const clientNodeModules = path.join(root, "client", "node_modules");
+  if (!fs.existsSync(serverNodeModules) || !fs.existsSync(clientNodeModules)) {
+    console.log("[startup] Dependensi belum terpasang. Menjalankan npm run install:all...");
+    require("child_process").execSync("npm run install:all", { cwd: root, stdio: "inherit" });
+  }
+
   const busy = [];
   for (const port of [3000, 5175]) {
     if (await portInUse(port)) busy.push(port);
