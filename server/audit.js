@@ -14,8 +14,8 @@ const RETENTION_HOURS = 72; // Kebijakan retensi 3 hari (72 jam)
 const WARNING_HOURS = 24;   // Notifikasi jika log kedaluwarsa dlm 24 jam ke depan
 
 // Helper: hitung sisa jam sebelum kedaluwarsa 72 jam
-function calculateExpiresIn(createdAt, isArchived) {
-  if (isArchived) return null; // Log yang diarsipkan tidak memiliki masa kedaluwarsa
+function calculateExpiresIn(createdAt, isArchived, isSaved = false) {
+  if (isArchived || isSaved) return null;
   const ageMs = Date.now() - new Date(createdAt).getTime();
   const remainingHours = (RETENTION_HOURS * 3600 * 1000 - ageMs) / (3600 * 1000);
   return Math.max(0, Math.round(remainingHours * 10) / 10);
@@ -69,7 +69,7 @@ router.get("/retention-status", requireRole("super_admin"), async (_req, res, ne
     // Log yang akan kedaluwarsa dalam 24 jam ke depan (dibuat antara 48 jam s/d 72 jam lalu)
     const [[{ expiring_soon }]] = await pool.query(
       `SELECT COUNT(*) AS expiring_soon FROM audit_logs
-       WHERE is_archived = 0
+       WHERE is_archived = 0 AND is_saved = 0
          AND created_at <= DATE_SUB(NOW(), INTERVAL ? HOUR)
          AND created_at >= DATE_SUB(NOW(), INTERVAL ? HOUR)`,
       [RETENTION_HOURS - WARNING_HOURS, RETENTION_HOURS]
@@ -78,7 +78,7 @@ router.get("/retention-status", requireRole("super_admin"), async (_req, res, ne
     // Log aktif yang sudah melewati batas 72 jam (menunggu siklus pembersihan)
     const [[{ expired_pending }]] = await pool.query(
       `SELECT COUNT(*) AS expired_pending FROM audit_logs
-       WHERE is_archived = 0 AND created_at < DATE_SUB(NOW(), INTERVAL ? HOUR)`,
+       WHERE is_archived = 0 AND is_saved = 0 AND created_at < DATE_SUB(NOW(), INTERVAL ? HOUR)`,
       [RETENTION_HOURS]
     );
 
@@ -152,17 +152,12 @@ router.get("/logs", async (req, res, next) => {
 
     const [rows] = await pool.query(
       `SELECT al.id, al.user_id, al.action, al.description, al.module, al.record_id,
-<<<<<<< HEAD
               al.old_data, al.new_data, al.ip_address, al.user_agent, al.created_at, al.is_saved,
               DATE_ADD(al.created_at, INTERVAL 3 DAY) AS expires_at,
-              u.nama AS nama_user, u.email AS email_user, u.role AS role_user
-=======
-              al.old_data, al.new_data, al.ip_address, al.user_agent,
               al.is_archived, al.archived_at, al.archived_by,
-              al.restored_at, al.restored_by, al.source_log_id, al.created_at,
+              al.restored_at, al.restored_by, al.source_log_id,
               u.nama AS nama_user, u.email AS email_user, u.role AS role_user,
               ur.nama AS nama_restorer, ua.nama AS nama_archiver
->>>>>>> 1f7ba671be2dbad36d5988aecd9014a3e13cc3da
        FROM audit_logs al
        LEFT JOIN users u ON u.id = al.user_id
        LEFT JOIN users ur ON ur.id = al.restored_by
@@ -188,7 +183,7 @@ router.get("/logs", async (req, res, next) => {
           role_user: r.role_user,
         };
       }
-      const expiresIn = calculateExpiresIn(r.created_at, r.is_archived);
+      const expiresIn = calculateExpiresIn(r.created_at, r.is_archived, r.is_saved);
       return {
         ...r,
         old_data: oldD,
@@ -215,8 +210,7 @@ router.get("/logs", async (req, res, next) => {
   }
 });
 
-<<<<<<< HEAD
-router.put("/logs/:id/saved", async (req, res, next) => {
+router.put("/logs/:id/saved", requireRole("super_admin"), async (req, res, next) => {
   try {
     if (!/^\d+$/.test(String(req.params.id)) || Number(req.params.id) < 1) {
       return res.status(400).json({ error: "ID log tidak valid" });
@@ -238,7 +232,7 @@ router.put("/logs/:id/saved", async (req, res, next) => {
   }
 });
 
-router.delete("/logs/:id", async (req, res, next) => {
+router.delete("/logs/:id", requireRole("super_admin"), async (req, res, next) => {
   try {
     if (!/^\d+$/.test(String(req.params.id)) || Number(req.params.id) < 1) {
       return res.status(400).json({ error: "ID log tidak valid" });
@@ -253,12 +247,8 @@ router.delete("/logs/:id", async (req, res, next) => {
   }
 });
 
-// ===== Detail satu log (parsing old/new data) =====
-router.get("/logs/:id", async (req, res, next) => {
-=======
 // ===== Detail satu log =====
 router.get("/logs/:id", requireRole("super_admin"), async (req, res, next) => {
->>>>>>> 1f7ba671be2dbad36d5988aecd9014a3e13cc3da
   try {
     const [[row]] = await pool.query(
       `SELECT al.*, u.nama AS nama_user, u.email AS email_user, u.role AS role_user,
@@ -274,7 +264,7 @@ router.get("/logs/:id", requireRole("super_admin"), async (req, res, next) => {
     row.old_data = normalizeJson(row.old_data);
     row.new_data = normalizeJson(row.new_data);
     row.is_archived = Boolean(row.is_archived);
-    row.expires_in_hours = calculateExpiresIn(row.created_at, row.is_archived);
+    row.expires_in_hours = calculateExpiresIn(row.created_at, row.is_archived, row.is_saved);
     row.is_expiring_soon = row.expires_in_hours !== null && row.expires_in_hours <= WARNING_HOURS;
     row.can_restore = isActionRestorable(row.action, row.old_data, row.new_data);
     row.is_restored = Boolean(row.restored_at);
@@ -342,7 +332,8 @@ router.post("/archive-expiring", requireRole("super_admin"), async (req, res, ne
   try {
     const [r] = await pool.query(
       `UPDATE audit_logs SET is_archived = 1, archived_at = NOW(), archived_by = ?
-       WHERE is_archived = 0 AND created_at <= DATE_SUB(NOW(), INTERVAL ? HOUR)`,
+       WHERE is_archived = 0 AND is_saved = 0
+         AND created_at <= DATE_SUB(NOW(), INTERVAL ? HOUR)`,
       [req.user.id, RETENTION_HOURS - WARNING_HOURS]
     );
 
@@ -362,7 +353,8 @@ async function purgeExpiredAuditLogs() {
   try {
     const [r] = await pool.query(
       `DELETE FROM audit_logs
-       WHERE is_archived = 0 AND created_at < DATE_SUB(NOW(), INTERVAL ? HOUR)`,
+       WHERE is_archived = 0 AND is_saved = 0
+         AND created_at < DATE_SUB(NOW(), INTERVAL ? HOUR)`,
       [RETENTION_HOURS]
     );
     if (r.affectedRows > 0) {

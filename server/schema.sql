@@ -205,16 +205,13 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   new_data JSON NULL,
   ip_address VARCHAR(45) NULL,
   user_agent VARCHAR(300) NULL,
-<<<<<<< HEAD
   is_saved TINYINT(1) NOT NULL DEFAULT 0,
-=======
   is_archived TINYINT(1) NOT NULL DEFAULT 0,
   archived_at TIMESTAMP NULL,
   archived_by INT NULL,
   restored_at TIMESTAMP NULL,
   restored_by INT NULL,
   source_log_id INT NULL,
->>>>>>> 1f7ba671be2dbad36d5988aecd9014a3e13cc3da
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   KEY idx_audit_user (user_id),

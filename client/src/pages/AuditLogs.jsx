@@ -99,9 +99,8 @@ const fmtFull = (d) => {
   return `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())} ${p(dt.getHours())}:${p(dt.getMinutes())}:${p(dt.getSeconds())}`;
 };
 
-<<<<<<< HEAD
 function expiryWarning(row, now) {
-  if (Boolean(Number(row.is_saved))) return null;
+  if (Boolean(Number(row.is_saved)) || Boolean(Number(row.is_archived))) return null;
   const expiry = new Date(row.expires_at || new Date(row.created_at).getTime() + 3 * 24 * 60 * 60 * 1000);
   const remaining = expiry.getTime() - now;
   if (!Number.isFinite(remaining) || remaining > 24 * 60 * 60 * 1000) return null;
@@ -113,7 +112,8 @@ function expiryWarning(row, now) {
     text: hours > 0 ? `Habis dalam ${hours} jam ${restMinutes} menit` : `Habis dalam ${minutes} menit`,
     urgent: remaining <= 6 * 60 * 60 * 1000,
   };
-=======
+}
+
 function groupLogsByUser(logs) {
   const groups = new Map();
   logs.forEach((log) => {
@@ -134,7 +134,6 @@ function userInitials(name) {
     .map((part) => part[0] || "")
     .join("")
     .toUpperCase();
->>>>>>> 1f7ba671be2dbad36d5988aecd9014a3e13cc3da
 }
 
 const fmtVal = (v) => {
@@ -451,7 +450,6 @@ function SuperAdminAuditLogs({ user }) {
     }
   };
 
-<<<<<<< HEAD
   const toggleSaved = async (row) => {
     const isSaved = !Boolean(Number(row.is_saved));
     setSaveError("");
@@ -486,7 +484,6 @@ function SuperAdminAuditLogs({ user }) {
     }
   };
 
-=======
   // Buka Pratinjau Restore (3 Kolom + Deteksi Konflik)
   const openRestoreModal = async (row) => {
     setRestoreModal(row);
@@ -580,7 +577,6 @@ function SuperAdminAuditLogs({ user }) {
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
->>>>>>> 1f7ba671be2dbad36d5988aecd9014a3e13cc3da
   const hasFilters = !!(q || userId || action || module || from || to);
 
   const resetFilters = () => {
@@ -595,25 +591,7 @@ function SuperAdminAuditLogs({ user }) {
   };
 
   return (
-<<<<<<< HEAD
-    <div className="page">
-      <div className="page-head">
-        <div>
-          <h2>Audit Log</h2>
-          <p style={{ color: "var(--ink-3)", fontSize: 13 }}>Jejak aktivitas pengguna di seluruh sistem (khusus Super Admin).</p>
-          <p style={{ color: "var(--ink-3)", fontSize: 12, marginTop: 4 }}>Log yang tidak disimpan akan dihapus otomatis setelah 3 hari. Log yang disimpan tidak akan kedaluwarsa.</p>
-        </div>
-      </div>
-
-      {saveError && (
-        <div role="alert" style={{ color: "#b91c1c", background: "#fef2f2", padding: "10px 14px", borderRadius: 8, marginBottom: 12 }}>
-          {saveError}
-        </div>
-      )}
-
-=======
     <div className="page audit-page">
-      {/* Toast Notifikasi */}
       {toast && (
         <div
           style={{
@@ -631,21 +609,19 @@ function SuperAdminAuditLogs({ user }) {
             display: "flex",
             alignItems: "center",
             gap: 10,
-            animation: "fadeIn 0.2s ease-out",
           }}
         >
           {toast.type === "error" ? <IconAlert size={18} /> : <IconCheck size={18} />}
           <span>{toast.msg}</span>
         </div>
       )}
-
-      {/* Header Halaman */}
       <div className="page-head audit-page-header">
         <div className="audit-title">
           <span className="audit-title-icon"><IconHistory size={21} /></span>
           <div>
             <h2>Aktivitas Sistem</h2>
             <p>Pantau aktivitas akun, simpan riwayat penting, dan pulihkan perubahan.</p>
+            <p style={{ color: "var(--ink-3)", fontSize: 12, marginTop: 4 }}>Log yang tidak disimpan akan dihapus otomatis setelah 3 hari.</p>
           </div>
         </div>
         <div className="audit-header-actions">
@@ -657,8 +633,17 @@ function SuperAdminAuditLogs({ user }) {
             <IconHistory size={14} />
             {showGuide ? "Tutup Panduan" : "Panduan & Cara Kerja"}
           </button>
+          <button className="btn btn-outline audit-refresh" onClick={() => setRefreshKey((key) => key + 1)} disabled={loading}>
+            <IconRotate size={14} />
+            Muat ulang
+          </button>
         </div>
       </div>
+      {saveError && (
+        <div role="alert" style={{ color: "#b91c1c", background: "#fef2f2", padding: "10px 14px", borderRadius: 8, marginBottom: 12 }}>
+          {saveError}
+        </div>
+      )}
 
       {/* Box Penjelasan & Panduan Lengkap (Sesuai Permintaan Penjelasan Halaman) */}
       {showGuide && (
@@ -744,8 +729,6 @@ function SuperAdminAuditLogs({ user }) {
         </div>
       )}
 
-      {/* Card Utama */}
->>>>>>> 1f7ba671be2dbad36d5988aecd9014a3e13cc3da
       <div className="card">
         {/* Tab Switcher Scope Riwayat */}
         <div style={{ padding: "12px 18px", borderBottom: "1px solid var(--border-color, #e2e8f0)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -883,25 +866,21 @@ function SuperAdminAuditLogs({ user }) {
                 <th>Aktivitas</th>
                 <th>Modul</th>
                 <th>Deskripsi</th>
-<<<<<<< HEAD
                 <th>IP</th>
-                <th style={{ width: 170 }}></th>
-=======
                 <th>Status Pemulihan</th>
-                <th style={{ width: 190, textAlign: "right" }}>Aksi</th>
->>>>>>> 1f7ba671be2dbad36d5988aecd9014a3e13cc3da
+                <th style={{ width: 280, textAlign: "right" }}>Aksi</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8}>
+                  <td colSpan={9}>
                     <div className="empty-state">Memuat data log...</div>
                   </td>
                 </tr>
               ) : data.length === 0 ? (
                 <tr>
-                  <td colSpan={8}>
+                  <td colSpan={9}>
                     <div className="empty-state">
                       <div className="big"><IconHistory size={42} /></div>
                       Tidak ada log yang cocok
@@ -909,72 +888,10 @@ function SuperAdminAuditLogs({ user }) {
                   </td>
                 </tr>
               ) : (
-<<<<<<< HEAD
-                data.map((r) => (
-                  <tr key={r.id}>
-                    <td className="text-nowrap">
-                      {fmtFull(r.created_at)}
-                      {(() => {
-                        const warning = expiryWarning(r, clockNow);
-                        return warning ? (
-                          <span
-                            role="status"
-                            style={{
-                              display: "block",
-                              marginTop: 4,
-                              color: warning.urgent ? "#b91c1c" : "#b45309",
-                              fontSize: 11,
-                              fontWeight: 600,
-                            }}
-                          >
-                            {warning.text}
-                          </span>
-                        ) : null;
-                      })()}
-                    </td>
-                    <td>
-                      {r.nama_user ? (
-                        <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                          <span style={{ fontWeight: 600 }}>{r.nama_user}</span>
-                          <span style={{ fontSize: 11, color: "var(--ink-3)" }}>{roleLabel(r.role_user || "user")}</span>
-                        </span>
-                      ) : (
-                        <span className="text-muted">(akun terhapus)</span>
-                      )}
-                    </td>
-                    <td><span style={badgeStyle(r.action)}>{actionLabel(r.action)}</span></td>
-                    <td>{moduleLabel(r.module)}</td>
-                    <td style={{ maxWidth: 420 }}>{r.description || "-"}</td>
-                    <td className="text-nowrap" style={{ color: "var(--ink-3)", fontSize: 12 }}>{r.ip_address || "-"}</td>
-                    <td>
-                      <div style={{ display: "flex", gap: 6 }}>
-                        <button
-                          className="btn btn-outline btn-sm"
-                          onClick={() => toggleSaved(r)}
-                          disabled={savingIds.includes(r.id) || deletingIds.includes(r.id)}
-                          aria-label={Boolean(Number(r.is_saved)) ? "Lepas simpan log" : "Simpan log"}
-                        >
-                          {Boolean(Number(r.is_saved)) ? "Tersimpan" : "Simpan"}
-                        </button>
-                        <button
-                          className="btn btn-outline btn-sm"
-                          onClick={() => deleteLog(r)}
-                          disabled={savingIds.includes(r.id) || deletingIds.includes(r.id)}
-                          aria-label="Hapus log"
-                        >
-                          Hapus
-                        </button>
-                        <button className="btn btn-outline btn-sm" onClick={() => openDetail(r)}>
-                          Detail
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-=======
                 logGroups.map((group) => (
                   <React.Fragment key={group.key}>
                     <tr className="audit-group-header">
-                      <td colSpan={8}>
+                      <td colSpan={9}>
                         <div className="audit-group-content">
                           <button
                             type="button"
@@ -1005,6 +922,7 @@ function SuperAdminAuditLogs({ user }) {
                     </tr>
                     {expandedGroups.has(group.key) && group.logs.map((r) => {
                   const isChecked = selectedIds.includes(r.id);
+                  const warning = expiryWarning(r, clockNow);
                   return (
                     <tr key={r.id} className={`audit-log-row${isChecked ? " is-selected" : ""}`}>
                       <td style={{ textAlign: "center" }}>
@@ -1021,16 +939,10 @@ function SuperAdminAuditLogs({ user }) {
                             <span style={{ fontSize: 10, color: "#047857", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 3 }}>
                               <IconBookmark size={11} /> Tersimpan Permanen
                             </span>
-                          ) : r.expires_in_hours !== null ? (
-                            r.expires_in_hours <= 24 ? (
-                              <span style={{ fontSize: 10, color: "#b91c1c", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 3 }}>
-                                <IconAlert size={11} /> Kedaluwarsa dlm {r.expires_in_hours} jam
-                              </span>
-                            ) : (
-                              <span style={{ fontSize: 10, color: "var(--ink-3)" }}>
-                                Aktif ({r.expires_in_hours} jam lagi)
-                              </span>
-                            )
+                          ) : Boolean(Number(r.is_saved)) ? (
+                            <span style={{ fontSize: 10, color: "#047857", fontWeight: 600 }}>Disimpan</span>
+                          ) : warning ? (
+                            <span style={{ fontSize: 10, color: warning.urgent ? "#b91c1c" : "#b45309", fontWeight: 700 }}>{warning.text}</span>
                           ) : null}
                         </div>
                       </td>
@@ -1047,6 +959,7 @@ function SuperAdminAuditLogs({ user }) {
                       <td><span style={badgeStyle(r.action)}>{actionLabel(r.action)}</span></td>
                       <td>{moduleLabel(r.module)}</td>
                       <td style={{ maxWidth: 360 }}>{r.description || "-"}</td>
+                      <td className="text-nowrap" style={{ color: "var(--ink-3)", fontSize: 12 }}>{r.ip_address || "-"}</td>
                       <td>
                         {r.is_restored ? (
                           <span
@@ -1070,6 +983,24 @@ function SuperAdminAuditLogs({ user }) {
                       </td>
                       <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                         <div style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                          <button
+                            className="btn btn-outline btn-sm"
+                            style={{ padding: "4px 8px", fontSize: 11 }}
+                            onClick={() => toggleSaved(r)}
+                            disabled={savingIds.includes(r.id) || deletingIds.includes(r.id)}
+                            aria-label={Boolean(Number(r.is_saved)) ? "Lepas simpan log" : "Tandai log"}
+                          >
+                            {Boolean(Number(r.is_saved)) ? "Ditandai" : "Tandai"}
+                          </button>
+                          <button
+                            className="btn btn-outline btn-sm"
+                            style={{ padding: "4px 8px", fontSize: 11 }}
+                            onClick={() => deleteLog(r)}
+                            disabled={savingIds.includes(r.id) || deletingIds.includes(r.id)}
+                            aria-label="Hapus log"
+                          >
+                            Hapus
+                          </button>
                           {/* Tombol Detail Diff */}
                           <button
                             className="btn btn-outline btn-sm"
@@ -1122,7 +1053,6 @@ function SuperAdminAuditLogs({ user }) {
                   );
                     })}
                   </React.Fragment>
->>>>>>> 1f7ba671be2dbad36d5988aecd9014a3e13cc3da
                 ))
               )}
             </tbody>
@@ -1179,6 +1109,8 @@ function SuperAdminAuditLogs({ user }) {
               <strong>
                 {detail.is_archived
                   ? "Tersimpan Permanen (Diarsipkan)"
+                  : Boolean(Number(detail.is_saved))
+                  ? "Ditandai untuk disimpan"
                   : detail.expires_in_hours !== null
                   ? `Aktif (sisa ${detail.expires_in_hours} jam)`
                   : "Aktif"}

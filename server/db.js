@@ -310,16 +310,13 @@ async function initDatabase() {
     new_data JSON NULL,
     ip_address VARCHAR(45) NULL,
     user_agent VARCHAR(300) NULL,
-<<<<<<< HEAD
     is_saved TINYINT(1) NOT NULL DEFAULT 0,
-=======
     is_archived TINYINT(1) NOT NULL DEFAULT 0,
     archived_at TIMESTAMP NULL,
     archived_by INT NULL,
     restored_at TIMESTAMP NULL,
     restored_by INT NULL,
     source_log_id INT NULL,
->>>>>>> 1f7ba671be2dbad36d5988aecd9014a3e13cc3da
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     KEY idx_audit_user (user_id),
@@ -330,7 +327,6 @@ async function initDatabase() {
     CONSTRAINT fk_audit_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 
-<<<<<<< HEAD
   const [[colAuditSaved]] = await admin.query(
     `SELECT COUNT(*) AS n FROM information_schema.columns
      WHERE table_schema = DATABASE() AND table_name = 'audit_logs' AND column_name = 'is_saved'`
@@ -338,7 +334,6 @@ async function initDatabase() {
   if (Number(colAuditSaved.n) === 0) {
     await admin.query("ALTER TABLE audit_logs ADD COLUMN is_saved TINYINT(1) NOT NULL DEFAULT 0");
   }
-=======
   await ensureCol("audit_logs", "is_archived",
     "ALTER TABLE audit_logs ADD COLUMN is_archived TINYINT(1) NOT NULL DEFAULT 0 AFTER user_agent");
   await ensureCol("audit_logs", "archived_at",
@@ -371,7 +366,6 @@ async function initDatabase() {
     KEY idx_ars_target (target_type, target_id),
     KEY idx_ars_created (created_at)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
->>>>>>> 1f7ba671be2dbad36d5988aecd9014a3e13cc3da
 
   // ---- Seed SUPER ADMIN (hanya bila variabel env diset & belum ada) ----
   const seedEmail = (process.env.SEED_SUPER_ADMIN_EMAIL || "").trim().toLowerCase();
