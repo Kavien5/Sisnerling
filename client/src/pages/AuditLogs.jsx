@@ -129,25 +129,26 @@ function ReadOnlyAuditLogs() {
 
   React.useEffect(() => {
     let active = true;
+    let timeout;
     const load = (showLoading = false) => {
       if (showLoading) setLoading(true);
-      setError("");
+      if (showLoading) setError("");
       api.getAuditLogs({ page: 1, perPage: 50, scope: "all" })
         .then((res) => {
           if (active) setData(res.data || []);
         })
         .catch((err) => {
-          if (active) setError(err.message || "Gagal memuat catatan aktivitas");
+          if (active && showLoading) setError(err.message || "Gagal memuat catatan aktivitas");
         })
         .finally(() => {
           if (active && showLoading) setLoading(false);
+          if (active) timeout = setTimeout(() => load(), 30000);
         });
     };
     load(true);
-    const interval = setInterval(() => load(), 10000);
     return () => {
       active = false;
-      clearInterval(interval);
+      clearTimeout(timeout);
     };
   }, [refreshKey]);
 
@@ -267,8 +268,8 @@ function SuperAdminAuditLogs({ user }) {
   }, [loadRetentionStatus]);
 
   const fetchLogs = React.useCallback(
-    async (p = page, pp = perPage, sc = scope) => {
-      setLoading(true);
+    async (p = page, pp = perPage, sc = scope, { quiet = false } = {}) => {
+      if (!quiet) setLoading(true);
       try {
         const res = await api.getAuditLogs({
           page: p,
@@ -285,12 +286,14 @@ function SuperAdminAuditLogs({ user }) {
         setTotal(res.total || 0);
         setTotalPages(res.totalPages || 1);
         setPage(res.page || 1);
-        setSelectedIds([]);
+        if (!quiet) setSelectedIds([]);
       } catch (err) {
-        setData([]);
-        setTotal(0);
+        if (!quiet) {
+          setData([]);
+          setTotal(0);
+        }
       } finally {
-        setLoading(false);
+        if (!quiet) setLoading(false);
       }
     },
     [page, perPage, scope, q, userId, action, module, from, to]
@@ -302,8 +305,17 @@ function SuperAdminAuditLogs({ user }) {
   }, [q, userId, action, module, from, to, perPage, scope]);
 
   React.useEffect(() => {
-    const interval = setInterval(() => fetchLogs(page, perPage, scope), 10000);
-    return () => clearInterval(interval);
+    let active = true;
+    let timeout;
+    const poll = async () => {
+      await fetchLogs(page, perPage, scope, { quiet: true });
+      if (active) timeout = setTimeout(poll, 30000);
+    };
+    timeout = setTimeout(poll, 30000);
+    return () => {
+      active = false;
+      clearTimeout(timeout);
+    };
   }, [fetchLogs, page, perPage, scope]);
 
   const goPage = (p) => {

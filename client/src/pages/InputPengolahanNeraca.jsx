@@ -386,6 +386,7 @@ export default function InputPengolahanNeraca() {
   const [activeSheet, setActiveSheet] = React.useState("Jati Jawa");
   const [rawSheetIdx, setRawSheetIdx] = React.useState(0);
   const [status, setStatus] = React.useState("saved");
+  const [manualSaving, setManualSaving] = React.useState(false);
   const [addYearOpen, setAddYearOpen] = React.useState(false);
   const [newYear, setNewYear] = React.useState("");
   const [importing, setImporting] = React.useState(false);
@@ -610,6 +611,52 @@ export default function InputPengolahanNeraca() {
       setStatus("error");
       toast(err.message, "error");
       throw err;
+    }
+  };
+
+  const handleManualSave = async () => {
+    const drafts = Object.entries(cellDrafts);
+    if (!drafts.length && pendingCellUpdates.current.size === 0 && status !== "saving") {
+      toast("Tidak ada perubahan yang perlu disimpan.", "info");
+      return;
+    }
+
+    const updates = drafts.map(([key, raw]) => {
+      const parts = key.split(":");
+      const year = parts.pop();
+      const row = parts.pop();
+      const section = parts.pop();
+      const sheet = parts.join(":");
+      if (!sheet || !section || !row || !year) return null;
+      return { sheet, section, row, year, value: parseInputValue(raw) };
+    });
+    if (updates.some((update) => !update)) {
+      toast("Ada perubahan sel yang identitasnya tidak valid.", "error");
+      return;
+    }
+
+    setManualSaving(true);
+    try {
+      updates.forEach((update) => handleCellChange(
+        update.sheet,
+        update.section,
+        update.row,
+        update.year,
+        update.value
+      ));
+      if (drafts.length) {
+        setCellDrafts((prev) => {
+          const next = { ...prev };
+          drafts.forEach(([key]) => delete next[key]);
+          return next;
+        });
+      }
+      await flushPendingCellUpdates();
+      toast("Perubahan Neraca Hutan berhasil disimpan dan tercatat di Audit Log.", "success");
+    } catch {
+      // flushPendingCellUpdates already reports save failures.
+    } finally {
+      setManualSaving(false);
     }
   };
 
@@ -1134,6 +1181,14 @@ export default function InputPengolahanNeraca() {
           </div>
 
           <div className="header-buttons">
+            <button
+              className="btn btn-primary"
+              onClick={handleManualSave}
+              disabled={manualSaving || importing || isRaw}
+              title="Simpan semua perubahan sel dan catat aktivitas di Audit Log"
+            >
+              <IconCheck size={14} /> {manualSaving ? "Menyimpan..." : "Simpan Perubahan"}
+            </button>
             <button className="btn btn-primary" onClick={openAddYear} title="Tambah kolom periode tahun baru">
               <IconPlus size={14} /> Tambah Tahun
             </button>
