@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const express = require("express");
+const { logAudit } = require("./auditLog");
 const ExcelJS = require("exceljs");
 
 const DATA_DIR = path.join(__dirname, "data");
@@ -1379,12 +1380,22 @@ function createNeracaRouter({ onChange } = {}) {
   const notifyChange = (action) => {
     if (onChange) onChange({ action, updatedAt: new Date().toISOString() });
   };
+  const logActivity = (req, action, description, recordId = null) => {
+    return logAudit({
+      userId: req.user.id,
+      action,
+      module: "neraca",
+      description,
+      recordId,
+      req,
+    });
+  };
 
   router.get("/", (_req, res) => {
     res.json(neracaResponse());
   });
 
-  router.post("/cell", (req, res) => {
+  router.post("/cell", async (req, res) => {
     const { updates, sheet, section, row, year, value } = req.body || {};
     if (Array.isArray(updates) && updates.length > 0) {
       try {
@@ -1408,6 +1419,7 @@ function createNeracaRouter({ onChange } = {}) {
         ds.updatedAt = new Date().toISOString();
         save();
         notifyChange("cell");
+        await logActivity(req, "edit", `Mengubah ${updates.length} nilai pada Input & Pengolahan Neraca Hutan`);
         return res.json({
           message: "Seluruh data berhasil diperbarui dan formulasi dihitung ulang!",
           ...neracaResponse(),
@@ -1422,16 +1434,18 @@ function createNeracaRouter({ onChange } = {}) {
     try {
       updateCell({ sheet, section, row, year, value });
       notifyChange("cell");
+      await logActivity(req, "edit", `Mengubah nilai pada Input & Pengolahan Neraca Hutan (${sheet})`);
       res.json({ message: "Sel berhasil diperbarui dan formulasi dihitung ulang!", ...neracaResponse() });
     } catch (err) {
       res.status(err.status || 500).json({ error: err.message });
     }
   });
 
-  router.post("/tahun", (req, res) => {
+  router.post("/tahun", async (req, res) => {
     try {
       const data = addYear(req.body ? req.body.year : undefined);
       notifyChange("year");
+      await logActivity(req, "update", `Menambahkan tahun ${data.years[data.years.length - 1]} pada Input & Pengolahan Neraca Hutan`);
       res.json({
         message: `Tahun ${data.years[data.years.length - 1]} berhasil ditambahkan ke seluruh tabel!`,
         ...neracaResponse(),
@@ -1441,9 +1455,10 @@ function createNeracaRouter({ onChange } = {}) {
     }
   });
 
-  router.post("/reset", (_req, res) => {
+  router.post("/reset", async (req, res) => {
     resetData();
     notifyChange("reset");
+    await logActivity(req, "clean", "Mengembalikan angka dataset aktif Neraca Hutan ke baseline BPS");
     res.json({
       message: "Angka dataset aktif dikembalikan ke baseline acuan BPS!",
       ...neracaResponse(),
@@ -1456,30 +1471,33 @@ function createNeracaRouter({ onChange } = {}) {
     res.json({ activeDatasetId: s.activeDatasetId, datasets: datasetList() });
   });
 
-  router.post("/datasets/select", (req, res) => {
+  router.post("/datasets/select", async (req, res) => {
     try {
       selectDataset((req.body || {}).id);
       notifyChange("dataset-selected");
+      await logActivity(req, "update", "Mengganti dataset aktif Input & Pengolahan Neraca Hutan");
       res.json({ message: "Dataset aktif diganti.", ...neracaResponse() });
     } catch (err) {
       res.status(err.status || 500).json({ error: err.message });
     }
   });
 
-  router.post("/datasets/rename", (req, res) => {
+  router.post("/datasets/rename", async (req, res) => {
     try {
       renameDataset((req.body || {}).id, (req.body || {}).name);
       notifyChange("dataset-renamed");
+      await logActivity(req, "update", "Mengubah nama dataset Input & Pengolahan Neraca Hutan");
       res.json({ message: "Nama dataset diperbarui.", ...neracaResponse() });
     } catch (err) {
       res.status(err.status || 500).json({ error: err.message });
     }
   });
 
-  router.delete("/datasets/:id", (req, res) => {
+  router.delete("/datasets/:id", async (req, res) => {
     try {
       deleteDataset(req.params.id);
       notifyChange("dataset-deleted");
+      await logActivity(req, "delete", "Menghapus dataset Input & Pengolahan Neraca Hutan");
       res.json({ message: "Dataset dihapus.", ...neracaResponse() });
     } catch (err) {
       res.status(err.status || 500).json({ error: err.message });
@@ -1525,6 +1543,7 @@ function createNeracaRouter({ onChange } = {}) {
         sourceBase64: base64,
       });
       notifyChange("dataset-imported");
+      await logActivity(req, "import", `Mengimpor dataset "${filename || "file.xlsx"}" ke Input & Pengolahan Neraca Hutan`);
       res.json({
         message:
           `Dataset baru dibuat dari "${filename || "file.xlsx"}" (${stats.cells} sel, ${stats.sheets} sheet` +
@@ -1542,6 +1561,7 @@ function createNeracaRouter({ onChange } = {}) {
       const includeHidden = (req.body || {}).includeHidden !== false;
       const { stats } = await reimportActiveDataset(includeHidden);
       notifyChange("dataset-reimported");
+      await logActivity(req, "update", "Memperbarui dataset Neraca Hutan dari file Excel sumber");
       res.json({
         message:
           `Dataset diperbarui: ${stats.cells} sel` +
@@ -1567,4 +1587,3 @@ module.exports = {
   matchPenunjangRecord,
   detectWideUnitRent,
 };
-

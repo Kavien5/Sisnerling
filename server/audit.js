@@ -5,8 +5,9 @@ const { normalizeJson, logAudit } = require("./auditLog");
 
 const router = express.Router();
 
-// Halaman Audit Log & Restore hanya dapat diakses oleh Super Admin.
-router.use(requireRole("super_admin"));
+// Autentikasi sudah diwajibkan oleh middleware /api di server.js. Jangan
+// membatasi daftar ringkasan berdasarkan nama role: semua pengguna login dapat
+// membacanya, sementara endpoint detail dan pengelolaan tetap khusus Super Admin.
 
 const MAX_PER_PAGE = 100;
 const RETENTION_HOURS = 72; // Kebijakan retensi 3 hari (72 jam)
@@ -27,7 +28,7 @@ function isActionRestorable(action, oldData, newData) {
 }
 
 // ===== Metadata untuk filter dropdown (user, action, module) & info retensi =====
-router.get("/meta", async (_req, res, next) => {
+router.get("/meta", requireRole("super_admin"), async (_req, res, next) => {
   try {
     const [users] = await pool.query(
       `SELECT u.id, u.nama, u.email, u.role FROM users u ORDER BY u.nama ASC`
@@ -53,7 +54,7 @@ router.get("/meta", async (_req, res, next) => {
 });
 
 // ===== Status Retensi & Peringatan Kedaluwarsa =====
-router.get("/retention-status", async (_req, res, next) => {
+router.get("/retention-status", requireRole("super_admin"), async (_req, res, next) => {
   try {
     // Total aktif (belum diarsipkan)
     const [[{ total_active }]] = await pool.query(
@@ -166,9 +167,21 @@ router.get("/logs", async (req, res, next) => {
       [...params, perPage, (page - 1) * perPage]
     );
 
+    const isSuperAdmin = req.user.role === "super_admin";
     const processedRows = rows.map((r) => {
       const oldD = normalizeJson(r.old_data);
       const newD = normalizeJson(r.new_data);
+      if (!isSuperAdmin) {
+        return {
+          id: r.id,
+          action: r.action,
+          description: r.description,
+          module: r.module,
+          created_at: r.created_at,
+          nama_user: r.nama_user,
+          role_user: r.role_user,
+        };
+      }
       const expiresIn = calculateExpiresIn(r.created_at, r.is_archived);
       return {
         ...r,
@@ -197,7 +210,7 @@ router.get("/logs", async (req, res, next) => {
 });
 
 // ===== Detail satu log =====
-router.get("/logs/:id", async (req, res, next) => {
+router.get("/logs/:id", requireRole("super_admin"), async (req, res, next) => {
   try {
     const [[row]] = await pool.query(
       `SELECT al.*, u.nama AS nama_user, u.email AS email_user, u.role AS role_user,
@@ -224,7 +237,7 @@ router.get("/logs/:id", async (req, res, next) => {
 });
 
 // ===== Simpan Riwayat (Arsipkan satu log) =====
-router.post("/logs/:id/archive", async (req, res, next) => {
+router.post("/logs/:id/archive", requireRole("super_admin"), async (req, res, next) => {
   try {
     const logId = Number(req.params.id);
     const [[log]] = await pool.query("SELECT * FROM audit_logs WHERE id = ?", [logId]);
@@ -242,7 +255,7 @@ router.post("/logs/:id/archive", async (req, res, next) => {
 });
 
 // ===== Kembalikan ke Riwayat Aktif (Batal Arsip) =====
-router.post("/logs/:id/unarchive", async (req, res, next) => {
+router.post("/logs/:id/unarchive", requireRole("super_admin"), async (req, res, next) => {
   try {
     const logId = Number(req.params.id);
     const [[log]] = await pool.query("SELECT * FROM audit_logs WHERE id = ?", [logId]);
@@ -260,7 +273,7 @@ router.post("/logs/:id/unarchive", async (req, res, next) => {
 });
 
 // ===== Arsipkan Sekaligus (Batch Archive) =====
-router.post("/logs/batch-archive", async (req, res, next) => {
+router.post("/logs/batch-archive", requireRole("super_admin"), async (req, res, next) => {
   try {
     const ids = Array.isArray(req.body.ids) ? req.body.ids.map(Number).filter(Boolean) : [];
     if (!ids.length) return res.status(400).json({ error: "Pilih setidaknya satu riwayat untuk diarsipkan" });
@@ -277,7 +290,7 @@ router.post("/logs/batch-archive", async (req, res, next) => {
 });
 
 // ===== Arsipkan Semua Riwayat yang Akan Kedaluwarsa (<24 jam) =====
-router.post("/archive-expiring", async (req, res, next) => {
+router.post("/archive-expiring", requireRole("super_admin"), async (req, res, next) => {
   try {
     const [r] = await pool.query(
       `UPDATE audit_logs SET is_archived = 1, archived_at = NOW(), archived_by = ?
@@ -314,7 +327,7 @@ async function purgeExpiredAuditLogs() {
   }
 }
 
-router.post("/cleanup-expired", async (_req, res, next) => {
+router.post("/cleanup-expired", requireRole("super_admin"), async (_req, res, next) => {
   try {
     const deleted = await purgeExpiredAuditLogs();
     res.json({ message: `Pembersihan selesai. ${deleted} log kedaluwarsa dibersihkan.`, deleted });
@@ -324,7 +337,7 @@ router.post("/cleanup-expired", async (_req, res, next) => {
 });
 
 // ===== Pratinjau Restore (3 Kolom: Field | Nilai Saat Ini | Nilai Setelah Restore + Deteksi Konflik) =====
-router.get("/logs/:id/restore-preview", async (req, res, next) => {
+router.get("/logs/:id/restore-preview", requireRole("super_admin"), async (req, res, next) => {
   try {
     const logId = Number(req.params.id);
     const [[log]] = await pool.query(
@@ -518,7 +531,7 @@ router.get("/logs/:id/restore-preview", async (req, res, next) => {
 });
 
 // ===== Eksekusi Restore (Undo / Pemulihan Data Nyata ke Database) =====
-router.post("/logs/:id/restore", async (req, res, next) => {
+router.post("/logs/:id/restore", requireRole("super_admin"), async (req, res, next) => {
   const connection = await pool.getConnection();
   try {
     const logId = Number(req.params.id);

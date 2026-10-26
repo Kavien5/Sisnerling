@@ -46,7 +46,8 @@ const MODULE_LABELS = {
   settings: "Pengaturan",
   backup: "Backup",
   system: "Sistem",
-  collab: "Kolaborasi",
+  collab: "Spreadsheet",
+  neraca: "Input & Pengolahan Neraca",
   audit: "Audit Log",
 };
 
@@ -116,6 +117,91 @@ function buildDiffRows(oldObj, newObj) {
 const PER_PAGE_OPTIONS = [10, 20, 50, 100];
 
 export default function AuditLogs({ user }) {
+  if (user?.role !== "super_admin") return <ReadOnlyAuditLogs />;
+  return <SuperAdminAuditLogs user={user} />;
+}
+
+function ReadOnlyAuditLogs() {
+  const [data, setData] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState("");
+  const [refreshKey, setRefreshKey] = React.useState(0);
+
+  React.useEffect(() => {
+    let active = true;
+    const load = (showLoading = false) => {
+      if (showLoading) setLoading(true);
+      setError("");
+      api.getAuditLogs({ page: 1, perPage: 50, scope: "all" })
+        .then((res) => {
+          if (active) setData(res.data || []);
+        })
+        .catch((err) => {
+          if (active) setError(err.message || "Gagal memuat catatan aktivitas");
+        })
+        .finally(() => {
+          if (active && showLoading) setLoading(false);
+        });
+    };
+    load(true);
+    const interval = setInterval(() => load(), 10000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [refreshKey]);
+
+  return (
+    <div className="page-container">
+      <div className="page-header">
+        <div>
+          <h2>Audit Log</h2>
+          <p>Catatan perubahan terbaru agar aktivitas pengguna lain dapat diketahui.</p>
+        </div>
+        <button className="btn btn-outline" onClick={() => setRefreshKey((key) => key + 1)} disabled={loading}>
+          Muat ulang
+        </button>
+      </div>
+      <div className="table-wrap">
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Waktu</th>
+              <th>Pengguna</th>
+              <th>Aktivitas</th>
+              <th>Modul</th>
+              <th>Catatan</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={5}><div className="empty-state">Memuat catatan aktivitas...</div></td></tr>
+            ) : error ? (
+              <tr><td colSpan={5}><div className="empty-state">{error}</div></td></tr>
+            ) : data.length === 0 ? (
+              <tr><td colSpan={5}><div className="empty-state">Belum ada catatan aktivitas</div></td></tr>
+            ) : data.map((row) => (
+              <tr key={row.id}>
+                <td className="text-nowrap">{fmtFull(row.created_at)}</td>
+                <td>
+                  <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                    <span style={{ fontWeight: 600 }}>{row.nama_user || "(akun terhapus)"}</span>
+                    <span style={{ fontSize: 11, color: "var(--ink-3)" }}>{roleLabel(row.role_user || "user")}</span>
+                  </span>
+                </td>
+                <td><span style={badgeStyle(row.action)}>{actionLabel(row.action)}</span></td>
+                <td>{moduleLabel(row.module)}</td>
+                <td>{row.description || "-"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function SuperAdminAuditLogs({ user }) {
   const [q, setQ] = React.useState("");
   const [qInput, setQInput] = React.useState("");
   const [userId, setUserId] = React.useState("");
@@ -214,6 +300,11 @@ export default function AuditLogs({ user }) {
     fetchLogs(1, perPage, scope);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q, userId, action, module, from, to, perPage, scope]);
+
+  React.useEffect(() => {
+    const interval = setInterval(() => fetchLogs(page, perPage, scope), 10000);
+    return () => clearInterval(interval);
+  }, [fetchLogs, page, perPage, scope]);
 
   const goPage = (p) => {
     if (p < 1 || p > totalPages) return;

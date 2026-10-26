@@ -49,7 +49,7 @@ export default function App() {
   // Pertahanan ekstra: halaman terbatas untuk role (hanya dieksekusi saat sudah login).
   React.useEffect(() => {
     if (user) {
-      if (!isSuperAdmin(user) && (page.startsWith("admin-") || page === "audit-log")) {
+      if (!isSuperAdmin(user) && page.startsWith("admin-")) {
         setPage("dashboard");
       }
     }
@@ -292,7 +292,7 @@ export default function App() {
         )}
         {page === "laporan" && <Laporan />}
         {page === "panduan" && <Panduan user={user} />}
-        {isSuperAdmin(user) && page === "audit-log" && <AuditLogs user={user} />}
+        {page === "audit-log" && <AuditLogs user={user} />}
         {page === "import-result" && activeFile && (
           <ExcelResult
             importedData={activeFile}

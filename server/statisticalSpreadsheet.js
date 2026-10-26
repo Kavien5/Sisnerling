@@ -998,11 +998,11 @@ async function createStatisticalRouter({ pool: db = pool } = {}) {
 
       const cellRef = engine.cellAddress(colNo - 1, rowNo - 1);
       const oldVal = cell.nilai !== null && cell.nilai !== undefined ? (typeof cell.nilai === "string" ? JSON.parse(cell.nilai) : cell.nilai) : null;
-      logAudit({
+      await logAudit({
         userId: req.user.id,
         action: "update",
         module: "statistical",
-        description: `Ubah nilai sel ${sheet.nama}!${cellRef} (${oldVal ?? "-"} → ${newValue ?? "-"})`,
+        description: `Mengubah nilai sel ${sheet.nama}!${cellRef} pada Spreadsheet Statistik`,
         recordId: sheetId,
         oldData: {
           sheet_id: sheetId,
@@ -1159,7 +1159,7 @@ async function createStatisticalRouter({ pool: db = pool } = {}) {
       const recalculated = await recalculateAndSave(connection, sheetRef.module_key, sheets, cells, affected, engine);
       await connection.commit();
 
-      logAudit({
+      await logAudit({
         userId: req.user.id,
         action: "update",
         module: "statistical",
@@ -1371,6 +1371,14 @@ async function createStatisticalRouter({ pool: db = pool } = {}) {
       }
       const results = await recalculateAndSave(connection, module.module_key, moduleSheets, moduleCells, yearTargets, engine);
       await connection.commit();
+      await logAudit({
+        userId: req.user.id,
+        action: "update",
+        module: "statistical",
+        description: `Menambahkan tahun pada Spreadsheet Statistik "${targetSheet.nama}" (${inserted.map((item) => item.year).join(", ")})`,
+        recordId: targetSheet.id,
+        req,
+      });
       res.json({ message: "Tahun baru ditambahkan", sheets: inserted, recalculated: results.length });
     } catch (error) {
       try {
@@ -1417,6 +1425,13 @@ async function createStatisticalRouter({ pool: db = pool } = {}) {
       );
       const recalculated = await recalculateAndSave(connection, req.params.moduleKey, sheets, cells, formulas, engine);
       await connection.commit();
+      await logAudit({
+        userId: req.user.id,
+        action: "clean",
+        module: "statistical",
+        description: `Mengembalikan input Spreadsheet Statistik modul "${req.params.moduleKey}" ke nilai awal template`,
+        req,
+      });
       res.json({ message: "Angka input dikembalikan ke nilai awal template", recalculated: recalculated.length });
     } catch (error) {
       try {

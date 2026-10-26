@@ -940,7 +940,7 @@ export default function Layout({ page, setPage, children, importedFiles, user, o
           {renderLeaf({ key: "files", label: "File & Import", icon: IconDatabase })}
           {renderLeaf({ key: "laporan", label: "Laporan", icon: IconFileText })}
           {renderLeaf({ key: "panduan", label: "Panduan", icon: IconBox })}
-          {isSuperAdmin(user) && renderLeaf({ key: "audit-log", label: "Audit Log", icon: IconHistory })}
+          {renderLeaf({ key: "audit-log", label: "Audit Log", icon: IconHistory })}
           {isSuperAdmin(user) && (
             <>
               <div className="nav-section-label">Pengelolaan</div>
