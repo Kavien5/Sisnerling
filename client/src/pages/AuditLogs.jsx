@@ -1,6 +1,7 @@
 import React from "react";
 import { api } from "../api.js";
 import Modal from "../components/Modal.jsx";
+import "./AuditLogs.css";
 import {
   IconSearch,
   IconHistory,
@@ -12,6 +13,7 @@ import {
   IconCheck,
   IconBookmark,
   IconRotate,
+  IconArrowDown,
 } from "../components/Icons.jsx";
 import { roleLabel } from "../auth.js";
 
@@ -97,6 +99,28 @@ const fmtFull = (d) => {
   return `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())} ${p(dt.getHours())}:${p(dt.getMinutes())}:${p(dt.getSeconds())}`;
 };
 
+function groupLogsByUser(logs) {
+  const groups = new Map();
+  logs.forEach((log) => {
+    const name = log.nama_user || "(akun terhapus)";
+    const role = log.role_user || "user";
+    const key = log.user_id ? `user:${log.user_id}` : `account:${role}:${name}`;
+    if (!groups.has(key)) groups.set(key, { key, userId: log.user_id, name, role, logs: [] });
+    groups.get(key).logs.push(log);
+  });
+  return Array.from(groups.values());
+}
+
+function userInitials(name) {
+  return String(name || "?")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0] || "")
+    .join("")
+    .toUpperCase();
+}
+
 const fmtVal = (v) => {
   if (v === null || v === undefined) return "–";
   if (v === true || v === false) return v ? "Ya" : "Tidak";
@@ -123,6 +147,7 @@ export default function AuditLogs({ user }) {
 
 function ReadOnlyAuditLogs() {
   const [data, setData] = React.useState([]);
+  const [expandedGroups, setExpandedGroups] = React.useState(new Set());
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState("");
   const [refreshKey, setRefreshKey] = React.useState(0);
@@ -152,18 +177,32 @@ function ReadOnlyAuditLogs() {
     };
   }, [refreshKey]);
 
+  const groups = groupLogsByUser(data);
+  const toggleGroup = (key) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
   return (
-    <div className="page-container">
-      <div className="page-header">
-        <div>
-          <h2>Audit Log</h2>
-          <p>Catatan perubahan terbaru agar aktivitas pengguna lain dapat diketahui.</p>
+    <div className="page-container audit-page audit-page-readonly">
+      <div className="page-header audit-page-header">
+        <div className="audit-title">
+          <span className="audit-title-icon"><IconHistory size={21} /></span>
+          <div>
+            <h2>Aktivitas Sistem</h2>
+            <p>Ringkasan aktivitas terbaru dari seluruh akun.</p>
+          </div>
         </div>
-        <button className="btn btn-outline" onClick={() => setRefreshKey((key) => key + 1)} disabled={loading}>
+        <button className="btn btn-outline audit-refresh" onClick={() => setRefreshKey((key) => key + 1)} disabled={loading}>
+          <IconRotate size={14} />
           Muat ulang
         </button>
       </div>
-      <div className="table-wrap">
+      <div className="table-wrap audit-table-wrap">
         <table className="table">
           <thead>
             <tr>
@@ -181,19 +220,41 @@ function ReadOnlyAuditLogs() {
               <tr><td colSpan={5}><div className="empty-state">{error}</div></td></tr>
             ) : data.length === 0 ? (
               <tr><td colSpan={5}><div className="empty-state">Belum ada catatan aktivitas</div></td></tr>
-            ) : data.map((row) => (
-              <tr key={row.id}>
-                <td className="text-nowrap">{fmtFull(row.created_at)}</td>
-                <td>
-                  <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                    <span style={{ fontWeight: 600 }}>{row.nama_user || "(akun terhapus)"}</span>
-                    <span style={{ fontSize: 11, color: "var(--ink-3)" }}>{roleLabel(row.role_user || "user")}</span>
-                  </span>
-                </td>
-                <td><span style={badgeStyle(row.action)}>{actionLabel(row.action)}</span></td>
-                <td>{moduleLabel(row.module)}</td>
-                <td>{row.description || "-"}</td>
-              </tr>
+            ) : groups.map((group) => (
+              <React.Fragment key={group.key}>
+                <tr className="audit-group-header">
+                  <td colSpan={5}>
+                    <button
+                      type="button"
+                      onClick={() => toggleGroup(group.key)}
+                      aria-expanded={expandedGroups.has(group.key)}
+                      className="audit-account-toggle"
+                    >
+                      <span className="audit-chevron"><IconArrowDown size={15} /></span>
+                      <span className="audit-avatar">{userInitials(group.name)}</span>
+                      <span className="audit-account-name">
+                        <strong>{group.name}</strong>
+                        <span>{roleLabel(group.role)}</span>
+                      </span>
+                      <span className="audit-account-count">{group.logs.length} aktivitas</span>
+                    </button>
+                  </td>
+                </tr>
+                {expandedGroups.has(group.key) && group.logs.map((row) => (
+                  <tr key={row.id} className="audit-log-row">
+                    <td className="text-nowrap">{fmtFull(row.created_at)}</td>
+                    <td style={{ paddingLeft: 28 }}>
+                      <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                        <span style={{ fontWeight: 600 }}>{row.nama_user || "(akun terhapus)"}</span>
+                        <span style={{ fontSize: 11, color: "var(--ink-3)" }}>{roleLabel(row.role_user || "user")}</span>
+                      </span>
+                    </td>
+                    <td><span style={badgeStyle(row.action)}>{actionLabel(row.action)}</span></td>
+                    <td>{moduleLabel(row.module)}</td>
+                    <td>{row.description || "-"}</td>
+                  </tr>
+                ))}
+              </React.Fragment>
             ))}
           </tbody>
         </table>
@@ -231,6 +292,7 @@ function SuperAdminAuditLogs({ user }) {
 
   // Checklist batch selection
   const [selectedIds, setSelectedIds] = React.useState([]);
+  const [expandedGroups, setExpandedGroups] = React.useState(new Set());
 
   // Modal states
   const [detail, setDetail] = React.useState(null);
@@ -247,6 +309,29 @@ function SuperAdminAuditLogs({ user }) {
   const [showGuide, setShowGuide] = React.useState(false);
 
   const [meta, setMeta] = React.useState({ users: [], actions: [], modules: [] });
+  const logGroups = groupLogsByUser(data);
+
+  const toggleGroup = (key) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const toggleAllGroups = () => {
+    const allExpanded = logGroups.length > 0 && logGroups.every((group) => expandedGroups.has(group.key));
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      logGroups.forEach((group) => {
+        if (allExpanded) next.delete(group.key);
+        else next.add(group.key);
+      });
+      return next;
+    });
+  };
+  const allGroupsExpanded = logGroups.length > 0 && logGroups.every((group) => expandedGroups.has(group.key));
 
   const showToast = (msg, type = "success") => {
     setToast({ msg, type });
@@ -448,7 +533,7 @@ function SuperAdminAuditLogs({ user }) {
   };
 
   return (
-    <div className="page">
+    <div className="page audit-page">
       {/* Toast Notifikasi */}
       {toast && (
         <div
@@ -476,14 +561,15 @@ function SuperAdminAuditLogs({ user }) {
       )}
 
       {/* Header Halaman */}
-      <div className="page-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
-        <div>
-          <h2>Audit Log & Restore Data</h2>
-          <p style={{ color: "var(--ink-3)", fontSize: 13 }}>
-            Pencatatan aktivitas pengguna, retensi 72 jam, auto-backup snapshot, dan pemulihan data (Undo/Redo).
-          </p>
+      <div className="page-head audit-page-header">
+        <div className="audit-title">
+          <span className="audit-title-icon"><IconHistory size={21} /></span>
+          <div>
+            <h2>Aktivitas Sistem</h2>
+            <p>Pantau aktivitas akun, simpan riwayat penting, dan pulihkan perubahan.</p>
+          </div>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div className="audit-header-actions">
           <button
             className="btn btn-outline btn-sm"
             style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
@@ -677,6 +763,14 @@ function SuperAdminAuditLogs({ user }) {
             <IconHistory size={14} /> {total.toLocaleString("id-ID")} entri tercatat
           </span>
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              onClick={toggleAllGroups}
+              disabled={!logGroups.length}
+            >
+              {allGroupsExpanded ? "Tutup semua akun" : "Buka semua akun"}
+            </button>
             <span className="pagination-info">Per halaman</span>
             <select
               className="select-filter"
@@ -692,8 +786,8 @@ function SuperAdminAuditLogs({ user }) {
         </div>
 
         {/* Tabel Data Audit Log */}
-        <div className="table-wrap">
-          <table className="table">
+        <div className="table-wrap audit-table-wrap">
+          <table className="table audit-log-table">
             <thead>
               <tr>
                 <th style={{ width: 36, textAlign: "center" }}>
@@ -730,10 +824,42 @@ function SuperAdminAuditLogs({ user }) {
                   </td>
                 </tr>
               ) : (
-                data.map((r) => {
+                logGroups.map((group) => (
+                  <React.Fragment key={group.key}>
+                    <tr className="audit-group-header">
+                      <td colSpan={8}>
+                        <div className="audit-group-content">
+                          <button
+                            type="button"
+                            onClick={() => toggleGroup(group.key)}
+                            aria-expanded={expandedGroups.has(group.key)}
+                            className="audit-account-toggle"
+                          >
+                            <span className="audit-chevron"><IconArrowDown size={15} /></span>
+                            <span className="audit-avatar">{userInitials(group.name)}</span>
+                            <span className="audit-account-name">
+                              <strong>{group.name}</strong>
+                              <span>{roleLabel(group.role)}</span>
+                            </span>
+                            <span className="audit-account-count">{group.logs.length} log di halaman ini</span>
+                          </button>
+                          {group.userId && String(userId) !== String(group.userId) && (
+                            <button
+                              type="button"
+                              className="btn btn-outline btn-sm audit-account-filter"
+                              onClick={() => { setUserId(String(group.userId)); setPage(1); }}
+                              title="Tampilkan seluruh log yang cocok dengan filter untuk akun ini"
+                            >
+                              Semua log akun ini
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                    {expandedGroups.has(group.key) && group.logs.map((r) => {
                   const isChecked = selectedIds.includes(r.id);
                   return (
-                    <tr key={r.id} style={{ background: isChecked ? "rgba(224, 242, 254, 0.4)" : undefined }}>
+                    <tr key={r.id} className={`audit-log-row${isChecked ? " is-selected" : ""}`}>
                       <td style={{ textAlign: "center" }}>
                         <input
                           type="checkbox"
@@ -847,7 +973,9 @@ function SuperAdminAuditLogs({ user }) {
                       </td>
                     </tr>
                   );
-                })
+                    })}
+                  </React.Fragment>
+                ))
               )}
             </tbody>
           </table>
