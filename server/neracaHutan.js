@@ -675,6 +675,17 @@ function activeDataset() {
   return s.datasets.find((d) => d.id === s.activeDatasetId) || s.datasets[0];
 }
 
+function getDataset(id) {
+  if (!id) return activeDataset();
+  const dataset = loadOrInit().datasets.find((d) => d.id === id);
+  if (!dataset) {
+    const err = new Error("Dataset tujuan tidak ditemukan!");
+    err.status = 404;
+    throw err;
+  }
+  return dataset;
+}
+
 function activeData() {
   return activeDataset().data;
 }
@@ -784,8 +795,8 @@ function addYear(year) {
   return data;
 }
 
-function updateCell({ sheet, section, row, year, value }) {
-  const ds = activeDataset();
+function updateCell({ datasetId, sheet, section, row, year, value }) {
+  const ds = getDataset(datasetId);
   const data = ds.data;
   const sheetObj = data.sheets[sheet];
   if (!sheetObj) {
@@ -1395,27 +1406,36 @@ function createNeracaRouter({ onChange } = {}) {
   });
 
   router.post("/cell", async (req, res) => {
-    const { updates, sheet, section, row, year, value } = req.body || {};
+    const { updates, datasetId, sheet, section, row, year, value } = req.body || {};
     if (Array.isArray(updates) && updates.length > 0) {
       try {
-        const ds = activeDataset();
-        const data = ds.data;
-        updates.forEach((u) => {
-          const sh = data.sheets[u.sheet];
-          if (!sh) return;
-          const numVal = parseFloat(u.value);
-          const cleanVal = isNaN(numVal) ? 0 : numVal;
-          if (u.section === "data_penunjang") {
-            const rec = (sh.records || []).find((r) => r.id === u.row);
-            if (rec) rec.values[u.year] = cleanVal;
-          } else {
-            if (!sh[u.section]) sh[u.section] = {};
-            if (!sh[u.section][u.row]) sh[u.section][u.row] = {};
-            sh[u.section][u.row][u.year] = cleanVal;
-          }
+        const updatesByDataset = new Map();
+        updates.forEach((update) => {
+          const targetId = update.datasetId || datasetId || activeDataset().id;
+          if (!updatesByDataset.has(targetId)) updatesByDataset.set(targetId, []);
+          updatesByDataset.get(targetId).push(update);
         });
-        recalculateAll(data);
-        ds.updatedAt = new Date().toISOString();
+
+        updatesByDataset.forEach((datasetUpdates, targetId) => {
+          const ds = getDataset(targetId);
+          const data = ds.data;
+          datasetUpdates.forEach((u) => {
+            const sh = data.sheets[u.sheet];
+            if (!sh) return;
+            const numVal = parseFloat(u.value);
+            const cleanVal = isNaN(numVal) ? 0 : numVal;
+            if (u.section === "data_penunjang") {
+              const rec = (sh.records || []).find((r) => r.id === u.row);
+              if (rec) rec.values[u.year] = cleanVal;
+            } else {
+              if (!sh[u.section]) sh[u.section] = {};
+              if (!sh[u.section][u.row]) sh[u.section][u.row] = {};
+              sh[u.section][u.row][u.year] = cleanVal;
+            }
+          });
+          recalculateAll(data);
+          ds.updatedAt = new Date().toISOString();
+        });
         save();
         notifyChange("cell");
         await logActivity(req, "edit", `Mengubah ${updates.length} nilai pada Input & Pengolahan Neraca Hutan`);
@@ -1431,7 +1451,7 @@ function createNeracaRouter({ onChange } = {}) {
       return res.status(400).json({ error: "Parameter sheet, section, row, dan year wajib diisi!" });
     }
     try {
-      updateCell({ sheet, section, row, year, value });
+      updateCell({ datasetId, sheet, section, row, year, value });
       notifyChange("cell");
       await logActivity(req, "edit", `Mengubah nilai pada Input & Pengolahan Neraca Hutan (${sheet})`);
       res.json({ message: "Sel berhasil diperbarui dan formulasi dihitung ulang!", ...neracaResponse() });

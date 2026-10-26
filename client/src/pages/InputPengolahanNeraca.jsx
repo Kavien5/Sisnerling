@@ -346,12 +346,13 @@ function InputChip() {
   );
 }
 
-function InputButton({ onClick, title = "Klik untuk input data komponen ini" }) {
+function InputButton({ onClick, title = "Klik untuk input data komponen ini", disabled = false }) {
   return (
     <button
       type="button"
       className="ipn-btn-input-col"
       onClick={onClick}
+      disabled={disabled}
       title={title}
     >
       <IconEdit size={12} />
@@ -493,6 +494,7 @@ export default function InputPengolahanNeraca() {
   };
 
   const toggleIncludeHidden = async (next) => {
+    if (!(await flushCurrentDatasetChanges())) return;
     setIncludeHidden(next);
     localStorage.setItem("sisnerling_neraca_include_hidden", next ? "1" : "0");
     setImporting(true);
@@ -516,6 +518,8 @@ export default function InputPengolahanNeraca() {
   const [quickFillVal, setQuickFillVal] = React.useState("");
 
   const getCellDraftKey = (sheet, section, row, year) => `${sheet}:${section}:${row}:${year}`;
+  const getPendingCellKey = (update) =>
+    `${update.datasetId || ""}:${getCellDraftKey(update.sheet, update.section, update.row, update.year)}`;
 
   const commitCellDraft = (sheet, section, row, year) => {
     const key = getCellDraftKey(sheet, section, row, year);
@@ -605,12 +609,42 @@ export default function InputPengolahanNeraca() {
       setStatus("saved");
     } catch (err) {
       updates.forEach((update) => {
-        const key = getCellDraftKey(update.sheet, update.section, update.row, update.year);
+        const key = getPendingCellKey(update);
         if (!pendingCellUpdates.current.has(key)) pendingCellUpdates.current.set(key, update);
       });
       setStatus("error");
       toast(err.message, "error");
       throw err;
+    }
+  };
+
+  const flushCurrentDatasetChanges = async () => {
+    const datasetId = data?.activeDatasetId;
+    const drafts = Object.entries(cellDrafts);
+    const updates = drafts.map(([key, raw]) => {
+      const parts = key.split(":");
+      const year = parts.pop();
+      const row = parts.pop();
+      const section = parts.pop();
+      const sheet = parts.join(":");
+      if (!sheet || !section || !row || !year) return null;
+      return { datasetId, sheet, section, row, year, value: parseInputValue(raw) };
+    });
+    if (updates.some((update) => !update)) {
+      toast("Ada perubahan sel yang identitasnya tidak valid.", "error");
+      return false;
+    }
+
+    updates.forEach((update) => {
+      pendingCellUpdates.current.set(getPendingCellKey(update), update);
+    });
+
+    try {
+      await flushPendingCellUpdates();
+      if (drafts.length) setCellDrafts({});
+      return true;
+    } catch {
+      return false;
     }
   };
 
@@ -628,7 +662,7 @@ export default function InputPengolahanNeraca() {
       const section = parts.pop();
       const sheet = parts.join(":");
       if (!sheet || !section || !row || !year) return null;
-      return { sheet, section, row, year, value: parseInputValue(raw) };
+      return { datasetId: data.activeDatasetId, sheet, section, row, year, value: parseInputValue(raw) };
     });
     if (updates.some((update) => !update)) {
       toast("Ada perubahan sel yang identitasnya tidak valid.", "error");
@@ -680,7 +714,7 @@ export default function InputPengolahanNeraca() {
       if (activeInputRow.isPenunjang) {
         const rec = updatedData.sheets["Data Penunjang"]?.records?.find((r) => r.id === activeInputRow.id);
         if (rec) rec.values[y] = clean;
-        updates.push({ sheet: "Data Penunjang", section: "data_penunjang", row: activeInputRow.id, year: y, value: clean });
+        updates.push({ datasetId: data.activeDatasetId, sheet: "Data Penunjang", section: "data_penunjang", row: activeInputRow.id, year: y, value: clean });
       } else {
         if (!updatedData.sheets[activeSheet][activeInputRow.section]) {
           updatedData.sheets[activeSheet][activeInputRow.section] = {};
@@ -689,7 +723,7 @@ export default function InputPengolahanNeraca() {
           updatedData.sheets[activeSheet][activeInputRow.section][activeInputRow.id] = {};
         }
         updatedData.sheets[activeSheet][activeInputRow.section][activeInputRow.id][y] = clean;
-        updates.push({ sheet: activeSheet, section: activeInputRow.section, row: activeInputRow.id, year: y, value: clean });
+        updates.push({ datasetId: data.activeDatasetId, sheet: activeSheet, section: activeInputRow.section, row: activeInputRow.id, year: y, value: clean });
       }
     });
 
@@ -717,7 +751,7 @@ export default function InputPengolahanNeraca() {
 
   const queueSave = (payload) => {
     setStatus("saving");
-    const key = getCellDraftKey(payload.sheet, payload.section, payload.row, payload.year);
+    const key = getPendingCellKey(payload);
     pendingCellUpdates.current.set(key, payload);
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
@@ -738,7 +772,7 @@ export default function InputPengolahanNeraca() {
       recalculateLocal(next);
       return next;
     });
-    queueSave({ sheet, section, row, year, value });
+    queueSave({ datasetId: data?.activeDatasetId, sheet, section, row, year, value });
   };
 
   const openAddYear = () => {
@@ -751,6 +785,7 @@ export default function InputPengolahanNeraca() {
     e.preventDefault();
     const year = String(newYear).trim();
     if (!year) return;
+    if (!(await flushCurrentDatasetChanges())) return;
     try {
       const res = await api.neracaAddYear(year);
       setData(res);
@@ -765,6 +800,7 @@ export default function InputPengolahanNeraca() {
     if (!window.confirm("Apakah Anda yakin ingin mengembalikan angka dataset aktif ke baseline acuan BPS? Nilai yang baru saja diketik akan diganti dengan data standar.")) {
       return;
     }
+    if (!(await flushCurrentDatasetChanges())) return;
     try {
       const res = await api.neracaReset();
       setData(res);
@@ -817,8 +853,12 @@ export default function InputPengolahanNeraca() {
     }
   };
 
-  const processImportFile = (file) => {
+  const processImportFile = async (file) => {
     if (!file) return;
+    if (inputModalOpen) {
+      toast("Simpan atau tutup form input sebelum mengimpor dataset baru.", "error");
+      return;
+    }
     const name = file.name || "";
     if (/^~\$/.test(name) || /\.(tmp|lock)$/i.test(name)) {
       toast("Itu file kunci sementara Excel (~$...). Tutup file di Excel, lalu pilih file .xlsx yang asli.", "error");
@@ -832,14 +872,21 @@ export default function InputPengolahanNeraca() {
       toast("Ukuran file terlalu besar. Maksimal 10 MB.", "error");
       return;
     }
+    setImporting(true);
+    if (!(await flushCurrentDatasetChanges())) {
+      setImporting(false);
+      toast("Impor dibatalkan karena perubahan pada dataset aktif belum berhasil disimpan.", "error");
+      return;
+    }
     const reader = new FileReader();
     reader.onload = async () => {
       const base64 = String(reader.result).replace(/^data:.*;base64,/, "");
-      setImporting(true);
       setStatus("saving");
       try {
         const res = await api.neracaImport({ base64, filename: name, includeHidden });
         setData(res);
+        setActiveSheet("Jati Jawa");
+        setRawSheetIdx(0);
         setStatus("saved");
         toast(res.message, "success");
       } catch (err) {
@@ -849,10 +896,14 @@ export default function InputPengolahanNeraca() {
         setImporting(false);
       }
     };
-    reader.onerror = () => toast(`Gagal membaca "${name}". Jika file sedang dibuka di Excel, tutup dulu lalu coba lagi.`, "error");
+    reader.onerror = () => {
+      setImporting(false);
+      toast(`Gagal membaca "${name}". Jika file sedang dibuka di Excel, tutup dulu lalu coba lagi.`, "error");
+    };
     try {
       reader.readAsDataURL(file);
     } catch (err) {
+      setImporting(false);
       toast("Gagal membaca file.", "error");
     }
   };
@@ -889,10 +940,19 @@ export default function InputPengolahanNeraca() {
   };
 
   const handleSelectDataset = async (id) => {
-    if (!id || id === data.activeDatasetId) return;
+    if (importing || !id || id === data.activeDatasetId) return;
+    if (inputModalOpen) {
+      toast("Simpan atau tutup form input sebelum mengganti dataset.", "error");
+      return;
+    }
+    if (!(await flushCurrentDatasetChanges())) {
+      toast("Dataset tidak diganti karena perubahan yang belum tersimpan gagal disimpan.", "error");
+      return;
+    }
     try {
       const res = await api.neracaSelectDataset(id);
       setData(res);
+      setRawSheetIdx(0);
       const ds = (res.datasets || []).find((d) => d.id === id);
       toast(`Dataset aktif: ${ds ? ds.name : id}`, "success");
     } catch (err) {
@@ -1058,6 +1118,7 @@ export default function InputPengolahanNeraca() {
               ) : (
                 <InputButton
                   onClick={() => openRowInputModal({ def, section, source, isPenunjang: false })}
+                  disabled={importing}
                   title={`Klik untuk membuka form input data ${def.label}`}
                 />
               )}
@@ -1083,6 +1144,7 @@ export default function InputPengolahanNeraca() {
                     inputMode="decimal"
                     className="cell-input-field"
                     value={displayVal}
+                    disabled={importing}
                     onFocus={(e) => e.target.select()}
                     onChange={(e) => {
                       const v = e.target.value;
@@ -1198,13 +1260,13 @@ export default function InputPengolahanNeraca() {
             >
               <IconCheck size={14} /> {manualSaving ? "Menyimpan..." : "Simpan Perubahan"}
             </button>
-            <button className="btn btn-primary" onClick={openAddYear} title="Tambah kolom periode tahun baru">
+            <button className="btn btn-primary" onClick={openAddYear} disabled={importing} title="Tambah kolom periode tahun baru">
               <IconPlus size={14} /> Tambah Tahun
             </button>
-            <button className="btn btn-secondary" onClick={handleExport} title="Unduh tabel aktif ke format CSV">
+            <button className="btn btn-secondary" onClick={handleExport} disabled={importing} title="Unduh tabel aktif ke format CSV">
               <IconDownload size={14} /> Unduh Excel/CSV
             </button>
-            <button className="btn btn-secondary" onClick={handleDownloadTemplate} title="Unduh template Excel (.xlsx) untuk diisi lalu diimpor">
+            <button className="btn btn-secondary" onClick={handleDownloadTemplate} disabled={importing} title="Unduh template Excel (.xlsx) untuk diisi lalu diimpor">
               <IconFileExcel size={14} /> Template Excel
             </button>
             <button
@@ -1222,7 +1284,7 @@ export default function InputPengolahanNeraca() {
               style={{ display: "none" }}
               onChange={handleImportFile}
             />
-            <button className="btn btn-secondary" onClick={handleReset} title="Kembalikan data ke nilai awal acuan BPS">
+            <button className="btn btn-secondary" onClick={handleReset} disabled={importing} title="Kembalikan data ke nilai awal acuan BPS">
               <IconRotate size={14} /> Reset Angka
             </button>
             <button className="btn btn-secondary btn-icon" onClick={toggleTheme} title="Ganti mode gelap / terang">
@@ -1238,6 +1300,7 @@ export default function InputPengolahanNeraca() {
           className="ipn-dataset-select"
           value={data.activeDatasetId || ""}
           onChange={(e) => handleSelectDataset(e.target.value)}
+          disabled={importing}
           title="Pilih dataset yang ditampilkan"
         >
           {(data.datasets || []).map((d) => (
@@ -1258,13 +1321,13 @@ export default function InputPengolahanNeraca() {
             </span>
           );
         })()}
-        <button className="btn btn-secondary" onClick={handleRenameDataset} title="Ganti nama dataset aktif">
+        <button className="btn btn-secondary" onClick={handleRenameDataset} disabled={importing} title="Ganti nama dataset aktif">
           <IconEdit size={13} /> Ganti Nama
         </button>
         <button
           className="btn btn-secondary"
           onClick={handleDeleteDataset}
-          disabled={(data.datasets || []).length <= 1}
+          disabled={importing || (data.datasets || []).length <= 1}
           title="Hapus dataset aktif"
         >
           <IconTrash size={13} /> Hapus
@@ -1277,6 +1340,7 @@ export default function InputPengolahanNeraca() {
             type="checkbox"
             checked={includeHidden}
             onChange={(e) => toggleIncludeHidden(e.target.checked)}
+            disabled={importing}
           />
           <span>Sertakan data tersembunyi saat impor</span>
         </label>
@@ -1317,6 +1381,7 @@ export default function InputPengolahanNeraca() {
                   className="ipn-dataset-select"
                   value={rawSheetIdx}
                   onChange={(e) => setRawSheetIdx(Number(e.target.value))}
+                  disabled={importing}
                   title="Sheet dari file Excel yang diimpor"
                 >
                   {rawSheets.map((rs, i) => (
@@ -1414,6 +1479,7 @@ export default function InputPengolahanNeraca() {
                       <td className="col-tipe">
                         <InputButton
                           onClick={() => openRowInputModal({ def: rec, section: "data_penunjang", source: "records", isPenunjang: true })}
+                          disabled={importing}
                           title={`Klik untuk membuka form input data ${rec.name}`}
                         />
                       </td>
@@ -1429,6 +1495,7 @@ export default function InputPengolahanNeraca() {
                               inputMode="decimal"
                               className="cell-input-field"
                               value={displayVal}
+                              disabled={importing}
                               onFocus={(e) => e.target.select()}
                               onChange={(e) => {
                                 const v = e.target.value;
