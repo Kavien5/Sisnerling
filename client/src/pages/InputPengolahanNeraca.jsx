@@ -961,6 +961,15 @@ export default function InputPengolahanNeraca() {
   const sh = data.sheets[activeSheet];
   const rawSheets = data.rawSheets || [];
   const rawActive = rawSheets[rawSheetIdx] || rawSheets[0] || null;
+  let rawRows = [];
+  if (rawActive) {
+    const rows = new Map();
+    rawActive.cells.forEach((cell) => {
+      if (!rows.has(cell.r)) rows.set(cell.r, new Map());
+      rows.get(cell.r).set(cell.c, cell);
+    });
+    rawRows = Array.from(rows.entries()).sort((a, b) => a[0] - b[0]);
+  }
 
   const statusNode =
     status === "saving" ? (
@@ -1339,14 +1348,12 @@ export default function InputPengolahanNeraca() {
                       </tr>
                     </thead>
                     <tbody>
-                      {Array.from({ length: rawActive.rowCount }, (_, ri) => ri + 1).map((r) => {
-                        const rowCells = rawActive.cells.filter((c) => c.r === r);
-                        if (!rowCells.length) return null;
+                      {rawRows.map(([r, rowCells]) => {
                         return (
                           <tr key={r}>
                             <td style={{ textAlign: "center", fontWeight: 700, opacity: 0.5, background: "var(--ipn-surface, #f5f5f5)" }}>{r}</td>
                             {Array.from({ length: Math.min(rawActive.colCount, 60) }, (_, ci) => ci + 1).map((c) => {
-                              const cell = rowCells.find((x) => x.c === c);
+                              const cell = rowCells.get(c);
                               if (!cell) return <td key={c} />;
                               const cls = cell.t === "formula" || cell.t === "formula-empty"
                                 ? "cell-formula"

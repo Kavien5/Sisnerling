@@ -1282,11 +1282,10 @@ async function createDatasetFromImport(buffer, name, options = {}) {
   wb.eachSheet((ws) => {
     if (!includeHidden && ws.state && ws.state !== "visible") return;
     const cells = [];
-    for (let r = 1; r <= ws.rowCount; r++) {
-      for (let c = 1; c <= ws.columnCount; c++) {
-        const cell = ws.getRow(r).getCell(c);
+    ws.eachRow({ includeEmpty: false }, (row, r) => {
+      row.eachCell({ includeEmpty: false }, (cell, c) => {
         const raw = cell.value;
-        if (raw === null || raw === undefined || raw === "") continue;
+        if (raw === null || raw === undefined || raw === "") return;
         let v = null;
         let t = "text";
         if (typeof raw === "number") { v = raw; t = "number"; }
@@ -1302,12 +1301,12 @@ async function createDatasetFromImport(buffer, name, options = {}) {
           else { v = cellText(raw); }
         } else { v = String(raw); }
         if (v === null || v === "" || v === undefined) {
-          if (t !== "formula-empty") continue;
+          if (t !== "formula-empty") return;
           v = "";
         }
         cells.push({ r, c, v, t });
-      }
-    }
+      });
+    });
     rawSheets.push({
       name: ws.name,
       state: ws.state || "visible",
