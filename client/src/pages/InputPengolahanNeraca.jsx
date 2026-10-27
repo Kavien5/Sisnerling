@@ -885,7 +885,7 @@ export default function InputPengolahanNeraca() {
       try {
         const res = await api.neracaImport({ base64, filename: name, includeHidden });
         setData(res);
-        setActiveSheet("Jati Jawa");
+        setActiveSheet("Import Mentah");
         setRawSheetIdx(0);
         setStatus("saved");
         toast(res.message, "success");
@@ -1021,6 +1021,9 @@ export default function InputPengolahanNeraca() {
   const sh = data.sheets[activeSheet];
   const rawSheets = data.rawSheets || [];
   const rawActive = rawSheets[rawSheetIdx] || rawSheets[0] || null;
+  const activeDataset = (data.datasets || []).find((dataset) => dataset.id === data.activeDatasetId);
+  const importedFilename =
+    activeDataset?.sourceFilename || (activeDataset?.source === "import" ? activeDataset.name : null);
   let rawRows = [];
   if (rawActive) {
     const rows = new Map();
@@ -1045,7 +1048,7 @@ export default function InputPengolahanNeraca() {
   if (isRaw) {
     title = (
       <>
-        <IconFileExcel size={18} /> Import Mentah — Isi File Excel Apa Adanya
+        <IconFileExcel size={18} /> {importedFilename || "Import Mentah"} — Isi File Excel Apa Adanya
       </>
     );
     subtitle = rawSheets.length
@@ -1309,6 +1312,11 @@ export default function InputPengolahanNeraca() {
             </option>
           ))}
         </select>
+        {importedFilename && (
+          <span className="ipn-source-file" title={`File Excel sumber: ${importedFilename}`}>
+            File sumber: <b>{importedFilename}</b>
+          </span>
+        )}
         {(() => {
           const active = (data.datasets || []).find((d) => d.id === data.activeDatasetId);
           if (!active || active.includeHidden === undefined) return null;

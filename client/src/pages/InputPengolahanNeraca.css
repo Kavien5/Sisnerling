@@ -669,6 +669,18 @@
   border-color: var(--ipn-primary);
 }
 
+.ipn-root .ipn-source-file {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.ipn-root .ipn-source-file b {
+  color: var(--text-main);
+}
+
 .ipn-root .ipn-hidden-toggle {
   display: inline-flex;
   align-items: center;

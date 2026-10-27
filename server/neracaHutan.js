@@ -663,6 +663,7 @@ function datasetList() {
     id: d.id,
     name: d.name,
     source: d.source,
+    sourceFilename: d.sourceFilename || null,
     createdAt: d.createdAt,
     updatedAt: d.updatedAt,
     years: (d.data && d.data.years) || [],
