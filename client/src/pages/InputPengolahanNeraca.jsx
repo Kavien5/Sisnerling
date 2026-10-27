@@ -387,6 +387,7 @@ export default function InputPengolahanNeraca() {
   const [activeSheet, setActiveSheet] = React.useState("Jati Jawa");
   const [rawSheetIdx, setRawSheetIdx] = React.useState(0);
   const [status, setStatus] = React.useState("saved");
+  const statusRef = React.useRef(status);
   const [manualSaving, setManualSaving] = React.useState(false);
   const [addYearOpen, setAddYearOpen] = React.useState(false);
   const [newYear, setNewYear] = React.useState("");
@@ -396,10 +397,13 @@ export default function InputPengolahanNeraca() {
     () => localStorage.getItem("sisnerling_neraca_include_hidden") !== "0"
   );
   const [theme, setTheme] = React.useState(() => localStorage.getItem("sisnerling_neraca_theme") || "light");
-  const saveTimer = React.useRef(null);
   const pendingCellUpdates = React.useRef(new Map());
   const saveChain = React.useRef(Promise.resolve());
   const fileInputRef = React.useRef(null);
+
+  React.useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
 
   React.useEffect(() => {
     const socket = ensureCollabSocket();
@@ -461,7 +465,12 @@ export default function InputPengolahanNeraca() {
           "Respons server tidak valid. Pastikan server API sudah dijalankan ulang (restart \"npm run dev\") agar rute /api/neraca aktif."
         );
       }
-      setData(res);
+      if (
+        pendingCellUpdates.current.size === 0 &&
+        !["unsaved", "saving", "error"].includes(statusRef.current)
+      ) {
+        setData(res);
+      }
     } catch (err) {
       setLoadError(err.message);
       toast(err.message, "error");
@@ -472,17 +481,7 @@ export default function InputPengolahanNeraca() {
   React.useEffect(() => {
     loadSpreadsheet();
     return () => {
-      clearTimeout(saveTimer.current);
-      const updates = Array.from(pendingCellUpdates.current.values());
       pendingCellUpdates.current.clear();
-      if (updates.length) {
-        saveChain.current = saveChain.current
-          .catch(() => {})
-          .then(() => api.neracaUpdateCell({ updates }))
-          .catch((err) => {
-            console.error("Gagal menyimpan perubahan neraca sebelum meninggalkan halaman:", err);
-          });
-      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -517,6 +516,19 @@ export default function InputPengolahanNeraca() {
   const [originalRowValues, setOriginalRowValues] = React.useState({});
   const [quickFillVal, setQuickFillVal] = React.useState("");
 
+  React.useEffect(() => {
+    const hasUnSavedProgress =
+      status === "unsaved" || status === "saving" || status === "error" ||
+      pendingCellUpdates.current.size > 0 || Object.keys(cellDrafts).length > 0;
+    if (!hasUnSavedProgress) return undefined;
+    const warnBeforeLeaving = (event) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeLeaving);
+    return () => window.removeEventListener("beforeunload", warnBeforeLeaving);
+  }, [status, cellDrafts]);
+
   const getCellDraftKey = (sheet, section, row, year) => `${sheet}:${section}:${row}:${year}`;
   const getPendingCellKey = (update) =>
     `${update.datasetId || ""}:${getCellDraftKey(update.sheet, update.section, update.row, update.year)}`;
@@ -536,6 +548,7 @@ export default function InputPengolahanNeraca() {
 
   const cancelCellDraft = (sheet, section, row, year) => {
     const key = getCellDraftKey(sheet, section, row, year);
+    if (Object.keys(cellDrafts).length <= 1 && pendingCellUpdates.current.size === 0) setStatus("saved");
     setCellDrafts((prev) => {
       const next = { ...prev };
       delete next[key];
@@ -591,7 +604,6 @@ export default function InputPengolahanNeraca() {
   };
 
   const flushPendingCellUpdates = async () => {
-    clearTimeout(saveTimer.current);
     const updates = Array.from(pendingCellUpdates.current.values());
     pendingCellUpdates.current.clear();
     if (!updates.length) {
@@ -606,7 +618,7 @@ export default function InputPengolahanNeraca() {
 
     try {
       await request;
-      setStatus("saved");
+      setStatus(pendingCellUpdates.current.size ? "unsaved" : "saved");
     } catch (err) {
       updates.forEach((update) => {
         const key = getPendingCellKey(update);
@@ -619,33 +631,11 @@ export default function InputPengolahanNeraca() {
   };
 
   const flushCurrentDatasetChanges = async () => {
-    const datasetId = data?.activeDatasetId;
-    const drafts = Object.entries(cellDrafts);
-    const updates = drafts.map(([key, raw]) => {
-      const parts = key.split(":");
-      const year = parts.pop();
-      const row = parts.pop();
-      const section = parts.pop();
-      const sheet = parts.join(":");
-      if (!sheet || !section || !row || !year) return null;
-      return { datasetId, sheet, section, row, year, value: parseInputValue(raw) };
-    });
-    if (updates.some((update) => !update)) {
-      toast("Ada perubahan sel yang identitasnya tidak valid.", "error");
+    if (pendingCellUpdates.current.size || Object.keys(cellDrafts).length) {
+      toast("Ada perubahan yang belum disimpan. Klik \"Simpan Perubahan\" terlebih dahulu.", "error");
       return false;
     }
-
-    updates.forEach((update) => {
-      pendingCellUpdates.current.set(getPendingCellKey(update), update);
-    });
-
-    try {
-      await flushPendingCellUpdates();
-      if (drafts.length) setCellDrafts({});
-      return true;
-    } catch {
-      return false;
-    }
+    return true;
   };
 
   const handleManualSave = async () => {
@@ -750,13 +740,9 @@ export default function InputPengolahanNeraca() {
   };
 
   const queueSave = (payload) => {
-    setStatus("saving");
+    setStatus("unsaved");
     const key = getPendingCellKey(payload);
     pendingCellUpdates.current.set(key, payload);
-    clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      flushPendingCellUpdates().catch(() => {});
-    }, 400);
   };
 
   const handleCellChange = (sheet, section, row, year, raw) => {
@@ -875,7 +861,6 @@ export default function InputPengolahanNeraca() {
     setImporting(true);
     if (!(await flushCurrentDatasetChanges())) {
       setImporting(false);
-      toast("Impor dibatalkan karena perubahan pada dataset aktif belum berhasil disimpan.", "error");
       return;
     }
     const reader = new FileReader();
@@ -946,7 +931,6 @@ export default function InputPengolahanNeraca() {
       return;
     }
     if (!(await flushCurrentDatasetChanges())) {
-      toast("Dataset tidak diganti karena perubahan yang belum tersimpan gagal disimpan.", "error");
       return;
     }
     try {
@@ -961,6 +945,7 @@ export default function InputPengolahanNeraca() {
   };
 
   const handleRenameDataset = async () => {
+    if (!(await flushCurrentDatasetChanges())) return;
     const current = (data.datasets || []).find((d) => d.id === data.activeDatasetId);
     const name = window.prompt("Nama dataset:", current ? current.name : "");
     if (name === null) return;
@@ -979,6 +964,7 @@ export default function InputPengolahanNeraca() {
   };
 
   const handleDeleteDataset = async () => {
+    if (!(await flushCurrentDatasetChanges())) return;
     const datasets = data.datasets || [];
     if (datasets.length <= 1) {
       toast("Minimal harus ada satu dataset.", "error");
@@ -1037,6 +1023,8 @@ export default function InputPengolahanNeraca() {
   const statusNode =
     status === "saving" ? (
       <span><IconRotate size={13} /> Menghitung &amp; Menyimpanâ€¦</span>
+    ) : status === "unsaved" ? (
+      <span style={{ color: "#b45309" }}><IconAlert size={13} /> Belum disimpan</span>
     ) : status === "error" ? (
       <span style={{ color: "var(--ipn-danger-text)" }}><IconAlert size={13} /> Gagal Sinkron</span>
     ) : (
@@ -1152,6 +1140,7 @@ export default function InputPengolahanNeraca() {
                     onChange={(e) => {
                       const v = e.target.value;
                       setCellDrafts((prev) => ({ ...prev, [draftKey]: v }));
+                      setStatus("unsaved");
                     }}
                     onBlur={() => commitCellDraft(activeSheet, section, def.id, y)}
                     onKeyDown={(e) => {
@@ -1357,6 +1346,16 @@ export default function InputPengolahanNeraca() {
         </span>
       </div>
 
+      <div className="ipn-save-reminder" role="status">
+        <IconAlert size={16} />
+        <span>
+          Perubahan tidak disimpan otomatis. Klik <b>Simpan Perubahan</b> untuk menyimpan progres.
+          Status <b>Belum disimpan</b> berarti perubahan hanya tersimpan sementara di halaman ini.
+          Pastikan status kembali menjadi <b>Formula Sinkron &amp; Tersimpan</b> sebelum meninggalkan halaman.
+          Super Admin dapat memulihkan nilai sebelum perubahan melalui Audit Log.
+        </span>
+      </div>
+
       <nav className="sheet-tabs-container">
         {SHEET_TABS.map((tab) => (
           <button
@@ -1508,6 +1507,7 @@ export default function InputPengolahanNeraca() {
                               onChange={(e) => {
                                 const v = e.target.value;
                                 setCellDrafts((prev) => ({ ...prev, [draftKey]: v }));
+                                setStatus("unsaved");
                               }}
                               onBlur={() => commitCellDraft("Data Penunjang", "data_penunjang", rec.id, y)}
                               onKeyDown={(e) => {

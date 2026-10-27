@@ -2,6 +2,8 @@ const express = require("express");
 const { pool } = require("./db");
 const { requireRole } = require("./auth");
 const { normalizeJson, logAudit } = require("./auditLog");
+const { readNeracaCellValues, applyNeracaCellValues } = require("./neracaHutan");
+const { emitNeracaUpdate } = require("./realtime");
 
 const router = express.Router();
 
@@ -537,6 +539,45 @@ router.get("/logs/:id/restore-preview", requireRole("super_admin"), async (req, 
         }
       }
     }
+    // --- Kasus 4: Input & Pengolahan Neraca ---
+    else if (log.module === "neraca" && Array.isArray(oldData.cells) && oldData.cells.length) {
+      try {
+        const currentCells = readNeracaCellValues(oldData.cells);
+        const restoreValues = new Map(
+          oldData.cells.map((cell) => [
+            `${cell.datasetId}:${cell.sheet}:${cell.section}:${cell.row}:${cell.year}`,
+            cell.value,
+          ])
+        );
+        const expectedCells = new Map(
+          (Array.isArray(newData.cells) ? newData.cells : []).map((cell) => [
+            `${cell.datasetId}:${cell.sheet}:${cell.section}:${cell.row}:${cell.year}`,
+            cell.value,
+          ])
+        );
+        targetSummary = `Input & Pengolahan Neraca (${oldData.cells.length} nilai)`;
+        currentCells.forEach((cell) => {
+          const key = `${cell.datasetId}:${cell.sheet}:${cell.section}:${cell.row}:${cell.year}`;
+          const expected = expectedCells.get(key);
+          const conflict = expected !== undefined && String(cell.value) !== String(expected);
+          if (conflict) hasConflict = true;
+          const restoreValue = restoreValues.get(key);
+          diffRows.push({
+            field: `${cell.sheet} / ${cell.row} / ${cell.year}`,
+            current: cell.value,
+            restore: restoreValue,
+            conflict,
+            changed: String(cell.value) !== String(restoreValue),
+          });
+        });
+        if (hasConflict) {
+          conflictReason = "Nilai neraca telah berubah setelah log ini dibuat. Restore akan mengembalikan hanya nilai dalam log ini.";
+        }
+      } catch (err) {
+        canRestore = false;
+        conflictReason = err.message;
+      }
+    }
     // --- Kasus Umum / Fallback ---
     else {
       targetSummary = `Objek modul ${log.module} #${log.record_id || log.id}`;
@@ -718,6 +759,12 @@ router.post("/logs/:id/restore", requireRole("super_admin"), async (req, res, ne
         restoredDescription = `Mengembalikan kategori "${oldData.nama_kategori}" yang terhapus dari log #${log.id}`;
       }
     }
+    // 4. Restore Input & Pengolahan Neraca
+    else if (log.module === "neraca" && Array.isArray(oldData.cells) && oldData.cells.length) {
+      preRestoreState = { cells: applyNeracaCellValues(oldData.cells) };
+      postRestoreState = oldData;
+      restoredDescription = `Memulihkan ${oldData.cells.length} nilai neraca ke kondisi sebelum aktivitas #${log.id}`;
+    }
     // 4. Undoing a Previous Restore (Redo capability)
     else if (log.action === "restore") {
       // Restore dari log bertipe restore = mengembalikan ke kondisi old_data log restore
@@ -733,9 +780,10 @@ router.post("/logs/:id/restore", requireRole("super_admin"), async (req, res, ne
     );
 
     await connection.commit();
+    if (log.module === "neraca") emitNeracaUpdate({ action: "restore" });
 
     // Catat tindakan restore sebagai audit log baru yang dapat ditelusuri
-    logAudit({
+    await logAudit({
       userId: req.user.id,
       action: "restore",
       module: log.module,

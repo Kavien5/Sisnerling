@@ -691,6 +691,89 @@ function activeData() {
   return activeDataset().data;
 }
 
+function getNeracaCellValue(cell) {
+  if (
+    !cell ||
+    !cell.datasetId ||
+    !cell.sheet ||
+    !cell.section ||
+    !cell.row ||
+    !cell.year
+  ) {
+    const err = new Error("Identitas sel neraca yang akan dipulihkan tidak lengkap.");
+    err.status = 400;
+    throw err;
+  }
+  const ds = getDataset(cell.datasetId);
+  const sheetObj = ds.data.sheets[cell.sheet];
+  if (!sheetObj) {
+    const err = new Error(`Sheet "${cell.sheet}" tidak ditemukan pada dataset yang akan dipulihkan.`);
+    err.status = 404;
+    throw err;
+  }
+  if (cell.section === "data_penunjang") {
+    if (cell.sheet !== "Data Penunjang") {
+      const err = new Error("Sheet data penunjang pada snapshot tidak valid.");
+      err.status = 400;
+      throw err;
+    }
+    const record = (sheetObj.records || []).find((item) => item.id === cell.row);
+    if (!record || !ds.data.years.includes(String(cell.year))) {
+      const err = new Error("Sel neraca yang akan dipulihkan tidak ditemukan.");
+      err.status = 404;
+      throw err;
+    }
+    return record.values[cell.year] ?? 0;
+  }
+  if (
+    !REGIONAL_SHEETS.includes(cell.sheet) ||
+    REGIONAL_ROW_SECTION[cell.row] !== cell.section ||
+    !ds.data.years.includes(String(cell.year))
+  ) {
+    const err = new Error("Sel neraca yang akan dipulihkan tidak valid.");
+    err.status = 400;
+    throw err;
+  }
+  return sheetObj[cell.section]?.[cell.row]?.[cell.year] ?? 0;
+}
+
+function readNeracaCellValues(cells) {
+  if (!Array.isArray(cells) || !cells.length) {
+    const err = new Error("Snapshot perubahan neraca tidak valid.");
+    err.status = 400;
+    throw err;
+  }
+  return cells.map((cell) => ({ ...cell, value: getNeracaCellValue(cell) }));
+}
+
+function applyNeracaCellValues(cells) {
+  const current = readNeracaCellValues(cells);
+  if (cells.some((cell) => !Number.isFinite(Number(cell.value)))) {
+    const err = new Error("Nilai pada snapshot neraca tidak valid.");
+    err.status = 400;
+    throw err;
+  }
+  const datasets = new Map();
+  cells.forEach((cell) => {
+    const ds = getDataset(cell.datasetId);
+    if (!datasets.has(ds.id)) datasets.set(ds.id, ds);
+    const sheetObj = ds.data.sheets[cell.sheet];
+    if (cell.section === "data_penunjang") {
+      const record = sheetObj.records.find((item) => item.id === cell.row);
+      record.values[cell.year] = Number(cell.value);
+    } else {
+      if (!sheetObj[cell.section][cell.row]) sheetObj[cell.section][cell.row] = {};
+      sheetObj[cell.section][cell.row][cell.year] = Number(cell.value);
+    }
+  });
+  datasets.forEach((ds) => {
+    recalculateAll(ds.data);
+    ds.updatedAt = new Date().toISOString();
+  });
+  save();
+  return current;
+}
+
 // Response lengkap ke klien: data dataset aktif + daftar dataset.
 function neracaResponse() {
   const data = activeData();
@@ -1417,6 +1500,8 @@ function createNeracaRouter({ onChange } = {}) {
           updatesByDataset.get(targetId).push(update);
         });
 
+        const oldCells = [];
+        const newCells = [];
         updatesByDataset.forEach((datasetUpdates, targetId) => {
           const ds = getDataset(targetId);
           const data = ds.data;
@@ -1425,6 +1510,15 @@ function createNeracaRouter({ onChange } = {}) {
             if (!sh) return;
             const numVal = parseFloat(u.value);
             const cleanVal = isNaN(numVal) ? 0 : numVal;
+            const cell = {
+              datasetId: targetId,
+              sheet: u.sheet,
+              section: u.section,
+              row: u.row,
+              year: String(u.year),
+            };
+            oldCells.push({ ...cell, value: getNeracaCellValue(cell) });
+            newCells.push({ ...cell, value: cleanVal });
             if (u.section === "data_penunjang") {
               const rec = (sh.records || []).find((r) => r.id === u.row);
               if (rec) rec.values[u.year] = cleanVal;
@@ -1439,7 +1533,15 @@ function createNeracaRouter({ onChange } = {}) {
         });
         save();
         notifyChange("cell");
-        await logActivity(req, "edit", `Mengubah ${updates.length} nilai pada Input & Pengolahan Neraca Hutan`);
+        await logAudit({
+          userId: req.user.id,
+          action: "edit",
+          module: "neraca",
+          description: `Mengubah ${updates.length} nilai pada Input & Pengolahan Neraca Hutan`,
+          oldData: { cells: oldCells },
+          newData: { cells: newCells },
+          req,
+        });
         return res.json({
           message: "Seluruh data berhasil diperbarui dan formulasi dihitung ulang!",
           ...neracaResponse(),
@@ -1452,9 +1554,25 @@ function createNeracaRouter({ onChange } = {}) {
       return res.status(400).json({ error: "Parameter sheet, section, row, dan year wajib diisi!" });
     }
     try {
+      const cell = {
+        datasetId: datasetId || activeDataset().id,
+        sheet,
+        section,
+        row,
+        year: String(year),
+      };
+      const oldValue = getNeracaCellValue(cell);
       updateCell({ datasetId, sheet, section, row, year, value });
       notifyChange("cell");
-      await logActivity(req, "edit", `Mengubah nilai pada Input & Pengolahan Neraca Hutan (${sheet})`);
+      await logAudit({
+        userId: req.user.id,
+        action: "edit",
+        module: "neraca",
+        description: `Mengubah nilai pada Input & Pengolahan Neraca Hutan (${sheet})`,
+        oldData: { cells: [{ ...cell, value: oldValue }] },
+        newData: { cells: [{ ...cell, value: getNeracaCellValue(cell) }] },
+        req,
+      });
       res.json({ message: "Sel berhasil diperbarui dan formulasi dihitung ulang!", ...neracaResponse() });
     } catch (err) {
       res.status(err.status || 500).json({ error: err.message });
@@ -1602,6 +1720,8 @@ module.exports = {
   getInitialSpreadsheetData,
   buildTemplateWorkbook,
   createDatasetFromImport,
+  readNeracaCellValues,
+  applyNeracaCellValues,
   classifyOriginalRow,
   classifyColumnLabel,
   matchPenunjangRecord,

@@ -1027,9 +1027,11 @@ function SuperAdminAuditLogs({ user }) {
                                 gap: 4,
                               }}
                               onClick={() => openRestoreModal(r)}
-                              title="Kembalikan data ke kondisi sebelum aksi ini (Undo/Restore)"
+                              title={r.module === "neraca"
+                                ? "Batalkan perubahan neraca ini dan kembalikan nilai sebelum disimpan"
+                                : "Kembalikan data ke kondisi sebelum aksi ini"}
                             >
-                              <IconUndo size={11} /> Restore
+                              <IconUndo size={11} /> {r.module === "neraca" ? "Undo" : "Restore"}
                             </button>
                           )}
 
@@ -1166,7 +1168,9 @@ function SuperAdminAuditLogs({ user }) {
       {/* MODAL 2: Pratinjau & Konfirmasi Restore Data (Undo) 3 Kolom */}
       {restoreModal && (
         <Modal
-          title="Pratinjau & Konfirmasi Pemulihan Data (Restore / Undo)"
+          title={restoreModal.module === "neraca"
+            ? "Pratinjau & Konfirmasi Undo Perubahan Neraca"
+            : "Pratinjau & Konfirmasi Pemulihan Data (Restore / Undo)"}
           onClose={() => !restoreExecuting && setRestoreModal(null)}
           width="820px"
         >
@@ -1307,7 +1311,11 @@ function SuperAdminAuditLogs({ user }) {
                   ) : (
                     <>
                       <IconUndo size={14} />
-                      {restorePreview.has_conflict ? "Tetap Pulihkan (Timpa Konflik)" : "Konfirmasi & Jalankan Restore"}
+                      {restorePreview.has_conflict
+                        ? "Tetap Undo (Timpa Konflik)"
+                        : restoreModal.module === "neraca"
+                          ? "Konfirmasi & Undo Perubahan"
+                          : "Konfirmasi & Jalankan Restore"}
                     </>
                   )}
                 </button>
