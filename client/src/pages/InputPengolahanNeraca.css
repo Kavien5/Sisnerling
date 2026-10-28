@@ -185,7 +185,44 @@
 .ipn-root .header-buttons {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--border-light);
+}
+
+.ipn-root .ipn-save-button,
+.ipn-root .ipn-primary-actions,
+.ipn-root .ipn-secondary-actions {
+  display: inline-flex;
+  align-items: center;
   gap: 0.5rem;
+}
+
+.ipn-root .ipn-save-button {
+  min-height: 40px;
+  padding-inline: 1rem;
+  font-weight: 800;
+  box-shadow: var(--shadow-sm);
+}
+
+.ipn-root .ipn-save-shortcut {
+  margin-left: 0.35rem;
+  padding: 0.15rem 0.35rem;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 4px;
+  font-family: var(--font-sans);
+  font-size: 0.66rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ipn-root .ipn-secondary-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  margin-left: auto;
 }
 
 .ipn-root .ipn-presence {
@@ -262,6 +299,16 @@
   transition: all 0.15s ease;
   font-family: inherit;
   text-decoration: none;
+}
+
+.ipn-root .btn:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--ipn-primary) 38%, transparent);
+  outline-offset: 2px;
+}
+
+.ipn-root .btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
 }
 
 .ipn-root .btn-primary {
@@ -768,6 +815,27 @@
   background: color-mix(in srgb, var(--bg-app) 82%, transparent);
   backdrop-filter: blur(2px);
   pointer-events: none;
+}
+
+@media (max-width: 760px) {
+  .ipn-root .header-buttons {
+    align-items: stretch;
+  }
+
+  .ipn-root .ipn-save-button {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .ipn-root .ipn-primary-actions {
+    flex: 1 1 auto;
+  }
+
+  .ipn-root .ipn-secondary-actions {
+    flex: 1 1 100%;
+    justify-content: flex-start;
+    margin-left: 0;
+  }
 }
 
 /* Modal Input Data Neraca */

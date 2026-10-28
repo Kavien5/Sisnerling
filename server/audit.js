@@ -29,6 +29,16 @@ function isActionRestorable(action, oldData, newData) {
   return restorableActions.includes(action) && (Boolean(oldData) || Boolean(newData));
 }
 
+function neracaCellKey(cell) {
+  return JSON.stringify([cell.datasetId, cell.sheet, cell.section, cell.row, cell.year]);
+}
+
+function badRestoreSelection(message) {
+  const error = new Error(message);
+  error.status = 400;
+  return error;
+}
+
 // ===== Metadata untuk filter dropdown (user, action, module) & info retensi =====
 router.get("/meta", requireRole("super_admin"), async (_req, res, next) => {
   try {
@@ -427,6 +437,7 @@ router.get("/logs/:id/restore-preview", requireRole("super_admin"), async (req, 
 
             diffRows.push({
               field: f,
+              selection_key: f,
               current: currentVal,
               restore: targetVal,
               conflict: fieldConflict,
@@ -448,6 +459,7 @@ router.get("/logs/:id/restore-preview", requireRole("super_admin"), async (req, 
           if (["id", "kode", "nama", "kategori_id", "jumlah", "harga", "tanggal", "status", "keterangan"].includes(k)) {
             diffRows.push({
               field: k,
+              selection_key: diffRows.length === 0 ? "__record__" : null,
               current: "(Terhapus / Tidak Ada)",
               restore: v,
               conflict: false,
@@ -464,6 +476,7 @@ router.get("/logs/:id/restore-preview", requireRole("super_admin"), async (req, 
         } else {
           diffRows.push({
             field: "Status Data",
+            selection_key: "__record__",
             current: "Ada di database",
             restore: "(Dihapus / Dikembalikan ke sebelum ditambah)",
             conflict: false,
@@ -500,6 +513,7 @@ router.get("/logs/:id/restore-preview", requireRole("super_admin"), async (req, 
 
           diffRows.push({
             field: `Nilai ${cellRef}`,
+            selection_key: "nilai",
             current: currentVal,
             restore: restoreVal,
             conflict: hasConflict,
@@ -510,6 +524,7 @@ router.get("/logs/:id/restore-preview", requireRole("super_admin"), async (req, 
         // Formula edit restore
         diffRows.push({
           field: "Rumus Formula",
+          selection_key: "formula",
           current: "(Rumus Saat Ini)",
           restore: oldData.formula,
           conflict: false,
@@ -531,6 +546,9 @@ router.get("/logs/:id/restore-preview", requireRole("super_admin"), async (req, 
           const restoreVal = oldData[f] !== undefined ? oldData[f] : currentVal;
           diffRows.push({
             field: f,
+            selection_key: log.action === "delete"
+              ? (diffRows.length === 0 ? "__record__" : null)
+              : f,
             current: currentVal,
             restore: restoreVal,
             conflict: false,
@@ -543,27 +561,21 @@ router.get("/logs/:id/restore-preview", requireRole("super_admin"), async (req, 
     else if (log.module === "neraca" && Array.isArray(oldData.cells) && oldData.cells.length) {
       try {
         const currentCells = readNeracaCellValues(oldData.cells);
-        const restoreValues = new Map(
-          oldData.cells.map((cell) => [
-            `${cell.datasetId}:${cell.sheet}:${cell.section}:${cell.row}:${cell.year}`,
-            cell.value,
-          ])
-        );
-        const expectedCells = new Map(
-          (Array.isArray(newData.cells) ? newData.cells : []).map((cell) => [
-            `${cell.datasetId}:${cell.sheet}:${cell.section}:${cell.row}:${cell.year}`,
-            cell.value,
-          ])
-        );
+        const restoreValues = new Map(oldData.cells.map((cell) => [neracaCellKey(cell), cell.value]));
+        const expectedCells = new Map((Array.isArray(newData.cells) ? newData.cells : []).map((cell) => [
+          neracaCellKey(cell),
+          cell.value,
+        ]));
         targetSummary = `Input & Pengolahan Neraca (${oldData.cells.length} nilai)`;
         currentCells.forEach((cell) => {
-          const key = `${cell.datasetId}:${cell.sheet}:${cell.section}:${cell.row}:${cell.year}`;
+          const key = neracaCellKey(cell);
           const expected = expectedCells.get(key);
           const conflict = expected !== undefined && String(cell.value) !== String(expected);
           if (conflict) hasConflict = true;
           const restoreValue = restoreValues.get(key);
           diffRows.push({
             field: `${cell.sheet} / ${cell.row} / ${cell.year}`,
+            selection_key: key,
             current: cell.value,
             restore: restoreValue,
             conflict,
@@ -585,6 +597,7 @@ router.get("/logs/:id/restore-preview", requireRole("super_admin"), async (req, 
       allKeys.forEach((k) => {
         diffRows.push({
           field: k,
+          selection_key: k,
           current: newData[k] !== undefined ? newData[k] : "–",
           restore: oldData[k] !== undefined ? oldData[k] : "–",
           conflict: false,
@@ -630,6 +643,15 @@ router.post("/logs/:id/restore", requireRole("super_admin"), async (req, res, ne
       return res.status(400).json({ error: "Tidak ada data riwayat yang dapat dipulihkan dari log ini." });
     }
 
+    const requestedFields = req.body?.selected_fields;
+    if (requestedFields !== undefined && (!Array.isArray(requestedFields) || requestedFields.some((field) => typeof field !== "string"))) {
+      throw badRestoreSelection("Pilihan field pemulihan tidak valid.");
+    }
+    const selectedFields = requestedFields === undefined ? null : new Set(requestedFields);
+    if (selectedFields && selectedFields.size === 0) {
+      throw badRestoreSelection("Pilih setidaknya satu perubahan untuk dipulihkan.");
+    }
+
     await connection.beginTransaction();
 
     let restoredDescription = "";
@@ -650,33 +672,31 @@ router.post("/logs/:id/restore", requireRole("super_admin"), async (req, res, ne
         }
         preRestoreState = cur;
 
-        const formulasJson = oldData.formulas ? (typeof oldData.formulas === "string" ? oldData.formulas : JSON.stringify(oldData.formulas)) : null;
-        const nilaiJson = oldData.nilai ? (typeof oldData.nilai === "string" ? oldData.nilai : JSON.stringify(oldData.nilai)) : null;
-
-        await connection.query(
-          `UPDATE data_barang SET
-             kode = ?, nama = ?, kategori_id = ?, jumlah = ?, harga = ?,
-             tanggal = ?, status = ?, keterangan = ?, formulas = ?, nilai = ?,
-             versi = versi + 1, updated_by = ?
-           WHERE id = ?`,
-          [
-            oldData.kode !== undefined ? oldData.kode : cur.kode,
-            oldData.nama !== undefined ? oldData.nama : cur.nama,
-            oldData.kategori_id !== undefined ? oldData.kategori_id : cur.kategori_id,
-            oldData.jumlah !== undefined ? Number(oldData.jumlah) : cur.jumlah,
-            oldData.harga !== undefined ? Number(oldData.harga) : cur.harga,
-            oldData.tanggal ? String(oldData.tanggal).slice(0, 10) : cur.tanggal,
-            oldData.status || cur.status,
-            oldData.keterangan !== undefined ? oldData.keterangan : cur.keterangan,
-            formulasJson,
-            nilaiJson,
-            req.user.id,
-            log.record_id,
-          ]
+        const restorableFields = ["kode", "nama", "kategori_id", "jumlah", "harga", "tanggal", "status", "keterangan"];
+        const fieldsToRestore = restorableFields.filter((field) =>
+          oldData[field] !== undefined && (!selectedFields || selectedFields.has(field))
         );
-        postRestoreState = oldData;
+        if (!fieldsToRestore.length || (selectedFields && fieldsToRestore.length !== selectedFields.size)) {
+          throw badRestoreSelection("Pilihan field pemulihan tidak valid atau tidak berisi perubahan yang dapat dipulihkan.");
+        }
+        const values = fieldsToRestore.map((field) => {
+          const value = oldData[field];
+          if (field === "jumlah" || field === "harga") return value === null ? null : Number(value);
+          if (field === "tanggal" && value) return String(value).slice(0, 10);
+          return value;
+        });
+        const updates = fieldsToRestore.map((field) => `${field} = ?`);
+        updates.push("versi = versi + 1", "updated_by = ?");
+        await connection.query(
+          `UPDATE data_barang SET ${updates.join(", ")} WHERE id = ?`,
+          [...values, req.user.id, log.record_id]
+        );
+        postRestoreState = { ...cur, ...Object.fromEntries(fieldsToRestore.map((field, index) => [field, values[index]])) };
         restoredDescription = `Memulihkan perubahan data barang "${oldData.nama || cur.nama}" (#${log.record_id}) ke kondisi sebelum aktivitas #${log.id}`;
       } else if (log.action === "delete") {
+        if (selectedFields && (selectedFields.size !== 1 || !selectedFields.has("__record__"))) {
+          throw badRestoreSelection("Pemulihan data yang dihapus harus dipilih sebagai satu kesatuan.");
+        }
         // Pulihkan baris yang terhapus
         const formulasJson = oldData.formulas ? (typeof oldData.formulas === "string" ? oldData.formulas : JSON.stringify(oldData.formulas)) : null;
         const nilaiJson = oldData.nilai ? (typeof oldData.nilai === "string" ? oldData.nilai : JSON.stringify(oldData.nilai)) : null;
@@ -706,6 +726,9 @@ router.post("/logs/:id/restore", requireRole("super_admin"), async (req, res, ne
         postRestoreState = oldData;
         restoredDescription = `Mengembalikan data yang dihapus "${oldData.nama || "-"}" dari log #${log.id}`;
       } else if (log.action === "create") {
+        if (selectedFields && (selectedFields.size !== 1 || !selectedFields.has("__record__"))) {
+          throw badRestoreSelection("Pembatalan data yang ditambahkan harus dipilih sebagai satu kesatuan.");
+        }
         // Undo create = hapus record yang sempat ditambah
         const [[cur]] = await connection.query("SELECT * FROM data_barang WHERE id = ?", [log.record_id]);
         preRestoreState = cur;
@@ -721,6 +744,9 @@ router.post("/logs/:id/restore", requireRole("super_admin"), async (req, res, ne
       const colNo = oldData?.col || newData?.col;
 
       if (sheetId && rowNo && colNo && oldData.nilai !== undefined) {
+        if (selectedFields && (selectedFields.size !== 1 || !selectedFields.has("nilai"))) {
+          throw badRestoreSelection("Pilihan field pemulihan statistik tidak valid.");
+        }
         const [[currCell]] = await connection.query(
           "SELECT * FROM statistical_cells WHERE sheet_id = ? AND row_no = ? AND col_no = ? FOR UPDATE",
           [sheetId, rowNo, colNo]
@@ -734,6 +760,9 @@ router.post("/logs/:id/restore", requireRole("super_admin"), async (req, res, ne
         postRestoreState = { sheet_id: sheetId, row: rowNo, col: colNo, nilai: oldData.nilai };
         restoredDescription = `Memulihkan nilai sel statistik (${oldData.cellRef || `R${rowNo}C${colNo}`}) ke nilai ${oldData.nilai ?? "(kosong)"}`;
       } else if (oldData?.formula) {
+        if (selectedFields && (selectedFields.size !== 1 || !selectedFields.has("formula"))) {
+          throw badRestoreSelection("Pilihan field pemulihan statistik tidak valid.");
+        }
         await connection.query(
           "UPDATE statistical_cells SET formula = ?, formula_fallback = 0, versi = versi + 1, updated_by = ? WHERE sheet_id = ? AND row_no = ? AND col_no = ?",
           [oldData.formula, req.user.id, sheetId, rowNo, colNo]
@@ -746,12 +775,21 @@ router.post("/logs/:id/restore", requireRole("super_admin"), async (req, res, ne
       targetType = "kategori";
       targetId = log.record_id;
       if (log.action === "update" && oldData) {
+        const fields = ["nama_kategori", "deskripsi", "icon"].filter((field) =>
+          oldData[field] !== undefined && (!selectedFields || selectedFields.has(field))
+        );
+        if (!fields.length || (selectedFields && fields.length !== selectedFields.size)) {
+          throw badRestoreSelection("Pilihan field pemulihan kategori tidak valid atau tidak berisi perubahan yang dapat dipulihkan.");
+        }
         await connection.query(
-          "UPDATE kategori SET nama_kategori = ?, deskripsi = ?, icon = ? WHERE id = ?",
-          [oldData.nama_kategori, oldData.deskripsi || null, oldData.icon || null, log.record_id]
+          `UPDATE kategori SET ${fields.map((field) => `${field} = ?`).join(", ")} WHERE id = ?`,
+          [...fields.map((field) => oldData[field]), log.record_id]
         );
         restoredDescription = `Memulihkan kategori "${oldData.nama_kategori}" ke kondisi sebelum log #${log.id}`;
       } else if (log.action === "delete" && oldData) {
+        if (selectedFields && (selectedFields.size !== 1 || !selectedFields.has("__record__"))) {
+          throw badRestoreSelection("Pemulihan kategori yang dihapus harus dipilih sebagai satu kesatuan.");
+        }
         await connection.query(
           "INSERT INTO kategori (id, nama_kategori, deskripsi, icon) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE nama_kategori = VALUES(nama_kategori)",
           [log.record_id, oldData.nama_kategori, oldData.deskripsi || null, oldData.icon || null]
@@ -761,9 +799,15 @@ router.post("/logs/:id/restore", requireRole("super_admin"), async (req, res, ne
     }
     // 4. Restore Input & Pengolahan Neraca
     else if (log.module === "neraca" && Array.isArray(oldData.cells) && oldData.cells.length) {
-      preRestoreState = { cells: applyNeracaCellValues(oldData.cells) };
-      postRestoreState = oldData;
-      restoredDescription = `Memulihkan ${oldData.cells.length} nilai neraca ke kondisi sebelum aktivitas #${log.id}`;
+      const cellsToRestore = selectedFields
+        ? oldData.cells.filter((cell) => selectedFields.has(neracaCellKey(cell)))
+        : oldData.cells;
+      if (!cellsToRestore.length || (selectedFields && selectedFields.size !== cellsToRestore.length)) {
+        throw badRestoreSelection("Pilihan sel neraca tidak valid atau tidak berisi perubahan yang dapat dipulihkan.");
+      }
+      preRestoreState = { cells: applyNeracaCellValues(cellsToRestore) };
+      postRestoreState = { cells: cellsToRestore };
+      restoredDescription = `Memulihkan ${cellsToRestore.length} dari ${oldData.cells.length} nilai neraca ke kondisi sebelum aktivitas #${log.id}`;
     }
     // 4. Undoing a Previous Restore (Redo capability)
     else if (log.action === "restore") {

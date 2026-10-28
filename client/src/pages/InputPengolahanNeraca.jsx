@@ -739,6 +739,24 @@ export default function InputPengolahanNeraca() {
     }
   };
 
+  const saveShortcutRef = React.useRef(null);
+  saveShortcutRef.current = {
+    action: inputModalOpen ? handleSaveRowInputModal : handleManualSave,
+    enabled: !manualSaving && !importing && activeSheet !== "Import Mentah" && status !== "saving",
+  };
+
+  React.useEffect(() => {
+    const handleSaveShortcut = (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        if (saveShortcutRef.current.enabled) saveShortcutRef.current.action();
+      }
+    };
+
+    window.addEventListener("keydown", handleSaveShortcut);
+    return () => window.removeEventListener("keydown", handleSaveShortcut);
+  }, []);
+
   const queueSave = (payload) => {
     setStatus("unsaved");
     const key = getPendingCellKey(payload);
@@ -1245,43 +1263,49 @@ export default function InputPengolahanNeraca() {
 
           <div className="header-buttons">
             <button
-              className="btn btn-primary"
+              className="btn btn-primary ipn-save-button"
               onClick={handleManualSave}
               disabled={manualSaving || importing || isRaw}
-              title="Simpan semua perubahan sel dan catat aktivitas di Audit Log"
+              title="Simpan semua perubahan sel (Ctrl+S / Cmd+S)"
+              aria-busy={manualSaving}
             >
-              <IconCheck size={14} /> {manualSaving ? "Menyimpan..." : "Simpan Perubahan"}
+              <IconCheck size={15} /> {manualSaving ? "Menyimpan..." : "Simpan Perubahan"}
+              {!manualSaving && <kbd className="ipn-save-shortcut">Ctrl / Cmd + S</kbd>}
             </button>
-            <button className="btn btn-primary" onClick={openAddYear} disabled={importing} title="Tambah kolom periode tahun baru">
-              <IconPlus size={14} /> Tambah Tahun
-            </button>
-            <button className="btn btn-secondary" onClick={handleExport} disabled={importing} title="Unduh tabel aktif ke format CSV">
-              <IconDownload size={14} /> Unduh Excel/CSV
-            </button>
-            <button className="btn btn-secondary" onClick={handleDownloadTemplate} disabled={importing} title="Unduh template Excel (.xlsx) untuk diisi lalu diimpor">
-              <IconFileExcel size={14} /> Template Excel
-            </button>
-            <button
-              className="btn btn-secondary"
-              onClick={handleImportClick}
-              disabled={importing}
-              title="Unggah file .xlsx sesuai template (hanya mengisi sel input, sisanya dihitung ulang)"
-            >
-              <IconUpload size={14} /> {importing ? "Mengimporâ€¦" : "Import Excel"}
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".xlsx"
-              style={{ display: "none" }}
-              onChange={handleImportFile}
-            />
-            <button className="btn btn-secondary" onClick={handleReset} disabled={importing} title="Kembalikan data ke nilai awal acuan BPS">
-              <IconRotate size={14} /> Reset Angka
-            </button>
-            <button className="btn btn-secondary btn-icon" onClick={toggleTheme} title="Ganti mode gelap / terang">
-              <IconCoins size={15} />
-            </button>
+            <div className="ipn-primary-actions">
+              <button className="btn btn-primary" onClick={openAddYear} disabled={importing} title="Tambah kolom periode tahun baru">
+                <IconPlus size={14} /> Tambah Tahun
+              </button>
+            </div>
+            <div className="ipn-secondary-actions" aria-label="Alat data lainnya">
+              <button className="btn btn-secondary" onClick={handleExport} disabled={importing} title="Unduh tabel aktif ke format CSV">
+                <IconDownload size={14} /> Unduh Excel/CSV
+              </button>
+              <button className="btn btn-secondary" onClick={handleDownloadTemplate} disabled={importing} title="Unduh template Excel (.xlsx) untuk diisi lalu diimpor">
+                <IconFileExcel size={14} /> Template Excel
+              </button>
+              <button
+                className="btn btn-secondary"
+                onClick={handleImportClick}
+                disabled={importing}
+                title="Unggah file .xlsx sesuai template (hanya mengisi sel input, sisanya dihitung ulang)"
+              >
+                <IconUpload size={14} /> {importing ? "Mengimporâ€¦" : "Import Excel"}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx"
+                style={{ display: "none" }}
+                onChange={handleImportFile}
+              />
+              <button className="btn btn-secondary" onClick={handleReset} disabled={importing} title="Kembalikan data ke nilai awal acuan BPS">
+                <IconRotate size={14} /> Reset Angka
+              </button>
+              <button className="btn btn-secondary btn-icon" onClick={toggleTheme} title="Ganti mode gelap / terang">
+                <IconCoins size={15} />
+              </button>
+            </div>
           </div>
         </div>
       </header>

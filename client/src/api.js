@@ -197,7 +197,11 @@ export const api = {
   cleanupExpiredAuditLogs: () =>
     request("/api/audit/cleanup-expired", { method: "POST" }),
   getAuditRestorePreview: (id) => request(`/api/audit/logs/${id}/restore-preview`),
-  executeAuditRestore: (id) => request(`/api/audit/logs/${id}/restore`, { method: "POST" }),
+  executeAuditRestore: (id, selectedFields) =>
+    request(`/api/audit/logs/${id}/restore`, {
+      method: "POST",
+      body: JSON.stringify({ selected_fields: selectedFields }),
+    }),
   getDashboardGreeting: () => request("/api/dashboard/greeting"),
   setDashboardGreeting: (body) =>
     request("/api/dashboard/greeting", { method: "PUT", body: JSON.stringify(body) }),

@@ -325,6 +325,7 @@ function SuperAdminAuditLogs({ user }) {
   // Restore Modal State
   const [restoreModal, setRestoreModal] = React.useState(null);
   const [restorePreview, setRestorePreview] = React.useState(null);
+  const [selectedRestoreFields, setSelectedRestoreFields] = React.useState(new Set());
   const [restoreLoading, setRestoreLoading] = React.useState(false);
   const [restoreExecuting, setRestoreExecuting] = React.useState(false);
 
@@ -488,10 +489,16 @@ function SuperAdminAuditLogs({ user }) {
   const openRestoreModal = async (row) => {
     setRestoreModal(row);
     setRestorePreview(null);
+    setSelectedRestoreFields(new Set());
     setRestoreLoading(true);
     try {
       const preview = await api.getAuditRestorePreview(row.id);
       setRestorePreview(preview);
+      setSelectedRestoreFields(new Set(
+        preview.diff
+          .filter((item) => item.changed && item.selection_key)
+          .map((item) => item.selection_key)
+      ));
     } catch (err) {
       showToast(err.message || "Gagal memuat pratinjau pemulihan", "error");
       setRestoreModal(null);
@@ -505,10 +512,11 @@ function SuperAdminAuditLogs({ user }) {
     if (!restoreModal) return;
     setRestoreExecuting(true);
     try {
-      const res = await api.executeAuditRestore(restoreModal.id);
+      const res = await api.executeAuditRestore(restoreModal.id, [...selectedRestoreFields]);
       showToast(res.message || "Data berhasil dipulihkan!", "success");
       setRestoreModal(null);
       setRestorePreview(null);
+      setSelectedRestoreFields(new Set());
       fetchLogs(page, perPage, scope);
       loadRetentionStatus();
     } catch (err) {
@@ -517,6 +525,18 @@ function SuperAdminAuditLogs({ user }) {
       setRestoreExecuting(false);
     }
   };
+
+  const toggleRestoreField = (field) => {
+    setSelectedRestoreFields((current) => {
+      const next = new Set(current);
+      if (next.has(field)) next.delete(field);
+      else next.add(field);
+      return next;
+    });
+  };
+  const selectableRestoreRows = restorePreview?.diff?.filter((row) => row.changed && row.selection_key) || [];
+  const allRestoreRowsSelected = selectableRestoreRows.length > 0 &&
+    selectableRestoreRows.every((row) => selectedRestoreFields.has(row.selection_key));
 
   // Toggle Arsip / Simpan Riwayat
   const handleToggleArchive = async (row) => {
@@ -683,7 +703,7 @@ function SuperAdminAuditLogs({ user }) {
               <div style={{ background: "#ffffff", padding: 12, borderRadius: 8, border: "1px solid #e2e8f0" }}>
                 <strong style={{ color: "#b45309", display: "block", marginBottom: 4 }}>3. Pemulihan Data (Restore / Undo)</strong>
                 <p style={{ margin: 0, fontSize: 12, color: "#475569" }}>
-                  Super Admin dapat menekan tombol <strong>Restore</strong> untuk mengembalikan data (Data Barang, Neraca, Spreadsheet Statistik, Kategori) ke kondisi sebelum aksi dilakukan, lengkap dengan pratinjau 3 kolom dan deteksi konflik.
+                  Super Admin dapat menekan tombol <strong>Restore</strong> untuk memilih field yang ingin dikembalikan (Data Barang, Neraca, Spreadsheet Statistik, Kategori), lengkap dengan pratinjau nilai dan deteksi konflik. Aksi tambah/hapus dipulihkan sebagai satu kesatuan.
                 </p>
               </div>
               <div style={{ background: "#ffffff", padding: 12, borderRadius: 8, border: "1px solid #e2e8f0" }}>
@@ -1181,6 +1201,25 @@ function SuperAdminAuditLogs({ user }) {
             </div>
           ) : restorePreview ? (
             <div>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 12,
+                  marginBottom: 10,
+                  padding: "10px 12px",
+                  border: "1px solid #dbeafe",
+                  borderRadius: 8,
+                  background: "#eff6ff",
+                  fontSize: 12,
+                }}
+              >
+                <span>Pilih perubahan yang ingin di-undo. Tambah/hapus data dipulihkan sebagai satu kesatuan.</span>
+                <span style={{ whiteSpace: "nowrap", fontWeight: 700 }}>
+                  {selectedRestoreFields.size} dari {selectableRestoreRows.length} dipilih
+                </span>
+              </div>
               {/* Ringkasan Objek & Pelaku */}
               <div
                 style={{
@@ -1235,15 +1274,27 @@ function SuperAdminAuditLogs({ user }) {
                 </div>
               )}
 
-              {/* Tabel Perbandingan 3 Kolom Sesuai Spesifikasi Dokumen */}
+              {/* Tabel perbandingan nilai dan pemilihan field untuk undo */}
               <div style={{ marginBottom: 16 }}>
                 <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-2)", display: "block", marginBottom: 6 }}>
-                  Perbandingan Nilai (3 Kolom):
+                  Pilih perubahan yang akan dipulihkan:
                 </span>
                 <div className="diff-wrap" style={{ maxHeight: 320, overflowY: "auto" }}>
                   <table className="table" style={{ fontSize: 12 }}>
                     <thead>
                       <tr style={{ background: "#f1f5f9" }}>
+                        <th style={{ width: 52, textAlign: "center" }}>
+                          <input
+                            type="checkbox"
+                            aria-label="Pilih semua perubahan yang bisa di-undo"
+                            checked={allRestoreRowsSelected}
+                            disabled={selectableRestoreRows.length === 0 || restoreExecuting}
+                            onChange={(event) => {
+                              const fields = selectableRestoreRows.map((row) => row.selection_key);
+                              setSelectedRestoreFields(event.target.checked ? new Set(fields) : new Set());
+                            }}
+                          />
+                        </th>
                         <th style={{ width: 180 }}>Field / Atribut</th>
                         <th style={{ background: "#f8fafc" }}>Nilai Saat Ini di Database</th>
                         <th style={{ background: "#ecfdf5", color: "#047857" }}>Nilai Setelah Dipulihkan</th>
@@ -1260,6 +1311,15 @@ function SuperAdminAuditLogs({ user }) {
                               backgroundColor: isConflict ? "rgba(254, 242, 242, 0.6)" : isChanged ? "rgba(240, 253, 244, 0.4)" : undefined,
                             }}
                           >
+                            <td style={{ textAlign: "center" }}>
+                              <input
+                                type="checkbox"
+                                aria-label={`Pilih ${r.field} untuk di-undo`}
+                                checked={Boolean(r.selection_key && selectedRestoreFields.has(r.selection_key))}
+                                disabled={!r.changed || !r.selection_key || restoreExecuting}
+                                onChange={() => toggleRestoreField(r.selection_key)}
+                              />
+                            </td>
                             <td style={{ fontWeight: 600 }}>
                               {r.field}
                               {isConflict && (
@@ -1301,7 +1361,7 @@ function SuperAdminAuditLogs({ user }) {
                     gap: 6,
                   }}
                   onClick={confirmRestore}
-                  disabled={restoreExecuting || !restorePreview.can_restore}
+                  disabled={restoreExecuting || !restorePreview.can_restore || selectedRestoreFields.size === 0}
                 >
                   {restoreExecuting ? (
                     <>
