@@ -19,6 +19,7 @@ import {
   IconHistory,
   IconFileSpreadsheet,
   IconAlert,
+  IconMessage,
 } from "./Icons.jsx";
 import Modal from "./Modal.jsx";
 import Logo from "./Logo.jsx";
@@ -764,6 +765,7 @@ export default function Layout({ page, setPage, children, importedFiles, user, o
     if (page === "spreadsheet") return "Spreadsheet";
     if (page === "statistik") return "Spreadsheet Statistik";
     if (page === "neraca-input") return "Input & Pengolahan Neraca";
+    if (page === "chat") return "Grup Chat";
     if (page === "files") return "File & Import";
     if (page === "panduan") return "Panduan Penggunaan";
     if (page === "audit-log") return "Audit Log";
@@ -937,6 +939,7 @@ export default function Layout({ page, setPage, children, importedFiles, user, o
           {renderLeaf({ key: "spreadsheet", label: "Spreadsheet", icon: IconFileSpreadsheet })}
           {renderLeaf({ key: "statistik", label: "Spreadsheet Statistik", icon: IconFileSpreadsheet })}
           {renderLeaf({ key: "neraca-input", label: "Input & Pengolahan Neraca", icon: IconGrid })}
+          {renderLeaf({ key: "chat", label: "Grup Chat", icon: IconMessage })}
           {renderLeaf({ key: "files", label: "File & Import", icon: IconDatabase })}
           {renderLeaf({ key: "laporan", label: "Laporan", icon: IconFileText })}
           {renderLeaf({ key: "panduan", label: "Panduan", icon: IconBox })}

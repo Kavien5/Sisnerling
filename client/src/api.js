@@ -273,6 +273,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ includeHidden }),
     }),
+  chatMessages: () => request("/api/chat/messages"),
+  sendChatMessage: (body) =>
+    request("/api/chat/messages", { method: "POST", body: JSON.stringify(body) }),
 };
 
 export const formatRupiah = (n) =>

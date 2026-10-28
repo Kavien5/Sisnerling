@@ -109,6 +109,8 @@ app.use("/api/admin", adminRouter);
 // Ringkasan audit dapat dibaca semua pengguna; detail dan pengelolaan dibatasi
 // ke Super Admin di router audit.
 app.use("/api/audit", auditRouter);
+const { createChatRouter } = require("./chat");
+app.use("/api/chat", createChatRouter());
 // Kolaborasi multi-user (akses file, sel real-time, revisi). Berada di bawah
 // authRequired + maintenanceGuard sehingga otomatis terlindungi.
 const { createCollabRouter, setRowWriteChecker, getWorkbookAccess } = require("./collab");

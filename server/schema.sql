@@ -192,6 +192,20 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  conversation_user_id INT NULL,
+  sender_id INT NOT NULL,
+  message TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_chat_conversation (conversation_user_id, id),
+  KEY idx_chat_sender (sender_id),
+  CONSTRAINT fk_chat_conversation_user FOREIGN KEY (conversation_user_id)
+    REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_chat_sender FOREIGN KEY (sender_id)
+    REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Audit log: catatan seluruh aktivitas penting pengguna (siapa, apa, kapan,
 -- terhadap data apa, dan perubahan sebelum/sesudah bila ada).
 CREATE TABLE IF NOT EXISTS audit_logs (

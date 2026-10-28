@@ -7,6 +7,7 @@ import ExcelResult from "./pages/ExcelResult.jsx";
 import ExcelEditor from "./pages/ExcelEditor.jsx";
 import StatisticalSpreadsheet from "./pages/StatisticalSpreadsheet.jsx";
 import InputPengolahanNeraca from "./pages/InputPengolahanNeraca.jsx";
+import ChatPage from "./pages/ChatPage.jsx";
 import FilesPage from "./pages/FilesPage.jsx";
 import Panduan from "./pages/Panduan.jsx";
 import AuditLogs from "./pages/AuditLogs.jsx";
@@ -279,6 +280,7 @@ export default function App() {
         )}
         {page === "statistik" && <StatisticalSpreadsheet user={user} />}
         {page === "neraca-input" && <InputPengolahanNeraca />}
+        {page === "chat" && <ChatPage />}
         {page === "files" && (
           <FilesPage
             files={importedFiles}

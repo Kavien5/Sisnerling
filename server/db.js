@@ -34,6 +34,18 @@ async function initDatabase() {
   const schema = fs.readFileSync(schemaPath, "utf8");
   await admin.query(schema);
 
+  const [[chatConversationColumn]] = await admin.query(
+    `SELECT IS_NULLABLE AS nullable
+     FROM information_schema.columns
+     WHERE table_schema = DATABASE()
+       AND table_name = 'chat_messages'
+       AND column_name = 'conversation_user_id'`
+  );
+  if (chatConversationColumn && chatConversationColumn.nullable !== "YES") {
+    await admin.query("ALTER TABLE chat_messages MODIFY conversation_user_id INT NULL");
+  }
+  await admin.query("UPDATE chat_messages SET conversation_user_id = NULL WHERE conversation_user_id IS NOT NULL");
+
   await admin.query(
     `UPDATE kategori SET nama_kategori = 'Neraca Fisik & Moneter Hutan', deskripsi = 'Data neraca fisik & moneter hutan' WHERE nama_kategori = 'Pegawai'`
   );
