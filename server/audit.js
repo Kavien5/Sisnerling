@@ -437,7 +437,7 @@ router.get("/logs/:id/restore-preview", requireRole("super_admin"), async (req, 
 
             diffRows.push({
               field: f,
-              selection_key: f,
+              selection_key: oldData[f] !== undefined ? f : null,
               current: currentVal,
               restore: targetVal,
               conflict: fieldConflict,
@@ -548,7 +548,7 @@ router.get("/logs/:id/restore-preview", requireRole("super_admin"), async (req, 
             field: f,
             selection_key: log.action === "delete"
               ? (diffRows.length === 0 ? "__record__" : null)
-              : f,
+              : oldData[f] !== undefined ? f : null,
             current: currentVal,
             restore: restoreVal,
             conflict: false,
@@ -597,7 +597,7 @@ router.get("/logs/:id/restore-preview", requireRole("super_admin"), async (req, 
       allKeys.forEach((k) => {
         diffRows.push({
           field: k,
-          selection_key: k,
+          selection_key: null,
           current: newData[k] !== undefined ? newData[k] : "–",
           restore: oldData[k] !== undefined ? oldData[k] : "–",
           conflict: false,

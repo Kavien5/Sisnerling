@@ -534,7 +534,7 @@ function SuperAdminAuditLogs({ user }) {
       return next;
     });
   };
-  const selectableRestoreRows = restorePreview?.diff?.filter((row) => row.changed && row.selection_key) || [];
+  const selectableRestoreRows = restorePreview?.diff?.filter((row) => row.selection_key) || [];
   const allRestoreRowsSelected = selectableRestoreRows.length > 0 &&
     selectableRestoreRows.every((row) => selectedRestoreFields.has(row.selection_key));
 
@@ -1215,7 +1215,9 @@ function SuperAdminAuditLogs({ user }) {
                   fontSize: 12,
                 }}
               >
-                <span>Pilih perubahan yang ingin di-undo. Tambah/hapus data dipulihkan sebagai satu kesatuan.</span>
+                <span>
+                  Pilih nilai yang ingin di-undo. Nilai turunan Neraca akan dihitung ulang otomatis; tambah/hapus data dipulihkan sebagai satu kesatuan.
+                </span>
                 <span style={{ whiteSpace: "nowrap", fontWeight: 700 }}>
                   {selectedRestoreFields.size} dari {selectableRestoreRows.length} dipilih
                 </span>
@@ -1316,7 +1318,7 @@ function SuperAdminAuditLogs({ user }) {
                                 type="checkbox"
                                 aria-label={`Pilih ${r.field} untuk di-undo`}
                                 checked={Boolean(r.selection_key && selectedRestoreFields.has(r.selection_key))}
-                                disabled={!r.changed || !r.selection_key || restoreExecuting}
+                                disabled={!r.selection_key || restoreExecuting}
                                 onChange={() => toggleRestoreField(r.selection_key)}
                               />
                             </td>
