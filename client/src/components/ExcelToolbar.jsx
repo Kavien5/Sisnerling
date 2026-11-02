@@ -1,4 +1,5 @@
 import React from "react";
+import { createPortal } from "react-dom";
 
 const FILL_SWATCHES = [
   "#fff7ed", "#fef3c7", "#fde68a", "#fdba74", "#fb923c",
@@ -141,20 +142,65 @@ const ExcelToolbar = ({
   const [activeTab, setActiveTab] = React.useState("home");
   const [fileOpen, setFileOpen] = React.useState(false);
   const [findSelectOpen, setFindSelectOpen] = React.useState(false);
+  const [openRibbonMenu, setOpenRibbonMenu] = React.useState(null);
+  const [ribbonMenuPosition, setRibbonMenuPosition] = React.useState({ top: 0, left: 0, ready: false });
   const rootRef = React.useRef(null);
   const tabsRef = React.useRef(null);
   const findSelectRef = React.useRef(null);
   const searchInputRef = React.useRef(null);
+  const ribbonMenuTriggersRef = React.useRef({});
+  const ribbonMenuPopupRef = React.useRef(null);
   const focusSearchOnTabRef = React.useRef(false);
 
   React.useEffect(() => {
     const onDocDown = (e) => {
-      if (rootRef.current && !rootRef.current.contains(e.target)) setFileOpen(false);
+      if (
+        rootRef.current &&
+        !rootRef.current.contains(e.target) &&
+        !ribbonMenuPopupRef.current?.contains(e.target)
+      ) {
+        setFileOpen(false);
+        setFindSelectOpen(false);
+        setOpenRibbonMenu(null);
+      }
       if (findSelectRef.current && !findSelectRef.current.contains(e.target)) setFindSelectOpen(false);
     };
     document.addEventListener("mousedown", onDocDown);
     return () => document.removeEventListener("mousedown", onDocDown);
   }, []);
+
+  const positionRibbonMenu = React.useCallback(() => {
+    if (!openRibbonMenu) return;
+    const trigger = ribbonMenuTriggersRef.current[openRibbonMenu];
+    const popup = ribbonMenuPopupRef.current;
+    if (!trigger || !popup) return;
+
+    const triggerRect = trigger.getBoundingClientRect();
+    const popupRect = popup.getBoundingClientRect();
+    const edge = 8;
+    const left = Math.max(edge, Math.min(triggerRect.left, window.innerWidth - popupRect.width - edge));
+    const below = triggerRect.bottom + 6;
+    const top = below + popupRect.height <= window.innerHeight - edge
+      ? below
+      : Math.max(edge, triggerRect.top - popupRect.height - 6);
+
+    setRibbonMenuPosition({ top, left, ready: true });
+  }, [openRibbonMenu]);
+
+  React.useLayoutEffect(() => {
+    if (!openRibbonMenu) {
+      setRibbonMenuPosition((position) => position.ready ? { ...position, ready: false } : position);
+      return undefined;
+    }
+
+    positionRibbonMenu();
+    window.addEventListener("resize", positionRibbonMenu);
+    window.addEventListener("scroll", positionRibbonMenu, true);
+    return () => {
+      window.removeEventListener("resize", positionRibbonMenu);
+      window.removeEventListener("scroll", positionRibbonMenu, true);
+    };
+  }, [openRibbonMenu, positionRibbonMenu]);
 
   React.useEffect(() => {
     const onKeyDown = (e) => {
@@ -181,6 +227,7 @@ const ExcelToolbar = ({
   }, [activeTab]);
 
   const selectTab = (id) => {
+    setOpenRibbonMenu(null);
     setActiveTab(id);
     requestAnimationFrame(() => {
       try {
@@ -203,6 +250,58 @@ const ExcelToolbar = ({
       <button className="ee-mm-search-btn" type="button" onClick={onFindNext} title="Cari / lanjut ke hasil berikutnya">
         {typeof matchCount === "number" ? `${S.find} (${matchCount})` : `${S.find} Cari`}
       </button>
+    </div>
+  );
+
+  const ribbonMenu = (id, label, icon, items, menuClass = "") => (
+    <div className="ee-mm ee-rb-menu">
+      <button
+        ref={(element) => {
+          if (element) ribbonMenuTriggersRef.current[id] = element;
+          else delete ribbonMenuTriggersRef.current[id];
+        }}
+        className="ee-mm-chip ee-rb-menu-trigger"
+        type="button"
+        title={label}
+        aria-haspopup="menu"
+        aria-expanded={openRibbonMenu === id}
+        onClick={() => setOpenRibbonMenu((current) => current === id ? null : id)}
+      >
+        <span>{icon}</span> {label} <span className="ee-caret" />
+      </button>
+      {openRibbonMenu === id && typeof document !== "undefined" && createPortal(
+        <div
+          ref={ribbonMenuPopupRef}
+          className={`ee-mm-pop ee-rb-pop${menuClass ? ` ${menuClass}` : ""}`}
+          role="menu"
+          style={{
+            position: "fixed",
+            top: ribbonMenuPosition.top,
+            left: ribbonMenuPosition.left,
+            visibility: ribbonMenuPosition.ready ? "visible" : "hidden",
+            zIndex: 1000,
+          }}
+        >
+          {items.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              role="menuitem"
+              aria-current={item.active ? "true" : undefined}
+              className={`ee-mm-item${item.active ? " active" : ""}`}
+              title={item.title || item.label}
+              onClick={() => {
+                setOpenRibbonMenu(null);
+                item.onSelect();
+              }}
+            >
+              {item.icon && <span className="ee-mm-ic">{item.icon}</span>}
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </div>,
+        document.body
+      )}
     </div>
   );
 
@@ -383,43 +482,44 @@ const ExcelToolbar = ({
         <React.Fragment>
           <div className="ee-rb-group">
             <div className="ee-rb-group-body">
-              <button className="ee-mm-chip" type="button" title="Sisip baris" onClick={() => onInsertRow && onInsertRow()}>➕▤ Baris</button>
-              <button className="ee-mm-chip" type="button" title="Hapus baris" onClick={() => onDeleteRow && onDeleteRow()}>➖▤ Hapus</button>
-            </div>
-            <div className="ee-rb-group-body">
-              <button className="ee-mm-chip" type="button" title="Sisip kolom" onClick={() => onInsertCol && onInsertCol()}>➕▥ Kolom</button>
-              <button className="ee-mm-chip" type="button" title="Hapus kolom" onClick={() => onDeleteCol && onDeleteCol()}>➖▥ Hapus</button>
+              <button className="ee-mm-chip" type="button" title="Sisip baris" onClick={() => onInsertRow && onInsertRow()}>＋ Baris</button>
+              <button className="ee-mm-chip" type="button" title="Sisip kolom" onClick={() => onInsertCol && onInsertCol()}>＋ Kolom</button>
               <button className="ee-mm-chip" type="button" title="Sheet baru" onClick={() => onAddSheet && onAddSheet()}>＋ Sheet</button>
+              {ribbonMenu("insert-delete", "Hapus", "−", [
+                { icon: "▤", label: "Hapus baris", onSelect: () => onDeleteRow && onDeleteRow() },
+                { icon: "▥", label: "Hapus kolom", onSelect: () => onDeleteCol && onDeleteCol() },
+              ])}
             </div>
-            <div className="ee-rb-group-label">Baris, Kolom &amp; Sheet</div>
+            <div className="ee-rb-group-label">Sisipkan</div>
           </div>
           <div className="ee-rb-group">
             <div className="ee-rb-group-body">
               <button className="ee-mm-chip" type="button" title="Format seleksi sebagai tabel (header biru + bingkai)" onClick={formatAsTable}>📋 Tabel</button>
               <button className={`ee-mm-chip${filterOn ? " active" : ""}`} type="button" title="Slicer: tampil/sembunyi filter kolom" onClick={() => onToggleFilter && onToggleFilter()}>⧩ Slicer</button>
             </div>
-            <div className="ee-rb-group-body"><span className="ee-mm-note">Tabel = warna + bingkai seleksi.</span></div>
             <div className="ee-rb-group-label">Tabel</div>
           </div>
           <div className="ee-rb-group">
             <div className="ee-rb-group-body">
-              {SHAPE_GALLERY.map(([kind, g, t, fill], i) => (
-                <button key={`${kind}-${i}`} className="ee-mm-chip" type="button" title={`${t} — klik lalu geser di sheet, klik 2x untuk ketik`} onClick={() => onAddShape && onAddShape(kind, fill)}>{g}</button>
-              ))}
+              {ribbonMenu("insert-shapes", "Bentuk", "◇", SHAPE_GALLERY.map(([kind, glyph, label, fill]) => ({
+                icon: glyph,
+                label,
+                onSelect: () => onAddShape && onAddShape(kind, fill),
+              })), "ee-rb-pop-shapes")}
               <label className="ee-mm-chip" style={{ cursor: "pointer" }} title="Gambar dari komputer (Pictures)">{S.picture} Gambar
                 <input type="file" accept="image/*" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f && onAddImage) onAddImage(f); }} />
               </label>
             </div>
-            <div className="ee-rb-group-body"><span className="ee-mm-note">Bentuk bisa digeser &amp; diketik (klik 2x).</span></div>
             <div className="ee-rb-group-label">Ilustrasi</div>
           </div>
           <div className="ee-rb-group">
             <div className="ee-rb-group-body">
-              {CHART_GALLERY.map(([t, g, label]) => (
-                <button key={t} className={`ee-mm-chip${chartType === t ? " active" : ""}`} type="button" title={`Bagan ${label} — buka panel bagan`} onClick={() => pickChart(t)}>{g} {label}</button>
-              ))}
-            </div>
-            <div className="ee-rb-group-body">
+              {ribbonMenu("insert-charts", "Bagan", "▥", CHART_GALLERY.map(([type, glyph, label]) => ({
+                icon: glyph,
+                label,
+                active: chartType === type,
+                onSelect: () => pickChart(type),
+              })), "ee-rb-pop-charts")}
               <button className="ee-mm-chip" type="button" title="Bandingkan periode" onClick={() => onCompare && onCompare()}>{S.compare} Bandingkan</button>
             </div>
             <div className="ee-rb-group-label">Bagan</div>
@@ -434,16 +534,18 @@ const ExcelToolbar = ({
           </div>
           <div className="ee-rb-group">
             <div className="ee-rb-group-body">
-              {SYMBOL_GALLERY.map((g) => (
-                <button key={g} className="ee-mm-chip" type="button" title={`Sisip "${g}" ke sel aktif`} onClick={() => insertSym(g)}>{g}</button>
-              ))}
+              {ribbonMenu("insert-symbols", "Simbol", "Ω", SYMBOL_GALLERY.map((symbol) => ({
+                icon: symbol,
+                label: symbol,
+                onSelect: () => insertSym(symbol),
+              })), "ee-rb-pop-symbols")}
+              {ribbonMenu("insert-formulas", "Rumus", "fx", FORMULA_SNIPPETS.map((formula) => ({
+                icon: "fx",
+                label: formula,
+                onSelect: () => insertSym(formula),
+              })))}
             </div>
-            <div className="ee-rb-group-body">
-              {FORMULA_SNIPPETS.map((f) => (
-                <button key={f} className="ee-mm-chip" type="button" title={`Sisip "${f}" ke sel aktif`} onClick={() => insertSym(f)}>{f}</button>
-              ))}
-            </div>
-            <div className="ee-rb-group-label">Simbol &amp; Rumus</div>
+            <div className="ee-rb-group-label">Simbol &amp; Fungsi</div>
           </div>
         </React.Fragment>
       )}
@@ -500,46 +602,41 @@ const ExcelToolbar = ({
 
   const renderFormulas = () => (
     <div className="ee-rb-panel" role="tabpanel" aria-label="Formulas">
-      <div className="ee-rb-group ee-rb-wide">
+      <div className="ee-rb-group">
         <div className="ee-rb-group-body">
-          <span className="ee-mm-note"><i>fx</i> Awali dengan <code>=</code> — <code>=SUM(A1:A10)</code>, <code>=IF(A1&gt;0,"Ya","Tidak")</code>, <code>=Sheet2!B4</code>. Klik fungsi di samping untuk sisip ke sel aktif.</span>
+          <span className="ee-mm-note ee-rb-formula-note"><i>fx</i> Rumus diawali <code>=</code>. Pilih fungsi untuk menyisipkannya ke sel aktif.</span>
         </div>
         <div className="ee-rb-group-label">Panduan Rumus</div>
       </div>
       <div className="ee-rb-group">
         <div className="ee-rb-group-body">
-          <span className="ee-mm-alignkey">∑ Matematika:</span>
-          {FN_MATH.map((f) => (
-            <button key={f} className="ee-mm-chip" type="button" title={`Sisip "${f}" ke sel aktif`} onClick={() => insertSym(f)}>{f}</button>
-          ))}
+          {ribbonMenu("formula-math", "Matematika", "∑", FN_MATH.map((formula) => ({
+            icon: "fx",
+            label: formula,
+            onSelect: () => insertSym(formula),
+          })))}
+          {ribbonMenu("formula-logic", "Logika", "⑂", FN_LOGIC.map((formula) => ({
+            icon: "fx",
+            label: formula,
+            onSelect: () => insertSym(formula),
+          })))}
         </div>
-        <div className="ee-rb-group-body">
-          <span className="ee-mm-alignkey">⑂ Logika:</span>
-          {FN_LOGIC.map((f) => (
-            <button key={f} className="ee-mm-chip" type="button" title={`Sisip "${f}" ke sel aktif`} onClick={() => insertSym(f)}>{f}</button>
-          ))}
-        </div>
-        <div className="ee-rb-group-label">Pustaka Fungsi</div>
+        <div className="ee-rb-group-label">Fungsi</div>
       </div>
       <div className="ee-rb-group">
         <div className="ee-rb-group-body">
-          <span className="ee-mm-alignkey">✎ Teks:</span>
-          {FN_TEXT.map((f) => (
-            <button key={f} className="ee-mm-chip" type="button" title={`Sisip "${f}" ke sel aktif`} onClick={() => insertSym(f)}>{f}</button>
-          ))}
+          {ribbonMenu("formula-text", "Teks", "✎", FN_TEXT.map((formula) => ({
+            icon: "fx",
+            label: formula,
+            onSelect: () => insertSym(formula),
+          })))}
+          {ribbonMenu("formula-date", "Tanggal", "📅", FN_DATE.map((formula) => ({
+            icon: "fx",
+            label: formula,
+            onSelect: () => insertSym(formula),
+          })))}
         </div>
-        <div className="ee-rb-group-body">
-          <span className="ee-mm-alignkey">📅 Tanggal:</span>
-          {FN_DATE.map((f) => (
-            <button key={f} className="ee-mm-chip" type="button" title={`Sisip "${f}" ke sel aktif`} onClick={() => insertSym(f)}>{f}</button>
-          ))}
-        </div>
-        <div className="ee-rb-group-label">Teks &amp; Tanggal</div>
-      </div>
-      <div className="ee-rb-group">
-        <div className="ee-rb-group-body">{searchBox("formulas-search")}</div>
-        <div className="ee-rb-group-body"><span className="ee-mm-note">Enter = hasil berikutnya.</span></div>
-        <div className="ee-rb-group-label">Cari</div>
+        <div className="ee-rb-group-label">Teks &amp; Waktu</div>
       </div>
     </div>
   );

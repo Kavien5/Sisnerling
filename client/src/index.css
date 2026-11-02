@@ -3545,6 +3545,31 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--primary)
 .ee-rb-group-body { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 2px 0; }
 .ee-rb-group-body.ee-rb-colors { max-width: 360px; }
 .ee-rb-group-label { font-size: 10.5px; font-weight: 700; color: #a9782b; text-transform: uppercase; letter-spacing: 0.4px; text-align: center; padding-top: 6px; margin-top: auto; white-space: nowrap; }
+.ee-rb-panel[aria-label="Insert"],
+.ee-rb-panel[aria-label="Formulas"] { min-height: 68px; padding: 6px 8px 4px; }
+.ee-rb-panel[aria-label="Insert"] .ee-rb-group,
+.ee-rb-panel[aria-label="Formulas"] .ee-rb-group { padding: 0 8px; }
+.ee-rb-panel[aria-label="Insert"] .ee-rb-group-body,
+.ee-rb-panel[aria-label="Formulas"] .ee-rb-group-body { gap: 3px; }
+.ee-rb-menu-trigger { display: inline-flex; align-items: center; gap: 5px; }
+.ee-rb-pop.ee-rb-pop-shapes,
+.ee-rb-pop.ee-rb-pop-charts { min-width: 230px; }
+.ee-rb-pop.ee-rb-pop-shapes .ee-mm-item,
+.ee-rb-pop.ee-rb-pop-charts .ee-mm-item { min-width: 210px; }
+.ee-rb-pop.ee-rb-pop-symbols {
+  display: grid;
+  grid-template-columns: repeat(5, 34px);
+  min-width: 0;
+  gap: 3px;
+}
+.ee-rb-pop.ee-rb-pop-symbols .ee-mm-item {
+  justify-content: center;
+  width: 34px;
+  height: 32px;
+  padding: 4px;
+}
+.ee-rb-pop.ee-rb-pop-symbols .ee-mm-ic { width: auto; }
+.ee-rb-formula-note { max-width: 230px; line-height: 1.4; }
 .ee-rb-wide { min-width: 220px; max-width: 340px; }
 .ee-rb-wide .ee-mm-note { white-space: normal; line-height: 1.5; }
 .ee-mm-chip.ee-mm-danger { color: #b91c1c; border-color: #f3c1c1; }

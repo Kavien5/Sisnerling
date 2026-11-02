@@ -135,7 +135,7 @@ export default function Login({ onLogin, onSwitchToRegister }) {
                 icon="lock"
                 type="password"
                 autoComplete="current-password"
-                placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+                placeholder="Masukkan password"
                 value={form.password}
                 onChange={set("password")}
               />
