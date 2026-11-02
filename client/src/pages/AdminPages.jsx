@@ -183,11 +183,12 @@ const CHECK_ICON = (
   </svg>
 );
 
-function PasswordField({ value, onChange, placeholder, disabled }) {
+function PasswordField({ id, value, onChange, placeholder, disabled }) {
   const [show, setShow] = React.useState(false);
   return (
     <div className="password-field">
       <input
+        id={id}
         className="form-control"
         type={show ? "text" : "password"}
         value={value}
@@ -464,49 +465,72 @@ export function AdminUsers({ user: currentUser }) {
                 : "Isi data akun berikut, tentukan role-nya, lalu klik Tambah Pengguna."}
             </p>
           </div>
-          {editing && <span className="user-form-mode">Mode Ubah</span>}
+          <span className={`user-form-mode${editing ? "" : " is-create"}`}>
+            {editing ? "Mengedit akun" : "Akun baru"}
+          </span>
         </div>
 
         <form onSubmit={submit} className="user-form-body">
-          <div className="user-form-grid">
-            <div className="form-group">
-              <label>Nama Lengkap</label>
-              <input className="form-control" value={form.nama} onChange={set("nama")} placeholder="Contoh: Budi Santoso" required />
+          <section className="user-form-section" aria-labelledby="user-info-heading">
+            <div className="user-form-section-head">
+              <span className="user-form-step">01</span>
+              <div>
+                <h4 id="user-info-heading">Informasi akun</h4>
+                <p>Lengkapi identitas dan akses masuk pengguna.</p>
+              </div>
             </div>
-            <div className="form-group">
-              <label>Email</label>
-              <input className="form-control" type="email" value={form.email} onChange={set("email")} placeholder="nama@email.com" required />
+            <div className="user-form-grid">
+              <div className="form-group">
+                <label htmlFor="user-form-name">Nama lengkap</label>
+                <input id="user-form-name" className="form-control" value={form.nama} onChange={set("nama")} placeholder="Contoh: Budi Santoso" autoComplete="name" required />
+              </div>
+              <div className="form-group">
+                <label htmlFor="user-form-email">Alamat email</label>
+                <input id="user-form-email" className="form-control" type="email" value={form.email} onChange={set("email")} placeholder="nama@email.com" autoComplete="email" required />
+              </div>
+              <div className="form-group user-form-password">
+                <label htmlFor="user-form-password">
+                  Password
+                  {editing && <span className="label-hint">kosongkan bila tetap</span>}
+                </label>
+                <PasswordField
+                  value={form.password}
+                  onChange={set("password")}
+                  placeholder={editing ? "Biarkan kosong untuk tetap" : "Minimal 6 karakter"}
+                />
+                {!editing && <span className="user-field-hint">Gunakan minimal 6 karakter.</span>}
+              </div>
             </div>
-            <div className="form-group">
-              <label>
-                Password
-                {editing && <span className="label-hint">kosongkan bila tetap</span>}
-              </label>
-              <PasswordField
-                value={form.password}
-                onChange={set("password")}
-                placeholder={editing ? "••••••••" : "Minimal 6 karakter"}
-              />
+          </section>
+
+          <section className="user-form-section user-role-section" aria-labelledby="user-role-heading">
+            <div className="user-form-section-head">
+              <span className="user-form-step">02</span>
+              <div>
+                <h4 id="user-role-heading">Pilih hak akses</h4>
+                <p>Tentukan apa saja yang boleh dilakukan akun ini.</p>
+              </div>
             </div>
-            <div className="form-group">
-              <label>Role</label>
-              <Dropdown
-                value={form.role}
-                onChange={requestFormRole}
-                options={[
-                  { value: "user", label: "User (lihat saja)" },
-                  { value: "user_entry", label: "User Entry (input sesuai tugas)" },
-                  { value: "admin", label: "Admin (kontrol penuh)" },
-                ]}
-              />
-              <p
-                className="role-hint"
-                style={{ background: ROLE_INFO[form.role].ring, color: ROLE_INFO[form.role].text }}
-              >
-                {ROLE_INFO[form.role].desc}
-              </p>
+            <div className="user-role-options" role="group" aria-labelledby="user-role-heading">
+              {Object.entries(ROLE_INFO).map(([role, info], index) => (
+                <button
+                  key={role}
+                  className={`user-role-option${form.role === role ? " selected" : ""}`}
+                  type="button"
+                  aria-pressed={form.role === role}
+                  onClick={() => requestFormRole(role)}
+                  style={{ "--role-accent": info.text, "--role-soft": info.ring }}
+                >
+                  <span className="user-role-option-top">
+                    <span className="user-role-option-index">0{index + 1}</span>
+                    <span className="user-role-option-check" aria-hidden="true">{form.role === role ? "✓" : ""}</span>
+                  </span>
+                  <strong>{roleLabel(role)}</strong>
+                  <span className="user-role-option-desc">{info.desc}</span>
+                </button>
+              ))}
             </div>
-          </div>
+          </section>
 
           <div className="user-form-actions">
             {editing ? (
@@ -519,8 +543,8 @@ export function AdminUsers({ user: currentUser }) {
               </>
             ) : (
               <>
-                <span className="user-form-note">Minimal 6 karakter untuk password.</span>
-                <button className="btn" type="button" onClick={startCreate}>Kosongkan</button>
+                <span className="user-form-note">Role aktif: <b>{roleLabel(form.role)}</b></span>
+                <button className="btn user-form-reset" type="button" onClick={startCreate}>Reset form</button>
                 <button className="btn btn-primary" type="submit" disabled={saving}>
                   {saving ? "Menyimpan..." : "Tambah Pengguna"}
                 </button>
@@ -690,6 +714,7 @@ export function AdminUsers({ user: currentUser }) {
                 Masukkan password baru untuk akun ini. Password lama tidak diperlukan.
               </p>
               <PasswordField
+                id="user-form-password"
                 value={pwValue}
                 onChange={(e) => setPwValue(e.target.value)}
                 placeholder="Minimal 6 karakter"
