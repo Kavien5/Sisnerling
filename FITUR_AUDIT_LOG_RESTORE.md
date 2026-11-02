@@ -2,7 +2,7 @@
 
 ## 1. Tujuan Pengembangan
 
-Kembangkan halaman **Audit Log** pada SISNERLING menjadi sistem audit, pencadangan riwayat perubahan, dan pemulihan data yang memungkinkan Super Admin mengembalikan data ke kondisi sebelumnya apabila terjadi kesalahan pengeditan, penghapusan, atau pengolahan spreadsheet.
+Kembangkan halaman **Audit Log** pada SISNERLING menjadi sistem audit, pencadangan riwayat perubahan, dan pemulihan data yang memungkinkan Admin mengembalikan data ke kondisi sebelumnya apabila terjadi kesalahan pengeditan, penghapusan, atau pengolahan spreadsheet.
 
 Sistem harus bekerja seperti fitur **Undo/Redo (Ctrl+Z dan Ctrl+Y)**, tetapi dapat digunakan untuk memulihkan perubahan yang sudah tersimpan di database, termasuk perubahan yang dilakukan pengguna lain.
 
@@ -39,7 +39,7 @@ Buat mekanisme penyimpanan riwayat secara terpisah dari audit log aktif.
 
 Ketentuan:
 - Riwayat yang disimpan tidak ikut terhapus oleh proses pembersihan otomatis.
-- Super Admin dapat melihat, mencari, memfilter, dan mengunduh riwayat yang diarsipkan.
+- Admin dapat melihat, mencari, memfilter, dan mengunduh riwayat yang diarsipkan.
 - Sediakan tindakan untuk mengarsipkan satu log maupun beberapa log sekaligus.
 - Sediakan fitur pengembalian arsip ke tampilan riwayat aktif jika diperlukan.
 - Arsip harus tetap mengikuti aturan keamanan dan hak akses sistem.
@@ -58,8 +58,8 @@ Contoh kasus:
 1. User mengedit 50 baris data statistik secara tidak sengaja.
 2. Perubahan tersimpan di database.
 3. Sistem merekam data sebelum dan sesudah pengeditan.
-4. Super Admin membuka Audit Log dan memilih aktivitas tersebut.
-5. Super Admin menekan tombol **Restore**.
+4. Admin membuka Audit Log dan memilih aktivitas tersebut.
+5. Admin menekan tombol **Restore**.
 6. Sistem menampilkan pratinjau perubahan yang akan dibatalkan.
 7. Setelah dikonfirmasi, sistem mengembalikan data ke kondisi sebelumnya.
 
@@ -163,7 +163,7 @@ Ketentuan:
 
 ### 5.3. Arsip Audit
 
-Menyimpan log yang secara eksplisit dipertahankan oleh Super Admin.
+Menyimpan log yang secara eksplisit dipertahankan oleh Admin.
 
 Arsip audit dapat memuat metadata aktivitas dan referensi ke versi data terkait, tanpa harus menduplikasi seluruh snapshot apabila tidak diperlukan.
 
@@ -175,7 +175,7 @@ Restore merupakan tindakan yang mengubah data produksi sehingga harus memiliki p
 
 ### 6.1. Hak Akses
 
-- Hanya akun dengan role `super_admin` yang boleh menjalankan restore.
+- Hanya akun dengan role `admin` yang boleh menjalankan restore.
 - Backend wajib memverifikasi hak akses pada setiap endpoint restore.
 - Menyembunyikan tombol di frontend tidak cukup untuk mengamankan endpoint.
 - Semua permintaan restore harus memeriksa autentikasi dan otorisasi.
@@ -195,11 +195,11 @@ Contoh:
 
 1. User A mengubah nilai dari 100 menjadi 200.
 2. User B mengubah nilai dari 200 menjadi 300.
-3. Super Admin mencoba membatalkan perubahan User A.
+3. Admin mencoba membatalkan perubahan User A.
 
 Sistem tidak boleh langsung mengganti nilai 300 menjadi 100 tanpa memeriksa perubahan setelahnya.
 
-Tampilkan peringatan konflik dan minta Super Admin meninjau kondisi terbaru sebelum melanjutkan.
+Tampilkan peringatan konflik dan minta Admin meninjau kondisi terbaru sebelum melanjutkan.
 
 Gunakan mekanisme versioning, optimistic locking, atau pemeriksaan nilai yang sesuai dengan arsitektur aplikasi.
 
@@ -298,11 +298,11 @@ Hindari mengandalkan `setTimeout` pada frontend atau proses yang hanya berjalan 
 
 Uji skenario berikut sebelum fitur dianggap selesai:
 
-1. User mengedit satu sel spreadsheet, kemudian Super Admin berhasil memulihkannya.
+1. User mengedit satu sel spreadsheet, kemudian Admin berhasil memulihkannya.
 2. User mengedit banyak sel sekaligus, kemudian seluruh perubahan dapat dipulihkan.
 3. User menghapus beberapa record, kemudian data kembali secara utuh.
 4. User mengimpor file Excel, kemudian hasil import dapat dibatalkan sesuai batasan yang ditetapkan.
-5. Super Admin mengarsipkan log, lalu log tetap tersedia setelah 72 jam.
+5. Admin mengarsipkan log, lalu log tetap tersedia setelah 72 jam.
 6. Log aktif yang sudah kedaluwarsa dibersihkan secara otomatis.
 7. Snapshot pemulihan tetap tersedia setelah log aktif dihapus.
 8. Pengguna biasa dan admin biasa tidak dapat menjalankan restore melalui API.
@@ -374,7 +374,7 @@ Fitur dianggap selesai apabila:
 - Audit Log aktif kedaluwarsa secara otomatis setelah 72 jam sesuai kebijakan.
 - Pengguna menerima peringatan sebelum log kedaluwarsa.
 - Riwayat penting dapat disimpan dan tetap diakses.
-- Super Admin dapat memulihkan data yang sudah tersimpan ke kondisi sebelumnya.
+- Admin dapat memulihkan data yang sudah tersimpan ke kondisi sebelumnya.
 - Spreadsheet Statistik, input dan pengolahan Neraca Fisik, Neraca Moneter, serta import Excel dapat dipulihkan sesuai cakupan implementasi.
 - Pemulihan data tidak menimpa perubahan terbaru tanpa pemeriksaan konflik.
 - Seluruh tindakan pemulihan tercatat dalam Audit Log.

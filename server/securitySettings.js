@@ -1,6 +1,6 @@
 const { pool } = require("./db");
 
-// Nilai bawaan bila Super Admin belum pernah menyimpan pengaturan.
+// Nilai bawaan bila Admin belum pernah menyimpan pengaturan.
 const DEFAULTS = {
   session_ttl_days: 7,
   password_min_length: 6,

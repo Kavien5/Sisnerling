@@ -25,7 +25,7 @@ import Modal from "./Modal.jsx";
 import Logo from "./Logo.jsx";
 import ProfileModal from "./ProfileModal.jsx";
 import { useToast } from "./Toast.jsx";
-import { roleLabel, isSuperAdmin } from "../auth.js";
+import { roleLabel, isAdmin } from "../auth.js";
 
 const NERACA_ICONS = {
   hutan: ({ size = 20 }) => (
@@ -570,8 +570,8 @@ function fmtTanggalSidebar(value) {
 
 const ROLE_CHIP = {
   user: { background: "#eef2ff", color: "#4338ca" },
-  admin: { background: "#ecfdf5", color: "#047857" },
-  super_admin: { background: "#fef3c7", color: "#b45309" },
+  user_entry: { background: "#ecfdf5", color: "#047857" },
+  admin: { background: "#fef3c7", color: "#b45309" },
 };
 
 function RoleChip({ role, style }) {
@@ -1057,7 +1057,7 @@ export default function Layout({ page, setPage, children, importedFiles, user, o
           {renderLeaf({ key: "laporan", label: "Laporan", icon: IconFileText })}
           {renderLeaf({ key: "panduan", label: "Panduan", icon: IconBox })}
           {renderLeaf({ key: "audit-log", label: "Audit Log", icon: IconHistory })}
-          {isSuperAdmin(user) && (
+          {isAdmin(user) && (
             <>
               <div className="nav-section-label">Pengelolaan</div>
               {renderLeaf({ key: "admin-users", label: "User & Admin", icon: IconDatabase })}
@@ -1089,13 +1089,13 @@ export default function Layout({ page, setPage, children, importedFiles, user, o
       </aside>
 
       <div className="main-area">
-        {maintenance?.active && isSuperAdmin(user) && (
+        {maintenance?.active && isAdmin(user) && (
           <div className="maint-top-banner" role="alert">
             <span className="maint-top-dot" />
             <div className="maint-top-text">
               <strong>Maintenance AKTIF{maintenance?.title ? `: ${maintenance.title}` : ""}</strong>
               <span>
-                User &amp; Admin sedang diblokir.
+                User &amp; User Entry sedang diblokir.
                 {maintenance?.end_at
                   ? ` Perkiraan selesai: ${new Date(maintenance.end_at).toLocaleString("id-ID")}.`
                   : " Belum ada jadwal selesai."}

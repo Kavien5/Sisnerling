@@ -9,7 +9,7 @@ const router = express.Router();
 
 // Autentikasi sudah diwajibkan oleh middleware /api di server.js. Jangan
 // membatasi daftar ringkasan berdasarkan nama role: semua pengguna login dapat
-// membacanya, sementara endpoint detail dan pengelolaan tetap khusus Super Admin.
+// membacanya, sementara endpoint detail dan pengelolaan tetap khusus admin.
 
 const MAX_PER_PAGE = 100;
 const RETENTION_HOURS = 72; // Kebijakan retensi 3 hari (72 jam)
@@ -40,7 +40,7 @@ function badRestoreSelection(message) {
 }
 
 // ===== Metadata untuk filter dropdown (user, action, module) & info retensi =====
-router.get("/meta", requireRole("super_admin"), async (_req, res, next) => {
+router.get("/meta", requireRole("admin"), async (_req, res, next) => {
   try {
     const [users] = await pool.query(
       `SELECT u.id, u.nama, u.email, u.role FROM users u ORDER BY u.nama ASC`
@@ -66,7 +66,7 @@ router.get("/meta", requireRole("super_admin"), async (_req, res, next) => {
 });
 
 // ===== Status Retensi & Peringatan Kedaluwarsa =====
-router.get("/retention-status", requireRole("super_admin"), async (_req, res, next) => {
+router.get("/retention-status", requireRole("admin"), async (_req, res, next) => {
   try {
     // Total aktif (belum diarsipkan)
     const [[{ total_active }]] = await pool.query(
@@ -180,11 +180,11 @@ router.get("/logs", async (req, res, next) => {
       [...params, perPage, (page - 1) * perPage]
     );
 
-    const isSuperAdmin = req.user.role === "super_admin";
+    const isAdmin = req.user.role === "admin";
     const processedRows = rows.map((r) => {
       const oldD = normalizeJson(r.old_data);
       const newD = normalizeJson(r.new_data);
-      if (!isSuperAdmin) {
+      if (!isAdmin) {
         return {
           id: r.id,
           action: r.action,
@@ -222,7 +222,7 @@ router.get("/logs", async (req, res, next) => {
   }
 });
 
-router.put("/logs/:id/saved", requireRole("super_admin"), async (req, res, next) => {
+router.put("/logs/:id/saved", requireRole("admin"), async (req, res, next) => {
   try {
     if (!/^\d+$/.test(String(req.params.id)) || Number(req.params.id) < 1) {
       return res.status(400).json({ error: "ID log tidak valid" });
@@ -244,7 +244,7 @@ router.put("/logs/:id/saved", requireRole("super_admin"), async (req, res, next)
   }
 });
 
-router.delete("/logs/:id", requireRole("super_admin"), async (req, res, next) => {
+router.delete("/logs/:id", requireRole("admin"), async (req, res, next) => {
   try {
     if (!/^\d+$/.test(String(req.params.id)) || Number(req.params.id) < 1) {
       return res.status(400).json({ error: "ID log tidak valid" });
@@ -260,7 +260,7 @@ router.delete("/logs/:id", requireRole("super_admin"), async (req, res, next) =>
 });
 
 // ===== Detail satu log =====
-router.get("/logs/:id", requireRole("super_admin"), async (req, res, next) => {
+router.get("/logs/:id", requireRole("admin"), async (req, res, next) => {
   try {
     const [[row]] = await pool.query(
       `SELECT al.*, u.nama AS nama_user, u.email AS email_user, u.role AS role_user,
@@ -287,7 +287,7 @@ router.get("/logs/:id", requireRole("super_admin"), async (req, res, next) => {
 });
 
 // ===== Simpan Riwayat (Arsipkan satu log) =====
-router.post("/logs/:id/archive", requireRole("super_admin"), async (req, res, next) => {
+router.post("/logs/:id/archive", requireRole("admin"), async (req, res, next) => {
   try {
     const logId = Number(req.params.id);
     const [[log]] = await pool.query("SELECT * FROM audit_logs WHERE id = ?", [logId]);
@@ -305,7 +305,7 @@ router.post("/logs/:id/archive", requireRole("super_admin"), async (req, res, ne
 });
 
 // ===== Kembalikan ke Riwayat Aktif (Batal Arsip) =====
-router.post("/logs/:id/unarchive", requireRole("super_admin"), async (req, res, next) => {
+router.post("/logs/:id/unarchive", requireRole("admin"), async (req, res, next) => {
   try {
     const logId = Number(req.params.id);
     const [[log]] = await pool.query("SELECT * FROM audit_logs WHERE id = ?", [logId]);
@@ -323,7 +323,7 @@ router.post("/logs/:id/unarchive", requireRole("super_admin"), async (req, res, 
 });
 
 // ===== Arsipkan Sekaligus (Batch Archive) =====
-router.post("/logs/batch-archive", requireRole("super_admin"), async (req, res, next) => {
+router.post("/logs/batch-archive", requireRole("admin"), async (req, res, next) => {
   try {
     const ids = Array.isArray(req.body.ids) ? req.body.ids.map(Number).filter(Boolean) : [];
     if (!ids.length) return res.status(400).json({ error: "Pilih setidaknya satu riwayat untuk diarsipkan" });
@@ -340,7 +340,7 @@ router.post("/logs/batch-archive", requireRole("super_admin"), async (req, res, 
 });
 
 // ===== Arsipkan Semua Riwayat yang Akan Kedaluwarsa (<24 jam) =====
-router.post("/archive-expiring", requireRole("super_admin"), async (req, res, next) => {
+router.post("/archive-expiring", requireRole("admin"), async (req, res, next) => {
   try {
     const [r] = await pool.query(
       `UPDATE audit_logs SET is_archived = 1, archived_at = NOW(), archived_by = ?
@@ -379,7 +379,7 @@ async function purgeExpiredAuditLogs() {
   }
 }
 
-router.post("/cleanup-expired", requireRole("super_admin"), async (_req, res, next) => {
+router.post("/cleanup-expired", requireRole("admin"), async (_req, res, next) => {
   try {
     const deleted = await purgeExpiredAuditLogs();
     res.json({ message: `Pembersihan selesai. ${deleted} log kedaluwarsa dibersihkan.`, deleted });
@@ -389,7 +389,7 @@ router.post("/cleanup-expired", requireRole("super_admin"), async (_req, res, ne
 });
 
 // ===== Pratinjau Restore (3 Kolom: Field | Nilai Saat Ini | Nilai Setelah Restore + Deteksi Konflik) =====
-router.get("/logs/:id/restore-preview", requireRole("super_admin"), async (req, res, next) => {
+router.get("/logs/:id/restore-preview", requireRole("admin"), async (req, res, next) => {
   try {
     const logId = Number(req.params.id);
     const [[log]] = await pool.query(
@@ -625,7 +625,7 @@ router.get("/logs/:id/restore-preview", requireRole("super_admin"), async (req, 
 });
 
 // ===== Eksekusi Restore (Undo / Pemulihan Data Nyata ke Database) =====
-router.post("/logs/:id/restore", requireRole("super_admin"), async (req, res, next) => {
+router.post("/logs/:id/restore", requireRole("admin"), async (req, res, next) => {
   const connection = await pool.getConnection();
   try {
     const logId = Number(req.params.id);

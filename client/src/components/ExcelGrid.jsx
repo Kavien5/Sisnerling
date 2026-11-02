@@ -920,7 +920,7 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
     return m;
   }, [rangeHighlights, rows.length, allKeys]);
 
-  // Sel terkunci oleh penugasan Super Admin: tidak bisa diedit, tapi tetap
+  // Sel terkunci oleh penugasan Admin: tidak bisa diedit, tapi tetap
   // bisa dipilih dan dibaca. Koordinat 0-based (baris, indeks kolom).
   const isCellLocked = React.useCallback(
     (r, key) => {

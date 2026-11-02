@@ -42,7 +42,7 @@ export default function AssignmentProgressCharts({ user }) {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState("");
   const [detail, setDetail] = React.useState(null);
-  const isSuper = !!(user && user.role === "super_admin");
+  const isAdmin = !!(user && user.role === "admin");
 
   const load = React.useCallback(async () => {
     try {
@@ -250,7 +250,7 @@ export default function AssignmentProgressCharts({ user }) {
 
       <div className="card apg-card">
         <div className="card-header">
-          <h2>Progres Penugasan Admin{isSuper ? "" : " (Anda)"}</h2>
+          <h2>Progres Penugasan User Entry{isAdmin ? "" : " (Anda)"}</h2>
           <div className="apg-head-actions">
             <span className="apg-hint">Klik batang untuk melihat detail</span>
             <button type="button" className="btn btn-sm" onClick={load} title="Muat ulang progres">↻</button>

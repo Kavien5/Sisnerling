@@ -5,7 +5,7 @@
 //   workbook_key, sheet_id, koordinat (r1,c1,r2,c2) pada sheet ASLI.
 // - Resolusi memakai aturan "paling spesifik menang":
 //   workbook (1) < sheet (2) < kolom/baris (3) < range (4) < cell (5).
-// - Super Admin tidak pernah dibatasi.
+// - Admin tidak pernah dibatasi.
 
 const LEVELS = ["workbook", "sheet", "column", "row", "range", "cell"];
 

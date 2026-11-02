@@ -138,11 +138,30 @@ async function initDatabase() {
   );
   if (Number(colRole.n) === 0) {
     await admin.query(
-      "ALTER TABLE users ADD COLUMN role ENUM('user','admin','super_admin') NOT NULL DEFAULT 'user' AFTER email"
+      "ALTER TABLE users ADD COLUMN role ENUM('user','user_entry','admin') NOT NULL DEFAULT 'user' AFTER email"
+    );
+  }
+  // Migrasikan role lama satu kali: admin lama menjadi penginput (user_entry),
+  // sedangkan super_admin menjadi admin dengan kontrol penuh.
+  const [[roleColumn]] = await admin.query(
+    `SELECT column_type FROM information_schema.columns
+     WHERE table_schema = DATABASE() AND table_name = 'users' AND column_name = 'role'`
+  );
+  const roleColumnType = String(roleColumn.column_type).toLowerCase();
+  if (roleColumnType.includes("super_admin")) {
+    await admin.query(
+      "ALTER TABLE users MODIFY COLUMN role ENUM('user','admin','super_admin','user_entry') NOT NULL DEFAULT 'user'"
+    );
+    await admin.query("UPDATE users SET role = 'user_entry' WHERE role = 'admin'");
+    await admin.query("UPDATE users SET role = 'admin' WHERE role = 'super_admin'");
+  }
+  if (roleColumnType !== "enum('user','user_entry','admin')") {
+    await admin.query(
+      "ALTER TABLE users MODIFY COLUMN role ENUM('user','user_entry','admin') NOT NULL DEFAULT 'user'"
     );
   }
 
-  // ---- Kolom password_plain: menyimpan password teks-biasa agar Super Admin
+  // ---- Kolom password_plain: menyimpan password teks-biasa agar admin
   // bisa melihatnya di halaman Manajemen User & Admin (idempoten) ----
   const [[colPwPlain]] = await admin.query(
     `SELECT COUNT(*) AS n FROM information_schema.columns
@@ -205,7 +224,7 @@ async function initDatabase() {
     "ALTER TABLE admin_table_permissions ADD COLUMN kolom_izin JSON NULL AFTER can_edit");
   await ensureCol("admin_table_permissions", "baris_izin",
     "ALTER TABLE admin_table_permissions ADD COLUMN baris_izin JSON NULL AFTER kolom_izin");
-  // Asal baris izin: 'manual' (dibuat Super Admin di tabel izin lama) atau
+  // Asal baris izin: 'manual' (dibuat Admin di tabel izin lama) atau
   // 'scope' (dibuat otomatis oleh sistem aturan cakupan). Dipakai UI agar
   // baris yang sudah tak punya aturan induknya terlihat berbeda.
   await ensureCol("admin_table_permissions", "asal",
@@ -379,26 +398,26 @@ async function initDatabase() {
     KEY idx_ars_created (created_at)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
 
-  // ---- Seed SUPER ADMIN (hanya bila variabel env diset & belum ada) ----
+  // ---- Seed admin (variabel env lama dipertahankan agar konfigurasi tetap kompatibel) ----
   const seedEmail = (process.env.SEED_SUPER_ADMIN_EMAIL || "").trim().toLowerCase();
   const seedPass = process.env.SEED_SUPER_ADMIN_PASSWORD || "";
   if (seedEmail && seedPass) {
-    const [[superCount]] = await admin.query(
-      `SELECT COUNT(*) AS n FROM users WHERE role = 'super_admin'`
+    const [[adminCount]] = await admin.query(
+      `SELECT COUNT(*) AS n FROM users WHERE role = 'admin'`
     );
-    if (Number(superCount.n) === 0) {
+    if (Number(adminCount.n) === 0) {
       const [[dup]] = await admin.query("SELECT id FROM users WHERE email = ?", [seedEmail]);
-      const nama = (process.env.SEED_SUPER_ADMIN_NAMA || "Super Admin").trim();
+      const nama = (process.env.SEED_SUPER_ADMIN_NAMA || "Admin").trim();
       const hash = await bcrypt.hash(seedPass, 10);
       if (dup) {
-        await admin.query("UPDATE users SET role = 'super_admin', password_hash = ?, password_plain = ? WHERE id = ?", [hash, seedPass, dup.id]);
+        await admin.query("UPDATE users SET role = 'admin', password_hash = ?, password_plain = ? WHERE id = ?", [hash, seedPass, dup.id]);
       } else {
         await admin.query(
-          "INSERT INTO users (nama, email, password_hash, password_plain, role) VALUES (?, ?, ?, ?, 'super_admin')",
+          "INSERT INTO users (nama, email, password_hash, password_plain, role) VALUES (?, ?, ?, ?, 'admin')",
           [nama, seedEmail, hash, seedPass]
         );
       }
-      console.log(`Super Admin siap: ${seedEmail} (via SEED_* env)`);
+      console.log(`Admin siap: ${seedEmail} (via SEED_* env)`);
     }
   }
 

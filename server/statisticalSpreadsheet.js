@@ -875,8 +875,8 @@ async function createStatisticalRouter({ pool: db = pool } = {}) {
 
   router.get("/formula/history", async (req, res, next) => {
     try {
-      if (req.user.role !== "super_admin") {
-        return res.status(403).json({ error: "Hanya Super Admin yang dapat melihat riwayat rumus" });
+      if (req.user.role !== "admin") {
+        return res.status(403).json({ error: "Hanya admin yang dapat melihat riwayat rumus" });
       }
       const sheetId = Number(req.query.sheet_id);
       const rowNo = Number(req.query.row);
@@ -1048,8 +1048,8 @@ async function createStatisticalRouter({ pool: db = pool } = {}) {
   router.put("/formula", async (req, res, next) => {
     const connection = await db.getConnection();
     try {
-      if (req.user.role !== "super_admin") {
-        return res.status(403).json({ error: "Hanya Super Admin yang dapat mengubah rumus" });
+      if (req.user.role !== "admin") {
+        return res.status(403).json({ error: "Hanya admin yang dapat mengubah rumus" });
       }
       const sheetId = Number(req.body && req.body.sheet_id);
       const rowNo = Number(req.body && req.body.row);
@@ -1202,8 +1202,8 @@ async function createStatisticalRouter({ pool: db = pool } = {}) {
         [req.params.moduleKey]
       );
       if (!module) return res.status(404).json({ error: "Modul statistik tidak ditemukan" });
-      if (req.user.role !== "super_admin") {
-        return res.status(403).json({ error: "Hanya Super Admin yang dapat mengubah struktur tahun" });
+      if (req.user.role !== "admin") {
+        return res.status(403).json({ error: "Hanya admin yang dapat mengubah struktur tahun" });
       }
       const sheetId = Number(req.params.sheetId);
       if (!Number.isSafeInteger(sheetId) || sheetId < 1) {
@@ -1396,8 +1396,8 @@ async function createStatisticalRouter({ pool: db = pool } = {}) {
   router.post("/modules/:moduleKey/reset", async (req, res, next) => {
     const connection = await db.getConnection();
     try {
-      if (req.user.role !== "super_admin") {
-        return res.status(403).json({ error: "Hanya Super Admin yang dapat mereset angka modul" });
+      if (req.user.role !== "admin") {
+        return res.status(403).json({ error: "Hanya admin yang dapat mereset angka modul" });
       }
       await connection.beginTransaction();
       await connection.query(

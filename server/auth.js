@@ -17,9 +17,7 @@ const publicUser = (u) => ({
 });
 
 // ---- RBAC ----
-const ROLES = ["user", "admin", "super_admin"];
-
-// Middleware proteksi berbasis peran. Contoh: requireRole("admin", "super_admin")
+// Middleware proteksi berbasis peran. Contoh: requireRole("user_entry", "admin")
 function requireRole(...roles) {
   return (req, res, next) => {
     const r = req.user ? req.user.role : null;
@@ -52,10 +50,10 @@ async function isMaintenanceActive() {
   }
 }
 
-// Middleware maintenance: user biasa & admin diblokir API; super_admin tetap jalan.
+// Maintenance hanya memblokir user dan user entry; admin tetap memiliki akses penuh.
 async function maintenanceGuard(req, res, next) {
   try {
-    if (req.user && req.user.role === "super_admin") return next();
+    if (req.user && req.user.role === "admin") return next();
     const maint = await isMaintenanceActive();
     if (maint) {
       return res.status(503).json({ error: "Sedang maintenance", maintenance: maint });
@@ -77,7 +75,7 @@ function hashToken(token) {
 
 async function createSession(userId) {
   // Buang sesi lama user yang sudah kedaluwarsa, lalu buat token baru.
-  // Durasi berlaku mengikuti pengaturan Super Admin (Keamanan & Sesi).
+  // Durasi berlaku mengikuti pengaturan Admin (Keamanan & Sesi).
   await pool.query("DELETE FROM sessions WHERE expires_at < NOW()");
   const { session_ttl_days } = await getSecuritySettings();
   const token = crypto.randomBytes(32).toString("hex");
@@ -107,7 +105,7 @@ router.post("/register", async (req, res, next) => {
     }
     if (password !== konfirmasi) return res.status(400).json({ error: "Konfirmasi password tidak cocok" });
 
-    // Jika Super Admin menonaktifkan registrasi terbuka, pendaftaran ditolak.
+    // Jika admin menonaktifkan registrasi terbuka, pendaftaran ditolak.
     // Catatan: kolom JSON ter-parse otomatis oleh mysql2 (boolean true/false).
     const [[regSetting]] = await pool.query("SELECT svalue FROM app_settings WHERE skey = 'allow_register'");
     let allowReg = true;
@@ -120,7 +118,7 @@ router.post("/register", async (req, res, next) => {
       }
     }
     if (!allowReg) {
-      return res.status(403).json({ error: "Pendaftaran terbuka dinonaktifkan. Hubungi Super Admin untuk membuat akun." });
+      return res.status(403).json({ error: "Pendaftaran terbuka dinonaktifkan. Hubungi admin untuk membuat akun." });
     }
 
     const [[existing]] = await pool.query("SELECT id FROM users WHERE email = ?", [email]);
@@ -339,7 +337,13 @@ router.put("/profile", authRequired, async (req, res, next) => {
 router.delete("/account", authRequired, async (req, res, next) => {
   try {
     const uid = req.user.id;
-    const [[row]] = await pool.query("SELECT nama, email FROM users WHERE id = ?", [uid]);
+    const [[row]] = await pool.query("SELECT nama, email, role FROM users WHERE id = ?", [uid]);
+    if (row && row.role === "admin") {
+      const [[{ n }]] = await pool.query("SELECT COUNT(*) AS n FROM users WHERE role = 'admin'");
+      if (Number(n) <= 1) {
+        return res.status(400).json({ error: "Admin terakhir tidak dapat menghapus akunnya sendiri" });
+      }
+    }
     logAudit({
       userId: uid,
       action: "delete",

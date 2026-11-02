@@ -156,7 +156,7 @@ function buildDiffRows(oldObj, newObj) {
 const PER_PAGE_OPTIONS = [10, 20, 50, 100];
 
 export default function AuditLogs({ user }) {
-  if (user?.role !== "super_admin") return <ReadOnlyAuditLogs />;
+  if (user?.role !== "admin") return <ReadOnlyAuditLogs />;
   return <SuperAdminAuditLogs user={user} />;
 }
 
@@ -703,7 +703,7 @@ function SuperAdminAuditLogs({ user }) {
               <div style={{ background: "#ffffff", padding: 12, borderRadius: 8, border: "1px solid #e2e8f0" }}>
                 <strong style={{ color: "#b45309", display: "block", marginBottom: 4 }}>3. Pemulihan Data (Restore / Undo)</strong>
                 <p style={{ margin: 0, fontSize: 12, color: "#475569" }}>
-                  Super Admin dapat menekan tombol <strong>Restore</strong> untuk memilih field yang ingin dikembalikan (Data Barang, Neraca, Spreadsheet Statistik, Kategori), lengkap dengan pratinjau nilai dan deteksi konflik. Aksi tambah/hapus dipulihkan sebagai satu kesatuan.
+                  Admin dapat menekan tombol <strong>Restore</strong> untuk memilih field yang ingin dikembalikan (Data Barang, Neraca, Spreadsheet Statistik, Kategori), lengkap dengan pratinjau nilai dan deteksi konflik. Aksi tambah/hapus dipulihkan sebagai satu kesatuan.
                 </p>
               </div>
               <div style={{ background: "#ffffff", padding: 12, borderRadius: 8, border: "1px solid #e2e8f0" }}>

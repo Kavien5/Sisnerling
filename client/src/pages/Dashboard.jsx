@@ -55,7 +55,7 @@ export default function Dashboard({ user }) {
 
       <SpreadsheetCharts />
 
-      {user && (user.role === "admin" || user.role === "super_admin") && (
+      {user && (user.role === "user_entry" || user.role === "admin") && (
         <AssignmentProgressCharts user={user} />
       )}
 

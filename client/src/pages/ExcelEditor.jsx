@@ -2,7 +2,7 @@ import React from "react";
 import * as XLSX from "xlsx-js-style";
 import { useToast } from "../components/Toast.jsx";
 import { api } from "../api.js";
-import { getUser, isSuperAdmin } from "../auth.js";
+import { getUser, isAdmin } from "../auth.js";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -1557,7 +1557,7 @@ export default function ExcelEditor({ importedFiles = [], onFilesChanged, readOn
       )
     : [];
 
-  // ===== Lock/Unlock dari Super Admin (halaman Spreadsheet) =====
+  // ===== Lock/Unlock dari Admin (halaman Spreadsheet) =====
   // Aturan diambil dari server memakai koordinat sheet ASLI. Resolusi
   // "paling spesifik menang": workbook < sheet < kolom/baris < range < cell.
   const [lockRules, setLockRules] = React.useState([]);
@@ -1567,7 +1567,7 @@ export default function ExcelEditor({ importedFiles = [], onFilesChanged, readOn
   React.useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      if (isSuperAdmin(getUser())) { setLockRules([]); return; }
+      if (isAdmin(getUser())) { setLockRules([]); return; }
       // Workbook belum siap (halaman ini tampil sebelum file selesai dimuat):
       // jangan pakai aturan apa pun daripada menampilkan sheet yang terkunci
       // karena workbook-level rule yang kebetulan cocok dengan key kosong.
@@ -1590,7 +1590,7 @@ export default function ExcelEditor({ importedFiles = [], onFilesChanged, readOn
   }, [activeFile?.fileName, activeSheet?.name]);
 
   const lockHighlights = React.useMemo(() => {
-    if (isSuperAdmin(getUser()) || !lockRules.length || !activeSheet) return null;
+    if (isAdmin(getUser()) || !lockRules.length || !activeSheet) return null;
     const nRows = activeSheet.rows.length;
     const nCols = activeSheet.columns.length;
     const out = [];
@@ -1623,7 +1623,7 @@ export default function ExcelEditor({ importedFiles = [], onFilesChanged, readOn
   }, [lockRules, activeSheet]);
 
   const handleLockedCell = React.useCallback((_r, _key) => {
-    toast("Sel ini terkunci oleh Super Admin", "error");
+    toast("Sel ini terkunci oleh Admin", "error");
   }, [toast]);
 
   // ===== Kolaborasi multi-user (Fase 2) =====
@@ -1680,7 +1680,7 @@ export default function ExcelEditor({ importedFiles = [], onFilesChanged, readOn
   };
 
   // Publikasikan file browser ke server agar muncul di halaman Penugasan Tabel.
-  const canPublish = !readOnly && isSuperAdmin(getUser());
+  const canPublish = !readOnly && isAdmin(getUser());
   const handlePublish = async () => {
     if (!importedFiles.length) {
       toast("Tidak ada file untuk dipublikasikan", "error");
@@ -2084,7 +2084,7 @@ onChart={() => setShowChart((v) => !v)}
       {showShare && (
         <ShareDialog
           shares={collab.shares}
-          canManage={isSuperAdmin(getUser())}
+          canManage={isAdmin(getUser())}
           onGrant={async (email, peran) => {
             await api.collabGrant(collab.workbookKey, { email, peran });
             await collab.refreshShares();
@@ -2106,7 +2106,7 @@ onChart={() => setShowChart((v) => !v)}
           sheetName={activeSheet?.name}
           revisions={collab.activeSheetLink ? collab.revisions : []}
           canWrite={collab.canWrite}
-          canRestore={collab.canWrite && (collabRole === "admin" || collabRole === "super_admin")}
+          canRestore={collab.canWrite && (collabRole === "user_entry" || collabRole === "admin")}
           onCreate={async () => {
             if (!collab.activeSheetLink) return;
             await api.collabCreateRevision(collab.activeSheetLink.sheetId);

@@ -16,7 +16,7 @@ import Register from "./pages/Register.jsx";
 import { AdminUsers, AdminTables, AdminMaintenance, AdminBackup, AdminSettings, MaintenancePage, AdminMaintenanceBlockedPage } from "./pages/AdminPages.jsx";
 import { loadFiles, saveFile, removeFile, generateId, clearAllFiles, hydrateFiles, enrichSheetNames } from "./excelStorage.js";
 import { api } from "./api.js";
-import { getToken, getUser, setAuth, clearAuth, updateStoredUser, isSuperAdmin, hasMaintenanceBypass, canEditData } from "./auth.js";
+import { getToken, getUser, setAuth, clearAuth, updateStoredUser, isAdmin, hasMaintenanceBypass, canEditData } from "./auth.js";
 
 export default function App() {
   const [page, setPage] = React.useState("spreadsheet");
@@ -50,13 +50,13 @@ export default function App() {
   // Pertahanan ekstra: halaman terbatas untuk role (hanya dieksekusi saat sudah login).
   React.useEffect(() => {
     if (user) {
-      if (!isSuperAdmin(user) && page.startsWith("admin-")) {
+      if (!isAdmin(user) && page.startsWith("admin-")) {
         setPage("dashboard");
       }
     }
   }, [page, user]);
 
-  // Apakah maintenance sedang aktif untuk pengguna ini (semua kecuali Super Admin).
+  // Apakah maintenance sedang aktif untuk pengguna ini (semua kecuali Admin).
   const maintenanceBlocking = !!(maintenance && maintenance.active && !hasMaintenanceBypass(user));
 
   // Validasi ulang sesi yang tersimpan pada saat aplikasi dibuka.
@@ -242,13 +242,13 @@ export default function App() {
     );
   }
 
-  // Saat maintenance aktif: User & Admin lihat halaman blokir baru per-role.
-  // Super Admin tidak diblokir (lihat banner di halaman utama via Layout).
+  // Saat maintenance aktif: User & User Entry melihat halaman blokir.
+  // Admin tidak diblokir (lihat banner di halaman utama via Layout).
   if (maintenanceBlocking) {
-    const isAdmin = user?.role === "admin";
+    const isUserEntry = user?.role === "user_entry";
     return (
       <ToastProvider>
-        {isAdmin ? (
+        {isUserEntry ? (
           <AdminMaintenanceBlockedPage maintenance={maintenance} user={user} onLogout={handleLogout} />
         ) : (
           <MaintenancePage maintenance={maintenance} user={user} onLogout={handleLogout} />
@@ -288,8 +288,9 @@ export default function App() {
             onRemove={handleRemoveFile}
             onRename={handleRenameFile}
             onImport={handleImport}
-            canImport={isSuperAdmin(user)}
-            canPublish={isSuperAdmin(user)}
+            canImport={isAdmin(user)}
+            canPublish={isAdmin(user)}
+            canManage={isAdmin(user)}
           />
         )}
         {page === "laporan" && <Laporan />}
@@ -305,11 +306,11 @@ export default function App() {
             onImportMore={() => setPage("files")}
           />
         )}
-        {isSuperAdmin(user) && page === "admin-users" && <AdminUsers user={user} />}
-        {isSuperAdmin(user) && page === "admin-tables" && <AdminTables />}
-        {isSuperAdmin(user) && page === "admin-maintenance" && <AdminMaintenance />}
-        {isSuperAdmin(user) && page === "admin-backup" && <AdminBackup />}
-        {isSuperAdmin(user) && page === "admin-settings" && <AdminSettings />}
+        {isAdmin(user) && page === "admin-users" && <AdminUsers user={user} />}
+        {isAdmin(user) && page === "admin-tables" && <AdminTables />}
+        {isAdmin(user) && page === "admin-maintenance" && <AdminMaintenance />}
+        {isAdmin(user) && page === "admin-backup" && <AdminBackup />}
+        {isAdmin(user) && page === "admin-settings" && <AdminSettings />}
       </Layout>
     </ToastProvider>
   );

@@ -115,7 +115,8 @@ async function logAudit({ userId, action, module = "system", description, record
 async function purgeExpiredAuditLogs() {
   const [result] = await pool.query(
     `DELETE FROM audit_logs
-     WHERE is_saved = 0 AND created_at < DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 3 DAY)`
+     WHERE is_archived = 0 AND is_saved = 0
+       AND created_at < DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 3 DAY)`
   );
   return result.affectedRows;
 }

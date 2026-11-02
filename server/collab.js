@@ -4,7 +4,7 @@
 //    dengan sistem penugasan lama (admin_table_permissions / scopes).
 //  - Operasi sel granular dengan optimistic locking (kolom versi).
 //  - Revisi snapshot per sheet (banding & pulihkan).
-// Pemetaan peran: super_admin = Admin, admin = Editor, user = Viewer.
+// Pemetaan peran: admin = akses penuh, user_entry = Editor, user = Viewer.
 // =====================================================================
 const express = require("express");
 const { pool } = require("./db");
@@ -50,7 +50,7 @@ async function sheetIdsOfWorkbook(workbookKey) {
 // Kembalian: { read, write, level: 'admin'|'editor'|'viewer'|null, via }
 async function getWorkbookAccess(user, workbookKey) {
   if (!user || !workbookKey) return { read: false, write: false, level: null, via: null };
-  if (user.role === "super_admin") {
+  if (user.role === "admin") {
     return { read: true, write: true, level: "admin", via: "role" };
   }
   const [[share]] = await pool.query(
@@ -62,8 +62,8 @@ async function getWorkbookAccess(user, workbookKey) {
       ? { read: true, write: true, level: "editor", via: "share" }
       : { read: true, write: false, level: "viewer", via: "share" };
   }
-  // Kompatibilitas: penugasan lama tetap berlaku untuk role admin.
-  if (user.role === "admin") {
+  // User Entry memperoleh akses edit dari penugasan yang sudah ada.
+  if (user.role === "user_entry") {
     const ids = await sheetIdsOfWorkbook(workbookKey);
     if (ids.length) {
       const ph = ids.map(() => "?").join(",");
@@ -194,7 +194,7 @@ async function applyCellOp(conn, { user, rowId, colKey, value, baseVersi = null 
   // lewat jalur ini; kolaborasi file menyasar baris ber-sheet.
   const wbKey = await resolveWorkbookKey({ sheetId: row.sheet_id });
   if (!wbKey) {
-    if (user.role !== "super_admin") {
+    if (user.role !== "admin") {
       return { error: "Baris ini bukan bagian dari file kolaborasi", status: 403 };
     }
   } else {
@@ -203,8 +203,8 @@ async function applyCellOp(conn, { user, rowId, colKey, value, baseVersi = null 
       return { error: "Anda tidak memiliki izin mengedit file ini", status: 403 };
     }
   }
-  // Aturan granular sheet (khusus role admin: kunci rumus & cakupan).
-  if (user.role === "admin") {
+  // Aturan granular sheet (khusus user entry: kunci rumus & cakupan).
+  if (user.role === "user_entry") {
     const curFm = parseJsonField(row.formulas) || {};
     if (curFm[key]) {
       return { error: "Cell berisi rumus (formula) terkunci dan tidak boleh diedit", status: 403 };
@@ -214,8 +214,8 @@ async function applyCellOp(conn, { user, rowId, colKey, value, baseVersi = null 
       if (!chk.ok) return { error: chk.reason || "Tidak ada izin pada bagian/kolom baris ini", status: 403 };
     }
   }
-  // Rumus hanya boleh diubah super_admin (konsisten dengan PUT /api/data).
-  if (user.role !== "super_admin" && typeof value === "string" && value.startsWith("=")) {
+  // Rumus hanya boleh diubah admin.
+  if (user.role !== "admin" && typeof value === "string" && value.startsWith("=")) {
     return { error: "Rumus (formula) tidak boleh diubah selain oleh Admin utama", status: 403 };
   }
 
@@ -339,7 +339,7 @@ function createCollabRouter() {
   });
 
   // Berikan akses (khusus Admin utama).
-  router.post("/files/:key/shares", requireRole("super_admin"), async (req, res, next) => {
+  router.post("/files/:key/shares", requireRole("admin"), async (req, res, next) => {
     try {
       const { user_id, email, peran } = req.body || {};
       if (!["viewer", "editor"].includes(peran)) {
@@ -370,7 +370,7 @@ function createCollabRouter() {
   });
 
   // Ubah peran akses (khusus Admin utama).
-  router.put("/files/:key/shares/:userId", requireRole("super_admin"), async (req, res, next) => {
+  router.put("/files/:key/shares/:userId", requireRole("admin"), async (req, res, next) => {
     try {
       const { peran } = req.body || {};
       if (!["viewer", "editor"].includes(peran)) {
@@ -393,7 +393,7 @@ function createCollabRouter() {
   });
 
   // Cabut akses (khusus Admin utama).
-  router.delete("/files/:key/shares/:userId", requireRole("super_admin"), async (req, res, next) => {
+  router.delete("/files/:key/shares/:userId", requireRole("admin"), async (req, res, next) => {
     try {
       const [r] = await pool.query(
         "DELETE FROM file_shares WHERE workbook_key = ? AND user_id = ?",
@@ -499,11 +499,11 @@ function createCollabRouter() {
 
       const body = req.body || {};
       const changed = Object.keys(body).filter((k) => !LOCKED_KEYS.has(k));
-      if (req.user.role === "admin" && rowWriteChecker) {
+      if (req.user.role === "user_entry" && rowWriteChecker) {
         const chk = await rowWriteChecker(req.user, null, changed, { sheetId, entry: true });
         if (!chk.ok) return res.status(403).json({ error: chk.reason || "Tidak ada izin entry pada file ini" });
       }
-      if (typeof body.nilai === "string" && body.nilai.startsWith("=") && req.user.role !== "super_admin") {
+      if (typeof body.nilai === "string" && body.nilai.startsWith("=") && req.user.role !== "admin") {
         return res.status(403).json({ error: "Rumus (formula) tidak boleh diubah selain oleh Admin utama" });
       }
 
@@ -579,7 +579,7 @@ function createCollabRouter() {
         await conn.rollback();
         return res.status(403).json({ error: "Anda tidak memiliki izin menghapus baris file ini" });
       }
-      if (req.user.role === "admin" && rowWriteChecker) {
+      if (req.user.role === "user_entry" && rowWriteChecker) {
         const chk = await rowWriteChecker(req.user, row, []);
         if (!chk.ok) {
           await conn.rollback();
@@ -681,9 +681,9 @@ function createCollabRouter() {
     }
   });
 
-  // Pulihkan sheet ke sebuah revisi (butuh akses tulis + peran admin/super_admin).
+  // Pulihkan sheet ke sebuah revisi (butuh akses tulis + peran user_entry/admin).
   // Keadaan berjalan diamankan dulu sebagai revisi baru sebelum diganti.
-  router.post("/revisions/:revId/pulihkan", requireRole("admin", "super_admin"), async (req, res, next) => {
+  router.post("/revisions/:revId/pulihkan", requireRole("user_entry", "admin"), async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
       const [[rev]] = await conn.query("SELECT * FROM sheet_revisions WHERE id = ?", [Number(req.params.revId)]);

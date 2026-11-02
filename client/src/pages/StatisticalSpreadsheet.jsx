@@ -576,7 +576,7 @@ export default function StatisticalSpreadsheet({ user }) {
   const [formulaEditor, setFormulaEditor] = React.useState(null);
   const selectedModule = modules.find((module) => module.key === moduleKey);
   const selectedSheet = selectedModule?.sheets.find((sheet) => sheet.id === sheetMeta?.id);
-  const canManage = user?.role === "super_admin";
+  const canManage = user?.role === "admin";
   const access = selectedModule?.access;
 
   const loadModules = React.useCallback(async () => {

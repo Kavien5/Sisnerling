@@ -175,7 +175,7 @@ function attachRealtime(httpServer) {
       const conn = await pool.getConnection();
       try {
         const maint = await isMaintenanceActive();
-        if (maint && user.role !== "super_admin") {
+        if (maint && user.role !== "admin") {
           if (ack) ack({ ok: false, error: "Sedang maintenance", status: 503 });
           return;
         }

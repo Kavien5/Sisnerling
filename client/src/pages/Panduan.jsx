@@ -1,5 +1,5 @@
 import React from "react";
-import { isSuperAdmin, roleLabel } from "../auth.js";
+import { isAdmin, roleLabel } from "../auth.js";
 
 const SECTIONS = [
   { id: "tentang", label: "1. Tentang Sistem & Peran Pengguna" },
@@ -7,11 +7,11 @@ const SECTIONS = [
   { id: "dashboard", label: "3. Dashboard" },
   { id: "spreadsheet", label: "4. Spreadsheet (Editor Data)" },
   { id: "file-terimport", label: "5. File Terimport" },
-  { id: "import-excel", label: "6. Import Excel (Super Admin)" },
+  { id: "import-excel", label: "6. Import Excel (Admin)" },
   { id: "hasil-import", label: "7. Hasil Import & Visualisasi" },
   { id: "laporan", label: "8. Laporan & Kategori" },
-  { id: "admin-user", label: "9. Kelola Akun & Role (Super Admin)" },
-  { id: "admin-tugas", label: "10. Penugasan Tabel ke Admin" },
+  { id: "admin-user", label: "9. Kelola Akun & Role (Admin)" },
+  { id: "admin-tugas", label: "10. Penugasan Tabel ke User Entry" },
   { id: "admin-maintenance", label: "11. Maintenance Mode" },
   { id: "admin-backup", label: "12. Backup & Restore" },
   { id: "admin-pengaturan", label: "13. Pengaturan Umum" },
@@ -87,19 +87,19 @@ export default function Panduan({ user }) {
                     <li>Tidak dapat mengubah atau mengisi data.</li>
                   </ul>
                 </div>
+                <div className="pd-role-card" data-role="user_entry">
+                  <div><b>User Entry</b></div>
+                  <ul>
+                    <li>Semua yang bisa dilakukan User.</li>
+                    <li>Dapat menginput dan mengubah data sesuai penugasan.</li>
+                    <li>Tidak dapat mengelola akun atau pengaturan sistem.</li>
+                  </ul>
+                </div>
                 <div className="pd-role-card" data-role="admin">
                   <div><b>Admin</b></div>
                   <ul>
-                    <li>Semua yang bisa dilakukan User.</li>
-                    <li>Entry &amp; edit data, tetapi <b>hanya pada tabel yang ditugaskan</b> kepadanya oleh Super Admin.</li>
-                    <li>Tidak bisa mengelola akun, backup, atau maintenance.</li>
-                  </ul>
-                </div>
-                <div className="pd-role-card" data-role="super_admin">
-                  <div><b>Super Admin</b></div>
-                  <ul>
-                    <li>Semua fitur dapat digunakan tanpa batasan.</li>
-                    <li>Import Excel, kelola akun &amp; role, penugasan tabel, maintenance, backup/restore, pengaturan.</li>
+                    <li>Kontrol penuh atas seluruh fitur dan data.</li>
+                    <li>Mengelola akun &amp; role, penugasan, maintenance, backup/restore, dan pengaturan.</li>
                     <li>Anda saat ini: {roleLabel(user?.role)}.</li>
                   </ul>
                 </div>
@@ -124,8 +124,8 @@ export default function Panduan({ user }) {
                 <Step n="3">Klik <b>Daftar</b>. Akun baru otomatis berperan <b>User</b>.</Step>
               </ol>
               <p className="pd-note">
-                Registrasi terbuka bisa dimatikan oleh Super Admin lewat menu <b>Pengaturan</b>. Bila dinonaktifkan,
-                semua akun dibuat oleh Super Admin melalui panel <b>User &amp; Admin Management</b>.
+                Registrasi terbuka bisa dimatikan oleh Admin lewat menu <b>Pengaturan</b>. Bila dinonaktifkan,
+                semua akun dibuat oleh Admin melalui panel <b>User &amp; Admin Management</b>.
               </p>
               <h4>Keluar / Ubah Akun</h4>
               <ol className="pd-ol">
@@ -155,10 +155,10 @@ export default function Panduan({ user }) {
             <div className="card-body">
               <p>
                 Halaman ini adalah editor tabel tempat Anda melihat dan mengisi data. Bagi <b>User</b> mode hanya-lihat
-                (semua tombol edit disembunyikan/dinonaktifkan). <b>Admin</b> &amp; <b>Super Admin</b> dapat menulis
-                data, tetapi Admin hanya pada tabel yang ditugaskan kepadanya.
+                (semua tombol edit disembunyikan/dinonaktifkan). <b>User Entry</b> dapat menginput dan mengubah
+                data sesuai penugasan, sedangkan <b>Admin</b> memiliki kontrol penuh.
               </p>
-              <h4>Membuat File Baru (Admin/Super Admin)</h4>
+              <h4>Membuat File Baru (Admin)</h4>
               <ol className="pd-ol">
                 <Step n="1">Buka menu <b>Spreadsheet</b>.</Step>
                 <Step n="2">Klik menu <b>File</b> &rarr; <b>File Baru</b>. File kosong (Sheet1) dibuat.</Step>
@@ -210,8 +210,8 @@ export default function Panduan({ user }) {
           <div id="pd-import-excel" className="card pd-section">
             <div className="card-header"><h2>Import Excel</h2></div>
             <div className="card-body">
-              {!isSuperAdmin(user) && (
-                <p className="pd-note">Menu ini hanya tersedia untuk Super Admin.</p>
+              {!isAdmin(user) && (
+                <p className="pd-note">Menu ini hanya tersedia untuk Admin.</p>
               )}
               <ol className="pd-ol">
                 <Step n="1">Buka menu <b>Import Excel</b> di samping kiri.</Step>
@@ -259,31 +259,31 @@ export default function Panduan({ user }) {
           <div id="pd-admin-user" className="card pd-section">
             <div className="card-header"><h2>Kelola Akun & Role</h2></div>
             <div className="card-body">
-              {!isSuperAdmin(user) && <p className="pd-note">Bagian ini hanya untuk Super Admin.</p>}
+              {!isAdmin(user) && <p className="pd-note">Bagian ini hanya untuk Admin.</p>}
               <ol className="pd-ol">
                 <Step n="1">Buka menu <b>User &amp; Admin</b> (di kelompok "Pengelolaan").</Step>
-                <Step n="2"><b>Membuat akun:</b> isi nama, email, password, pilih peran (User/Admin/Super Admin), lalu <b>Simpan</b>.</Step>
-                <Step n="3"><b>Mengubah peran:</b> gunakan dropdown di kolom Role pada baris akun (User / Admin / Super Admin). Perubahan ke/dari Super Admin meminta konfirmasi.</Step>
+                <Step n="2"><b>Membuat akun:</b> isi nama, email, password, pilih peran (User/User Entry/Admin), lalu <b>Simpan</b>.</Step>
+                <Step n="3"><b>Mengubah peran:</b> gunakan dropdown di kolom Role pada baris akun (User / User Entry / Admin). Perubahan ke/dari Admin meminta konfirmasi.</Step>
                 <Step n="4"><b>Mengedit:</b> ubah nama/email/password lalu simpan. <b>Menghapus:</b> klik hapus; akun yang sedang dipakai
                   tidak dapat dihapus/diturunkan sendiri.</Step>
               </ol>
-              <p className="pd-note">Sistem memastikan selalu ada minimal satu Super Admin.</p>
+              <p className="pd-note">Sistem memastikan selalu ada minimal satu Admin.</p>
             </div>
           </div>
 
           {/* 11. PENUGASAN TABEL */}
           <div id="pd-admin-tugas" className="card pd-section">
-            <div className="card-header"><h2>Penugasan Tabel ke Admin</h2></div>
+            <div className="card-header"><h2>Penugasan Tabel ke User Entry</h2></div>
             <div className="card-body">
-              {!isSuperAdmin(user) && <p className="pd-note">Bagian ini hanya untuk Super Admin.</p>}
-              <p>Admin baru yang dibuat <b>belum bisa mengisi data</b> sampai ada tabel yang ditugaskan kepadanya.</p>
+              {!isAdmin(user) && <p className="pd-note">Bagian ini hanya untuk Admin.</p>}
+              <p>User Entry baru yang dibuat <b>belum bisa mengisi data</b> sampai ada tabel yang ditugaskan kepadanya.</p>
               <ol className="pd-ol">
                 <Step n="1">Buka menu <b>Penugasan Tabel</b>.</Step>
-                <Step n="2">Pilih <b>Admin</b>, <b>Jenis tabel</b> (Spreadsheet/Kategori), dan <b>tabel</b> yang dituju.</Step>
+                <Step n="2">Pilih <b>User Entry</b>, <b>Jenis tabel</b> (Spreadsheet/Kategori), dan <b>tabel</b> yang dituju.</Step>
                 <Step n="3">Aktifkan izin <b>Entry</b> (mengisi baris baru) dan/atau <b>Edit</b> (mengubah data), lalu simpan.</Step>
                 <Step n="4">Daftar penugasan muncul di bawah; Anda dapat mengubah izin atau menghapus penugasan kapan saja.</Step>
               </ol>
-              <p className="pd-note">Jika ingin Admin dapat mengakses semua, tugaskan tabel yang diperlukan satu per satu.</p>
+              <p className="pd-note">Jika ingin User Entry dapat mengakses semua, tugaskan tabel yang diperlukan satu per satu.</p>
             </div>
           </div>
 
@@ -291,8 +291,8 @@ export default function Panduan({ user }) {
           <div id="pd-admin-maintenance" className="card pd-section">
             <div className="card-header"><h2>Maintenance Mode</h2></div>
             <div className="card-body">
-              {!isSuperAdmin(user) && <p className="pd-note">Bagian ini hanya untuk Super Admin.</p>}
-              <p>Fitur ini memblokir sementara akses seluruh <b>User</b> &amp; <b>Admin</b>. <b>Super Admin tetap bisa masuk</b>.</p>
+              {!isAdmin(user) && <p className="pd-note">Bagian ini hanya untuk Admin.</p>}
+              <p>Fitur ini memblokir sementara akses <b>User</b> &amp; <b>User Entry</b>. <b>Admin tetap bisa masuk</b>.</p>
               <ol className="pd-ol">
                 <Step n="1">Buka menu <b>Maintenance</b>.</Step>
                 <Step n="2">Aktifkan toggle <b>Aktifkan Maintenance sekarang</b>.</Step>
@@ -307,7 +307,7 @@ export default function Panduan({ user }) {
           <div id="pd-admin-backup" className="card pd-section">
             <div className="card-header"><h2>Backup & Restore</h2></div>
             <div className="card-body">
-              {!isSuperAdmin(user) && <p className="pd-note">Bagian ini hanya untuk Super Admin.</p>}
+              {!isAdmin(user) && <p className="pd-note">Bagian ini hanya untuk Admin.</p>}
               <p>Amankan data sebelum melakukan perubahan besar. Semua tabel (kecuali sesi login &amp; arsip backup) dicadangkan ke satu berkas JSON.</p>
               <h4>Membuat Backup</h4>
               <ol className="pd-ol">
@@ -329,16 +329,16 @@ export default function Panduan({ user }) {
           <div id="pd-admin-pengaturan" className="card pd-section">
             <div className="card-header"><h2>Pengaturan Umum</h2></div>
             <div className="card-body">
-              {!isSuperAdmin(user) && <p className="pd-note">Bagian ini hanya untuk Super Admin.</p>}
+              {!isAdmin(user) && <p className="pd-note">Bagian ini hanya untuk Admin.</p>}
               <ol className="pd-ol">
                 <Step n="1">Buka menu <b>Pengaturan</b>.</Step>
                 <Step n="2"><b>Pendaftaran</b> — atur toggle <b>Izinkan pendaftaran terbuka (User baru)</b>.
-                  Bila dimatikan, halaman daftar tidak dipakai — semua akun dibuat oleh Super Admin lewat
+                  Bila dimatikan, halaman daftar tidak dipakai — semua akun dibuat oleh Admin lewat
                   <b> User &amp; Admin</b>.</Step>
                 <Step n="3"><b>Sambutan Dashboard</b> — ubah judul dan deskripsi kartu sambutan yang tampil
                   di halaman Dashboard untuk semua pengguna.</Step>
                 <Step n="4"><b>Keamanan &amp; Sesi</b> — atur durasi sesi login (1–90 hari) dan panjang password
-                  minimal (4–32 karakter). Berlaku untuk pendaftaran baru, akun yang dibuat Super Admin,
+                  minimal (4–32 karakter). Berlaku untuk pendaftaran baru, akun yang dibuat Admin,
                   dan login berikutnya.</Step>
                 <Step n="5">Klik <b>Simpan Pengaturan</b>.</Step>
               </ol>
@@ -352,9 +352,9 @@ export default function Panduan({ user }) {
               <ul className="pd-ul">
                 <li><b>Data spreadsheet tersimpan di perangkat</b> (IndexedDB). Bersihkan data browser (cache/storage) hanya jika Anda sudah punya backup.</li>
                 <li>Selalu buat <b>Backup</b> di server sebelum melakukan perubahan besar atau sebelum membersihkan browser.</li>
-                <li>Admin diwajibkan memiliki <b>penugasan tabel</b> sebelum bisa entry/edit — jika tombol edit tidak aktif, hubungi Super Admin.</li>
+                <li>User Entry diwajibkan memiliki <b>penugasan tabel</b> sebelum bisa entry/edit — jika tombol edit tidak aktif, hubungi Admin.</li>
                 <li>Gunakan <b>Riwayat</b> di Spreadsheet untuk mengembalikan versi lama atau file yang terhapus (Sampah).</li>
-                <li>Saat <b>Maintenance</b> aktif, hanya Super Admin yang bisa mengakses sistem; pengguna lain melihat halaman pemberitahuan.</li>
+                <li>Saat <b>Maintenance</b> aktif, hanya Admin yang bisa mengakses sistem; pengguna lain melihat halaman pemberitahuan.</li>
                 <li>Import Excel di atas 10 MB atau format selain .xlsx/.xls akan ditolak.</li>
                 <li>Dashboard, Kategori, dan Laporan memperbarui angka secara otomatis — tidak perlu mengisi ulang.</li>
               </ul>

@@ -102,12 +102,12 @@ app.get("/api/status", async (_req, res, next) => {
 // mengakses Dashboard serta data internal.
 app.use("/api/auth", authRouter);
 app.use("/api", authRequired);
-// Gerbang maintenance: user & admin diblokir API saat maintenance; super_admin bebas.
+// Gerbang maintenance: user & user entry diblokir saat maintenance; admin bebas.
 app.use("/api", maintenanceGuard);
-// Panel Super Admin (semua route di dalamnya sudah dikunci requireRole super_admin).
+// Panel admin (semua route di dalamnya sudah dikunci requireRole admin).
 app.use("/api/admin", adminRouter);
 // Ringkasan audit dapat dibaca semua pengguna; detail dan pengelolaan dibatasi
-// ke Super Admin di router audit.
+// ke admin di router audit.
 app.use("/api/audit", auditRouter);
 const { createChatRouter } = require("./chat");
 app.use("/api/chat", createChatRouter());
@@ -133,7 +133,7 @@ function statisticalColumnName(index) {
 setStatisticalWriteAccessCheck(async (req, sheet, row, col) => {
   const access = await getWorkbookAccess(req.user, sheet.workbook_key);
   if (!access.write) return false;
-  if (req.user.role !== "admin") return true;
+  if (req.user.role !== "user_entry") return true;
   const permissionSheetId = Number(sheet.permission_sheet_id);
   if (await scopeBlocksSheet(req, permissionSheetId, "edit")) return false;
   return adminCanWriteSpreadsheetRow(
@@ -155,7 +155,7 @@ const { createNeracaRouter } = require("./neracaHutan");
 const { emitNeracaUpdate } = require("./realtime");
 app.use("/api/neraca", createNeracaRouter({ onChange: emitNeracaUpdate }));
 
-// ===== Sambutan Dashboard (dapat diedit oleh Super Admin) =====
+// ===== Sambutan Dashboard (dapat diedit oleh Admin) =====
 // Judul & deskripsi kartu "Selamat Datang" disimpan di app_settings.
 const DEFAULT_GREETING = {
   title: "Selamat Datang di SISNERLING",
@@ -188,7 +188,7 @@ app.get("/api/dashboard/greeting", async (_req, res, next) => {
   }
 });
 
-app.put("/api/dashboard/greeting", requireRole("super_admin"), async (req, res, next) => {
+app.put("/api/dashboard/greeting", requireRole("admin"), async (req, res, next) => {
   try {
     const title = String((req.body && req.body.title) || "").trim();
     const description = String((req.body && req.body.description) || "").trim();
@@ -279,7 +279,7 @@ app.get("/api/kategori", async (_req, res, next) => {
   }
 });
 
-app.post("/api/kategori", requireRole("super_admin"), async (req, res, next) => {
+app.post("/api/kategori", requireRole("admin"), async (req, res, next) => {
   try {
     const { nama_kategori, deskripsi, icon } = req.body;
     if (!nama_kategori || !nama_kategori.trim()) {
@@ -307,7 +307,7 @@ app.post("/api/kategori", requireRole("super_admin"), async (req, res, next) => 
   }
 });
 
-app.put("/api/kategori/:id", requireRole("super_admin"), async (req, res, next) => {
+app.put("/api/kategori/:id", requireRole("admin"), async (req, res, next) => {
   try {
     const { nama_kategori, deskripsi, icon, kolom } = req.body;
     if (!nama_kategori || !nama_kategori.trim()) {
@@ -350,7 +350,7 @@ app.put("/api/kategori/:id", requireRole("super_admin"), async (req, res, next) 
   }
 });
 
-app.delete("/api/kategori/:id", requireRole("super_admin"), async (req, res, next) => {
+app.delete("/api/kategori/:id", requireRole("admin"), async (req, res, next) => {
   try {
     const [[old]] = await pool.query(
       "SELECT id, nama_kategori, deskripsi, icon FROM kategori WHERE id = ?",
@@ -390,7 +390,7 @@ app.get("/api/kategori/:id/subkategori", async (req, res, next) => {
   }
 });
 
-app.post("/api/kategori/:id/subkategori", requireRole("super_admin"), async (req, res, next) => {
+app.post("/api/kategori/:id/subkategori", requireRole("admin"), async (req, res, next) => {
   try {
     const { nama, deskripsi, icon } = req.body;
     if (!nama || !nama.trim()) {
@@ -422,7 +422,7 @@ app.post("/api/kategori/:id/subkategori", requireRole("super_admin"), async (req
   }
 });
 
-app.put("/api/subkategori/:id", requireRole("super_admin"), async (req, res, next) => {
+app.put("/api/subkategori/:id", requireRole("admin"), async (req, res, next) => {
   try {
     const { nama, deskripsi, urutan, icon } = req.body;
     const [[old]] = await pool.query(
@@ -468,7 +468,7 @@ app.put("/api/subkategori/:id", requireRole("super_admin"), async (req, res, nex
   }
 });
 
-app.delete("/api/subkategori/:id", requireRole("super_admin"), async (req, res, next) => {
+app.delete("/api/subkategori/:id", requireRole("admin"), async (req, res, next) => {
   try {
     const [[old]] = await pool.query(
       "SELECT id, nama, kategori_id FROM sub_kategori WHERE id = ?",
@@ -514,11 +514,11 @@ app.get("/api/kategori/:id/ringkasan", async (req, res, next) => {
   }
 });
 
-// ===== RBAC: izin entry/edit Admin pada tabel yang ditugaskan =====
+// ===== RBAC: izin entry/edit User Entry pada tabel yang ditugaskan =====
 // mode = "entry" (tambah data) | "edit" (ubah/hapus data)
 async function adminCanTouchKategori(req, kategoriId, mode) {
-  if (req.user.role === "super_admin") return true;
-  if (req.user.role !== "admin") return false;
+  if (req.user.role === "admin") return true;
+  if (req.user.role !== "user_entry") return false;
   if (!kategoriId) return false;
   const col = mode === "entry" ? "can_entry" : "can_edit";
   const [[row]] = await pool.query(
@@ -530,8 +530,8 @@ async function adminCanTouchKategori(req, kategoriId, mode) {
 }
 
 async function adminCanTouchSpreadsheet(req, sheetId, mode) {
-  if (req.user.role === "super_admin") return true;
-  if (req.user.role !== "admin") return false;
+  if (req.user.role === "admin") return true;
+  if (req.user.role !== "user_entry") return false;
   if (!sheetId) return false;
   const col = mode === "entry" ? "can_entry" : "can_edit";
   const [[row]] = await pool.query(
@@ -561,11 +561,11 @@ function collectWrittenColumns(body) {
   return [...cols];
 }
 
-// Muat seluruh izin spreadsheet admin yang relevan untuk sheet & mode.
-// Kembalian: "super" (super_admin), null (tidak berhak), atau daftar baris izin.
+// Muat seluruh izin User Entry yang relevan untuk sheet & mode.
+// Kembalian: "super" (admin), null (tidak berhak), atau daftar baris izin.
 async function loadSpreadsheetPerms(req, sheetId, mode) {
-  if (req.user.role === "super_admin") return "super";
-  if (req.user.role !== "admin") return null;
+  if (req.user.role === "admin") return "super";
+  if (req.user.role !== "user_entry") return null;
   if (!sheetId) return null;
   const col = mode === "entry" ? "can_entry" : "can_edit";
   const [rows] = await pool.query(
@@ -734,7 +734,7 @@ async function loadScopeRules(adminId) {
 // Regard canEdit. Level kolom/baris/range/cell tidak bisa dinilai di sini karena
 // endpoint /api/data hanya membawa "posisi baris data", bukan koordinat native.
 async function scopeBlocksSheet(req, sheetId, mode = "edit") {
-  if (!req.user || req.user.role !== "admin" || !sheetId) return false;
+  if (!req.user || req.user.role !== "user_entry" || !sheetId) return false;
   const [[sh]] = await pool.query(
     "SELECT id, nama, sumber_file FROM spreadsheet WHERE id = ?",
     [Number(sheetId)]
@@ -793,7 +793,7 @@ app.post("/api/data", async (req, res, next) => {
     if (sheetId) {
       // Aturan cakupan level workbook/sheet (LOCK) menutupi seluruh sheet.
       if (await scopeBlocksSheet(req, sheetId, "entry")) {
-        return res.status(403).json({ error: "Sheet ini terkunci untuk akun Anda oleh Super Admin" });
+        return res.status(403).json({ error: "Sheet ini terkunci untuk akun Anda oleh Admin" });
       }
       // Entry ke spreadsheet: harus punya izin entry pada sheet + cakupan kolom,
       // dan baris baru harus jatuh dalam rentang bagian yang ditugaskan.
@@ -886,7 +886,7 @@ app.put("/api/data/:id", async (req, res, next) => {
       const changed = collectWrittenColumns(req.body);
       // Rumus selalu terkunci: admin tidak boleh menimpa cell berisi formula
       // maupun menambah/mengubah definisi formula.
-      if (req.user.role === "admin") {
+      if (req.user.role === "user_entry") {
         const curFm = parseJsonField(cur.formulas) || {};
         for (const c of changed) {
           if (curFm[c]) {
@@ -898,7 +898,7 @@ app.put("/api/data/:id", async (req, res, next) => {
         }
       }
       if (await scopeBlocksSheet(req, cur.sheet_id)) {
-        return res.status(403).json({ error: "Sheet ini terkunci untuk akun Anda oleh Super Admin" });
+        return res.status(403).json({ error: "Sheet ini terkunci untuk akun Anda oleh Admin" });
       }
       const canSheet = await adminCanWriteSpreadsheetRow(req, cur.sheet_id, cur.id, changed, "edit");
       if (!canSheet) {
@@ -991,7 +991,7 @@ app.delete("/api/data/:id", async (req, res, next) => {
     if (!cur) return res.status(404).json({ error: "Data tidak ditemukan" });
     if (cur.sheet_id) {
       if (await scopeBlocksSheet(req, cur.sheet_id)) {
-        return res.status(403).json({ error: "Sheet ini terkunci untuk akun Anda oleh Super Admin" });
+        return res.status(403).json({ error: "Sheet ini terkunci untuk akun Anda oleh Admin" });
       }
       const canSheet = await adminCanDeleteSpreadsheetRow(req, cur.sheet_id, cur.id, "edit");
       if (!canSheet) {
@@ -1030,7 +1030,7 @@ app.delete("/api/data/:id", async (req, res, next) => {
   }
 });
 
-app.delete("/api/data/bulk/kategori/:kategoriId", requireRole("super_admin"), async (req, res, next) => {
+app.delete("/api/data/bulk/kategori/:kategoriId", requireRole("admin"), async (req, res, next) => {
   try {
     const [[kat]] = await pool.query(
       "SELECT nama_kategori FROM kategori WHERE id = ?",
@@ -1066,8 +1066,8 @@ async function buildSnapshot(kategoriId) {
   };
 }
 
-// Snapshot riwayat boleh dibuat oleh Super Admin maupun Admin (mencatat aksi edit).
-app.post("/api/riwayat", requireRole("admin", "super_admin"), async (req, res, next) => {
+// Snapshot riwayat boleh dibuat oleh User Entry maupun Admin (mencatat aksi edit).
+app.post("/api/riwayat", requireRole("user_entry", "admin"), async (req, res, next) => {
   try {
     const { kategoriId, aksi, catatan } = req.body || {};
     const allowed = ["simpan", "hapus", "hapus_semua", "pulihkan", "import"];
@@ -1126,7 +1126,7 @@ app.get("/api/riwayat/:id", async (req, res, next) => {
   }
 });
 
-app.delete("/api/riwayat/:id", requireRole("super_admin"), async (req, res, next) => {
+app.delete("/api/riwayat/:id", requireRole("admin"), async (req, res, next) => {
   try {
     const [result] = await pool.query("DELETE FROM riwayat WHERE id = ?", [req.params.id]);
     if (result.affectedRows === 0) {
@@ -1138,7 +1138,7 @@ app.delete("/api/riwayat/:id", requireRole("super_admin"), async (req, res, next
   }
 });
 
-app.post("/api/riwayat/:id/pulihkan", requireRole("super_admin"), async (req, res, next) => {
+app.post("/api/riwayat/:id/pulihkan", requireRole("admin"), async (req, res, next) => {
   try {
     const [[row]] = await pool.query("SELECT * FROM riwayat WHERE id = ?", [req.params.id]);
     if (!row) return res.status(404).json({ error: "Riwayat tidak ditemukan" });
@@ -1666,7 +1666,7 @@ let result = null;
 // barisnya diikat via sheet_id. Tanpa kategori; kolom dibentuk dari baris
 // header tiap sheet (alias standar dikenali, sisanya kimportN).
 // =====================================================================
-app.post("/api/import/workbook", requireRole("super_admin"), async (req, res, next) => {
+app.post("/api/import/workbook", requireRole("admin"), async (req, res, next) => {
   try {
     const { base64 } = req.body || {};
     if (!base64 || typeof base64 !== "string") {
@@ -2067,7 +2067,7 @@ app.post("/api/import/workbook", requireRole("super_admin"), async (req, res, ne
   }
 });
 
-app.post("/api/import/excel", requireRole("super_admin"), async (req, res, next) => {
+app.post("/api/import/excel", requireRole("admin"), async (req, res, next) => {
   try {
     const { base64, kategoriId, columns } = req.body || {};
     if (!base64 || typeof base64 !== "string") {
@@ -3114,7 +3114,7 @@ app.get("/api/spreadsheet", async (_req, res, next) => {
 // spesifik: workbook < sheet < kolom/baris < range < cell.
 app.get("/api/locks", async (req, res, next) => {
   try {
-    if (!req.user || req.user.role !== "admin") return res.json({ rules: [] });
+    if (!req.user || req.user.role !== "user_entry") return res.json({ rules: [] });
     const workbookKey = String(req.query.workbookKey || "").trim();
     const sheetName = String(req.query.sheetName || "").trim();
     const sheetId = req.query.sheetId ? Number(req.query.sheetId) : null;
@@ -3256,13 +3256,13 @@ function assignedColumnsFor(rule, sheetKolomKeys) {
   return keys.length ? keys : base;
 }
 
-app.get("/api/dashboard/assignment-progress", requireRole("admin", "super_admin"), async (req, res, next) => {
+app.get("/api/dashboard/assignment-progress", requireRole("user_entry", "admin"), async (req, res, next) => {
   try {
-    const isSuper = req.user.role === "super_admin";
+    const isAdmin = req.user.role === "admin";
 
     const scopeParams = [];
     let scopeWhere = "";
-    if (!isSuper) { scopeWhere = "WHERE a.admin_id = ?"; scopeParams.push(req.user.id); }
+    if (!isAdmin) { scopeWhere = "WHERE a.admin_id = ?"; scopeParams.push(req.user.id); }
     const [scopeRows] = await pool.query(
       `SELECT a.*, u.nama AS nama_admin
        FROM admin_assignment_scopes a
@@ -3274,7 +3274,7 @@ app.get("/api/dashboard/assignment-progress", requireRole("admin", "super_admin"
 
     const permParams = [];
     let permWhere = "WHERE p.tipe = 'spreadsheet' AND (p.asal IS NULL OR p.asal <> 'scope')";
-    if (!isSuper) { permWhere += " AND p.user_id = ?"; permParams.push(req.user.id); }
+    if (!isAdmin) { permWhere += " AND p.user_id = ?"; permParams.push(req.user.id); }
     const [permRows] = await pool.query(
       `SELECT p.id, p.user_id, p.tabel_id, p.section_id, p.can_entry, p.can_edit,
               p.kolom_izin, p.baris_izin, u.nama AS nama_admin,
@@ -3520,7 +3520,7 @@ app.get("/api/dashboard/assignment-progress", requireRole("admin", "super_admin"
   }
 });
 
-app.post("/api/spreadsheet", requireRole("super_admin"), async (req, res, next) => {
+app.post("/api/spreadsheet", requireRole("admin"), async (req, res, next) => {
   try {
     const { nama, kolom } = req.body || {};
     if (!nama || !nama.trim()) {
@@ -3549,7 +3549,7 @@ app.post("/api/spreadsheet", requireRole("super_admin"), async (req, res, next) 
   }
 });
 
-app.put("/api/spreadsheet/:id", requireRole("super_admin"), async (req, res, next) => {
+app.put("/api/spreadsheet/:id", requireRole("admin"), async (req, res, next) => {
   try {
     const { nama, kolom } = req.body || {};
     const [[old]] = await pool.query("SELECT id, nama, kolom FROM spreadsheet WHERE id = ?", [req.params.id]);
@@ -3588,7 +3588,7 @@ app.put("/api/spreadsheet/:id", requireRole("super_admin"), async (req, res, nex
   }
 });
 
-app.delete("/api/spreadsheet/:id", requireRole("super_admin"), async (req, res, next) => {
+app.delete("/api/spreadsheet/:id", requireRole("admin"), async (req, res, next) => {
   try {
     const [[old]] = await pool.query("SELECT id, nama FROM spreadsheet WHERE id = ?", [req.params.id]);
     if (!old) return res.status(404).json({ error: "Spreadsheet tidak ditemukan" });
@@ -3608,7 +3608,7 @@ app.delete("/api/spreadsheet/:id", requireRole("super_admin"), async (req, res, 
   }
 });
 
-app.delete("/api/spreadsheet", requireRole("super_admin"), async (req, res, next) => {
+app.delete("/api/spreadsheet", requireRole("admin"), async (req, res, next) => {
   try {
     const [sheets] = await pool.query("SELECT id, nama FROM spreadsheet");
     if (!sheets.length) {
@@ -3702,7 +3702,7 @@ app.get("/api/klasifikasi", async (req, res, next) => {
 
 // Pindahkan data yang dipilih secara MANUAL ke Spreadsheet tujuan.
 // Body: { ids: [..], sheetId: <int> }  =>  sheetId = null untuk kembali "Belum Diklasifikasikan".
-app.post("/api/klasifikasi/klasifikasikan", requireRole("super_admin"), async (req, res, next) => {
+app.post("/api/klasifikasi/klasifikasikan", requireRole("admin"), async (req, res, next) => {
   try {
     const { ids, sheetId } = req.body || {};
     const idList = Array.isArray(ids) ? ids.filter((x) => x != null) : [];
@@ -3765,7 +3765,7 @@ setRowWriteChecker(async (user, row, changed, opts = {}) => {
   const sheetId = row ? row.sheet_id : opts.sheetId;
   const mode = opts.entry ? "entry" : "edit";
   if (await scopeBlocksSheet(req, sheetId, mode)) {
-    return { ok: false, reason: "Sheet ini terkunci untuk akun Anda oleh Super Admin" };
+    return { ok: false, reason: "Sheet ini terkunci untuk akun Anda oleh Admin" };
   }
   if (!row) {
     // Entry baris baru: posisi = jumlah berjalan + 1.

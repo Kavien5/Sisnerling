@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const express = require("express");
 const { logAudit } = require("./auditLog");
+const { requireRole } = require("./auth");
 const ExcelJS = require("exceljs");
 
 const DATA_DIR = path.join(__dirname, "data");
@@ -1489,7 +1490,7 @@ function createNeracaRouter({ onChange } = {}) {
     res.json(neracaResponse());
   });
 
-  router.post("/cell", async (req, res) => {
+  router.post("/cell", requireRole("user_entry", "admin"), async (req, res) => {
     const { updates, datasetId, sheet, section, row, year, value } = req.body || {};
     if (Array.isArray(updates) && updates.length > 0) {
       try {
@@ -1579,7 +1580,7 @@ function createNeracaRouter({ onChange } = {}) {
     }
   });
 
-  router.post("/tahun", async (req, res) => {
+  router.post("/tahun", requireRole("admin"), async (req, res) => {
     try {
       const data = addYear(req.body ? req.body.year : undefined);
       notifyChange("year");
@@ -1593,7 +1594,7 @@ function createNeracaRouter({ onChange } = {}) {
     }
   });
 
-  router.post("/reset", async (req, res) => {
+  router.post("/reset", requireRole("admin"), async (req, res) => {
     resetData();
     notifyChange("reset");
     await logActivity(req, "clean", "Mengembalikan angka dataset aktif Neraca Hutan ke baseline BPS");
@@ -1609,7 +1610,7 @@ function createNeracaRouter({ onChange } = {}) {
     res.json({ activeDatasetId: s.activeDatasetId, datasets: datasetList() });
   });
 
-  router.post("/datasets/select", async (req, res) => {
+  router.post("/datasets/select", requireRole("user_entry", "admin"), async (req, res) => {
     try {
       selectDataset((req.body || {}).id);
       notifyChange("dataset-selected");
@@ -1620,7 +1621,7 @@ function createNeracaRouter({ onChange } = {}) {
     }
   });
 
-  router.post("/datasets/rename", async (req, res) => {
+  router.post("/datasets/rename", requireRole("admin"), async (req, res) => {
     try {
       renameDataset((req.body || {}).id, (req.body || {}).name);
       notifyChange("dataset-renamed");
@@ -1631,7 +1632,7 @@ function createNeracaRouter({ onChange } = {}) {
     }
   });
 
-  router.delete("/datasets/:id", async (req, res) => {
+  router.delete("/datasets/:id", requireRole("admin"), async (req, res) => {
     try {
       deleteDataset(req.params.id);
       notifyChange("dataset-deleted");
@@ -1671,7 +1672,7 @@ function createNeracaRouter({ onChange } = {}) {
     }
   });
 
-  router.post("/import", async (req, res) => {
+  router.post("/import", requireRole("admin"), async (req, res) => {
     try {
       const { base64, filename, includeHidden } = req.body || {};
       if (!base64) return res.status(400).json({ error: "File Excel tidak ditemukan!" });
@@ -1694,7 +1695,7 @@ function createNeracaRouter({ onChange } = {}) {
   });
 
   // Re-parse dataset aktif dari file Excel asli dengan mode includeHidden baru.
-  router.post("/reimport-hidden", async (req, res) => {
+  router.post("/reimport-hidden", requireRole("admin"), async (req, res) => {
     try {
       const includeHidden = (req.body || {}).includeHidden !== false;
       const { stats } = await reimportActiveDataset(includeHidden);

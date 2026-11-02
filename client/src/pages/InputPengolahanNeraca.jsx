@@ -1,6 +1,6 @@
 import React from "react";
 import { api } from "../api.js";
-import { getToken, getUser } from "../auth.js";
+import { getToken, getUser, canEditData } from "../auth.js";
 import { ensureCollabSocket } from "../collabSocket.js";
 import Modal from "../components/Modal.jsx";
 import { useToast } from "../components/Toast.jsx";
@@ -380,6 +380,8 @@ function avatarColor(id) {
 export default function InputPengolahanNeraca() {
   const toast = useToast();
   const currentUser = getUser();
+  const canEdit = canEditData(currentUser);
+  const canManage = currentUser?.role === "admin";
   const [data, setData] = React.useState(null);
   const [activeUsers, setActiveUsers] = React.useState([]);
   const [presenceStatus, setPresenceStatus] = React.useState("connecting");
@@ -493,6 +495,7 @@ export default function InputPengolahanNeraca() {
   };
 
   const toggleIncludeHidden = async (next) => {
+    if (!canManage) return;
     if (!(await flushCurrentDatasetChanges())) return;
     setIncludeHidden(next);
     localStorage.setItem("sisnerling_neraca_include_hidden", next ? "1" : "0");
@@ -534,6 +537,7 @@ export default function InputPengolahanNeraca() {
     `${update.datasetId || ""}:${getCellDraftKey(update.sheet, update.section, update.row, update.year)}`;
 
   const commitCellDraft = (sheet, section, row, year) => {
+    if (!canEdit) return;
     const key = getCellDraftKey(sheet, section, row, year);
     if (!(key in cellDrafts)) return;
     const raw = cellDrafts[key];
@@ -557,6 +561,7 @@ export default function InputPengolahanNeraca() {
   };
 
   const openRowInputModal = ({ def, section, source, isPenunjang }) => {
+    if (!canEdit) return;
     if (!data) return;
     const rowId = def.id;
     const currentValues = {};
@@ -586,6 +591,7 @@ export default function InputPengolahanNeraca() {
   };
 
   const applyQuickFill = () => {
+    if (!canEdit) return;
     const clean = quickFillVal.trim();
     if (!clean) return;
     const num = parseInputValue(clean);
@@ -639,6 +645,7 @@ export default function InputPengolahanNeraca() {
   };
 
   const handleManualSave = async () => {
+    if (!canEdit) return;
     const drafts = Object.entries(cellDrafts);
     if (!drafts.length && pendingCellUpdates.current.size === 0 && status !== "saving") {
       toast("Tidak ada perubahan yang perlu disimpan.", "info");
@@ -686,6 +693,7 @@ export default function InputPengolahanNeraca() {
 
   const handleSaveRowInputModal = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
+    if (!canEdit) return;
     if (!activeInputRow || !data) return;
 
     try {
@@ -742,7 +750,7 @@ export default function InputPengolahanNeraca() {
   const saveShortcutRef = React.useRef(null);
   saveShortcutRef.current = {
     action: inputModalOpen ? handleSaveRowInputModal : handleManualSave,
-    enabled: !manualSaving && !importing && activeSheet !== "Import Mentah" && status !== "saving",
+    enabled: canEdit && !manualSaving && !importing && activeSheet !== "Import Mentah" && status !== "saving",
   };
 
   React.useEffect(() => {
@@ -764,6 +772,7 @@ export default function InputPengolahanNeraca() {
   };
 
   const handleCellChange = (sheet, section, row, year, raw) => {
+    if (!canEdit) return;
     const value = parseInputValue(raw);
     setData((prev) => {
       const next = JSON.parse(JSON.stringify(prev));
@@ -780,6 +789,7 @@ export default function InputPengolahanNeraca() {
   };
 
   const openAddYear = () => {
+    if (!canManage) return;
     const lastYear = parseInt(data.years[data.years.length - 1], 10);
     setNewYear(String(lastYear + 1));
     setAddYearOpen(true);
@@ -787,6 +797,7 @@ export default function InputPengolahanNeraca() {
 
   const handleAddYear = async (e) => {
     e.preventDefault();
+    if (!canManage) return;
     const year = String(newYear).trim();
     if (!year) return;
     if (!(await flushCurrentDatasetChanges())) return;
@@ -801,6 +812,7 @@ export default function InputPengolahanNeraca() {
   };
 
   const handleReset = async () => {
+    if (!canManage) return;
     if (!window.confirm("Apakah Anda yakin ingin mengembalikan angka dataset aktif ke baseline acuan BPS? Nilai yang baru saja diketik akan diganti dengan data standar.")) {
       return;
     }
@@ -858,6 +870,7 @@ export default function InputPengolahanNeraca() {
   };
 
   const processImportFile = async (file) => {
+    if (!canManage) return;
     if (!file) return;
     if (inputModalOpen) {
       toast("Simpan atau tutup form input sebelum mengimpor dataset baru.", "error");
@@ -912,6 +925,7 @@ export default function InputPengolahanNeraca() {
   };
 
   const handleImportClick = () => {
+    if (!canManage) return;
     if (fileInputRef.current) fileInputRef.current.click();
   };
 
@@ -924,7 +938,7 @@ export default function InputPengolahanNeraca() {
   const handleDragOver = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!importing) setDragOver(true);
+    if (canManage && !importing) setDragOver(true);
   };
 
   const handleDragLeave = (e) => {
@@ -937,13 +951,13 @@ export default function InputPengolahanNeraca() {
     e.preventDefault();
     e.stopPropagation();
     setDragOver(false);
-    if (importing) return;
+    if (!canManage || importing) return;
     const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
     processImportFile(file);
   };
 
   const handleSelectDataset = async (id) => {
-    if (importing || !id || id === data.activeDatasetId) return;
+    if (!canEdit || importing || !id || id === data.activeDatasetId) return;
     if (inputModalOpen) {
       toast("Simpan atau tutup form input sebelum mengganti dataset.", "error");
       return;
@@ -963,6 +977,7 @@ export default function InputPengolahanNeraca() {
   };
 
   const handleRenameDataset = async () => {
+    if (!canManage) return;
     if (!(await flushCurrentDatasetChanges())) return;
     const current = (data.datasets || []).find((d) => d.id === data.activeDatasetId);
     const name = window.prompt("Nama dataset:", current ? current.name : "");
@@ -982,6 +997,7 @@ export default function InputPengolahanNeraca() {
   };
 
   const handleDeleteDataset = async () => {
+    if (!canManage) return;
     if (!(await flushCurrentDatasetChanges())) return;
     const datasets = data.datasets || [];
     if (datasets.length <= 1) {
@@ -1127,7 +1143,7 @@ export default function InputPengolahanNeraca() {
               ) : (
                 <InputButton
                   onClick={() => openRowInputModal({ def, section, source, isPenunjang: false })}
-                  disabled={importing}
+                  disabled={!canEdit || importing}
                   title={`Klik untuk membuka form input data ${def.label}`}
                 />
               )}
@@ -1153,7 +1169,7 @@ export default function InputPengolahanNeraca() {
                     inputMode="decimal"
                     className="cell-input-field"
                     value={displayVal}
-                    disabled={importing}
+                    disabled={!canEdit || importing}
                     onFocus={(e) => e.target.select()}
                     onChange={(e) => {
                       const v = e.target.value;
@@ -1262,21 +1278,25 @@ export default function InputPengolahanNeraca() {
           </div>
 
           <div className="header-buttons">
-            <button
-              className="btn btn-primary ipn-save-button"
-              onClick={handleManualSave}
-              disabled={manualSaving || importing || isRaw}
-              title="Simpan semua perubahan sel (Ctrl+S / Cmd+S)"
-              aria-busy={manualSaving}
-            >
-              <IconCheck size={15} /> {manualSaving ? "Menyimpan..." : "Simpan Perubahan"}
-              {!manualSaving && <kbd className="ipn-save-shortcut">Ctrl / Cmd + S</kbd>}
-            </button>
-            <div className="ipn-primary-actions">
-              <button className="btn btn-primary" onClick={openAddYear} disabled={importing} title="Tambah kolom periode tahun baru">
-                <IconPlus size={14} /> Tambah Tahun
+            {canEdit && (
+              <button
+                className="btn btn-primary ipn-save-button"
+                onClick={handleManualSave}
+                disabled={manualSaving || importing || isRaw}
+                title="Simpan semua perubahan sel (Ctrl+S / Cmd+S)"
+                aria-busy={manualSaving}
+              >
+                <IconCheck size={15} /> {manualSaving ? "Menyimpan..." : "Simpan Perubahan"}
+                {!manualSaving && <kbd className="ipn-save-shortcut">Ctrl / Cmd + S</kbd>}
               </button>
-            </div>
+            )}
+            {canManage && (
+              <div className="ipn-primary-actions">
+                <button className="btn btn-primary" onClick={openAddYear} disabled={importing} title="Tambah kolom periode tahun baru">
+                  <IconPlus size={14} /> Tambah Tahun
+                </button>
+              </div>
+            )}
             <div className="ipn-secondary-actions" aria-label="Alat data lainnya">
               <button className="btn btn-secondary" onClick={handleExport} disabled={importing} title="Unduh tabel aktif ke format CSV">
                 <IconDownload size={14} /> Unduh Excel/CSV
@@ -1284,24 +1304,28 @@ export default function InputPengolahanNeraca() {
               <button className="btn btn-secondary" onClick={handleDownloadTemplate} disabled={importing} title="Unduh template Excel (.xlsx) untuk diisi lalu diimpor">
                 <IconFileExcel size={14} /> Template Excel
               </button>
-              <button
-                className="btn btn-secondary"
-                onClick={handleImportClick}
-                disabled={importing}
-                title="Unggah file .xlsx sesuai template (hanya mengisi sel input, sisanya dihitung ulang)"
-              >
-                <IconUpload size={14} /> {importing ? "Mengimporâ€¦" : "Import Excel"}
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".xlsx"
-                style={{ display: "none" }}
-                onChange={handleImportFile}
-              />
-              <button className="btn btn-secondary" onClick={handleReset} disabled={importing} title="Kembalikan data ke nilai awal acuan BPS">
-                <IconRotate size={14} /> Reset Angka
-              </button>
+              {canManage && (
+                <>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={handleImportClick}
+                    disabled={!canEdit || importing}
+                    title="Unggah file .xlsx sesuai template (hanya mengisi sel input, sisanya dihitung ulang)"
+                  >
+                    <IconUpload size={14} /> {importing ? "Mengimporâ€¦" : "Import Excel"}
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".xlsx"
+                    style={{ display: "none" }}
+                    onChange={handleImportFile}
+                  />
+                  <button className="btn btn-secondary" onClick={handleReset} disabled={importing} title="Kembalikan data ke nilai awal acuan BPS">
+                    <IconRotate size={14} /> Reset Angka
+                  </button>
+                </>
+              )}
               <button className="btn btn-secondary btn-icon" onClick={toggleTheme} title="Ganti mode gelap / terang">
                 <IconCoins size={15} />
               </button>
@@ -1316,7 +1340,7 @@ export default function InputPengolahanNeraca() {
           className="ipn-dataset-select"
           value={data.activeDatasetId || ""}
           onChange={(e) => handleSelectDataset(e.target.value)}
-          disabled={importing}
+          disabled={!canEdit || importing}
           title="Pilih dataset yang ditampilkan"
         >
           {(data.datasets || []).map((d) => (
@@ -1342,41 +1366,51 @@ export default function InputPengolahanNeraca() {
             </span>
           );
         })()}
-        <button className="btn btn-secondary" onClick={handleRenameDataset} disabled={importing} title="Ganti nama dataset aktif">
-          <IconEdit size={13} /> Ganti Nama
-        </button>
-        <button
-          className="btn btn-secondary"
-          onClick={handleDeleteDataset}
-          disabled={importing || (data.datasets || []).length <= 1}
-          title="Hapus dataset aktif"
-        >
-          <IconTrash size={13} /> Hapus
-        </button>
-        <label
-          className="ipn-hidden-toggle"
-          title="Jika dicentang, sheet/baris/kolom yang disembunyikan di Excel ikut diimpor. Jika tidak dicentang, bagian tersembunyi dilewati. Perubahan langsung diterapkan pada dataset aktif."
-        >
-          <input
-            type="checkbox"
-            checked={includeHidden}
-            onChange={(e) => toggleIncludeHidden(e.target.checked)}
-            disabled={importing}
-          />
-          <span>Sertakan data tersembunyi saat impor</span>
-        </label>
-        <span className="ipn-dataset-hint">
+        {canManage && (
+          <>
+            <button className="btn btn-secondary" onClick={handleRenameDataset} disabled={importing} title="Ganti nama dataset aktif">
+              <IconEdit size={13} /> Ganti Nama
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={handleDeleteDataset}
+              disabled={importing || (data.datasets || []).length <= 1}
+              title="Hapus dataset aktif"
+            >
+              <IconTrash size={13} /> Hapus
+            </button>
+            <label
+              className="ipn-hidden-toggle"
+              title="Jika dicentang, sheet/baris/kolom yang disembunyikan di Excel ikut diimpor. Jika tidak dicentang, bagian tersembunyi dilewati. Perubahan langsung diterapkan pada dataset aktif."
+            >
+              <input
+                type="checkbox"
+                checked={includeHidden}
+                onChange={(e) => toggleIncludeHidden(e.target.checked)}
+                disabled={!canEdit || importing}
+              />
+              <span>Sertakan data tersembunyi saat impor</span>
+            </label>
+          </>
+        )}
+        {canManage && <span className="ipn-dataset-hint">
           Toggle hidden langsung menerapkan perubahan pada dataset aktif. Import Excel (atau tarik-lepas file ke halaman) membuat dataset <b>baru</b>; data lama tetap utuh.
-        </span>
+        </span>}
       </div>
 
       <div className="ipn-save-reminder" role="status">
         <IconAlert size={16} />
         <span>
-          Perubahan tidak disimpan otomatis. Klik <b>Simpan Perubahan</b> untuk menyimpan progres.
-          Status <b>Belum disimpan</b> berarti perubahan hanya tersimpan sementara di halaman ini.
-          Pastikan status kembali menjadi <b>Formula Sinkron &amp; Tersimpan</b> sebelum meninggalkan halaman.
-          Super Admin dapat memulihkan nilai sebelum perubahan melalui Audit Log.
+          {canEdit ? (
+            <>
+              Perubahan tidak disimpan otomatis. Klik <b>Simpan Perubahan</b> untuk menyimpan progres.
+              Status <b>Belum disimpan</b> berarti perubahan hanya tersimpan sementara di halaman ini.
+              Pastikan status kembali menjadi <b>Formula Sinkron &amp; Tersimpan</b> sebelum meninggalkan halaman.
+            </>
+          ) : (
+            <>Akun User hanya dapat melihat data pada halaman ini.</>
+          )}
+          {canManage && <> Admin dapat memulihkan nilai sebelum perubahan melalui Audit Log.</>}
         </span>
       </div>
 
@@ -1510,7 +1544,7 @@ export default function InputPengolahanNeraca() {
                       <td className="col-tipe">
                         <InputButton
                           onClick={() => openRowInputModal({ def: rec, section: "data_penunjang", source: "records", isPenunjang: true })}
-                          disabled={importing}
+                          disabled={!canEdit || importing}
                           title={`Klik untuk membuka form input data ${rec.name}`}
                         />
                       </td>
@@ -1526,7 +1560,7 @@ export default function InputPengolahanNeraca() {
                               inputMode="decimal"
                               className="cell-input-field"
                               value={displayVal}
-                              disabled={importing}
+                              disabled={!canEdit || importing}
                               onFocus={(e) => e.target.select()}
                               onChange={(e) => {
                                 const v = e.target.value;

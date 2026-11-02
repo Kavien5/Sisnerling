@@ -528,7 +528,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ---- Pemicu ubah rumus (khusus Super Admin) pada sel formula ---- */
+/* ---- Pemicu ubah rumus (khusus Admin) pada sel formula ---- */
 .stat-page button.stat-formula-edit {
   display: flex;
   align-items: center;

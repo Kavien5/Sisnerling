@@ -1,11 +1,11 @@
-# Plan: Editor Rumus Spreadsheet Statistik (khusus Super Admin)
+# Plan: Editor Rumus Spreadsheet Statistik (khusus Admin)
 
 ## Goal
 Menambahkan kemampuan mengganti rumus sel formula di halaman Spreadsheet Statistik:
 - Endpoint baru: simpan rumus + preview validasi + riwayat backup (old formula & old hasil).
 - Validasi dengan engine rumus SEBELUM simpan (dry-run): tolak rumus yang menghasilkan error baru.
 - Transaksi MySQL + lock; rollback bila gagal — data input (`nilai`) tidak tersentuh.
-- UI: klik sel formula → dialog ubah rumus (Modal), hanya muncul untuk `super_admin`.
+- UI: klik sel formula → dialog ubah rumus (Modal), hanya muncul untuk `admin`.
 - Backup hasil lama tersimpan di tabel riwayat + bisa dipulihkan dari dialog.
 
 ## File yang diubah
@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS statistical_formula_history (
 
 ### 2. `server/statisticalSpreadsheet.js` — endpoint & validasi
 
-**a. `outputCell()` (baris 570-583):** sertakan `formula: cell.jenis === "formula" ? cell.formula : null` (seperti Excel, teks rumus terbaca bagi yang punya akses read; hanya UI super_admin yang menampilkan tombol edit).
+**a. `outputCell()` (baris 570-583):** sertakan `formula: cell.jenis === "formula" ? cell.formula : null` (seperti Excel, teks rumus terbaca bagi yang punya akses read; hanya UI Admin yang menampilkan tombol edit).
 
 **b. Helper `validateFormulaChange(db, sheet, cell, cells, sheets, newFormula, engine)`** (diekspor tidak perlu, cukup lokal):
 1. Normalisasi: trim, buang prefix `=`, tolak kosong / >5000 karakter.
@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS statistical_formula_history (
 7. Kembalikan `{ ok, newValue, affectedKeys, clearTargetFallback }`.
 
 **c. Endpoint `PUT /api/statistical/formula`** (di dalam `createStatisticalRouter`, body: `{ sheet_id, row, col, formula, base_version, preview? }`):
-1. `req.user.role !== "super_admin"` → 403.
+1. `req.user.role !== "admin"` → 403.
 2. `preview === true` → tanpa transaksi: load state (tanpa lock), jalankan `validateFormulaChange`, balas `{ ok: true, value, affectedCount }` / 400.
 3. Simpan: `beginTransaction` → lock module (`SELECT ... FOR UPDATE`, pola baris 842) → `loadModuleState(lock=true)` → cek sel ada, `jenis === "formula"` (400), bukan `external_formula` (400), `base_version === cell.versi` (409).
 4. `validateFormulaChange` → gagal: rollback + 400.
@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS statistical_formula_history (
 8. `logAudit({ action:"update", module:"statistical", description:"Ubah rumus <Sheet>!Ref", oldData:{formula, hasil}, newData:{formula}, req })` dari `server/auditLog.js` (gagal logging ditelan, di dalam transaksi boleh dipanggil setelah commit atau diabaikan).
 9. Commit → balas `{ message, cell: { row, col, formula, value, version }, recalculated }`.
 
-**d. Endpoint `GET /api/statistical/formula/history?sheet_id&row&col`** (super_admin): 5 entri terakhir dari `statistical_formula_history` (id, old_formula, new_formula, old_hasil, changed_at, nama user via join `users`) → dipakai dialog untuk tombol "Pulihkan" (restore = kirim PUT `/formula` biasa dengan rumus lama, lolos validasi yang sama).
+**d. Endpoint `GET /api/statistical/formula/history?sheet_id&row&col`** (Admin): 5 entri terakhir dari `statistical_formula_history` (id, old_formula, new_formula, old_hasil, changed_at, nama user via join `users`) → dipakai dialog untuk tombol "Pulihkan" (restore = kirim PUT `/formula` biasa dengan rumus lama, lolos validasi yang sama).
 
 ### 3. `client/src/api.js` (setelah baris 228)
 ```js
@@ -102,7 +102,7 @@ statisticalFormulaHistory: (sheetId, row, col) =>
 
 ## Verifikasi
 1. `npm run dev` (server boot → schema auto-migrasi, cek log tidak ada error `Unknown column` / `statistical_formula_history`).
-2. Sebagai super_admin di halaman statistik:
+2. Sebagai Admin di halaman statistik:
    - Klik sel formula → dialog terbuka, rumus terprefill.
    - Pratinjau rumus valid (mis. `SUM(D10:D20)`) → tampil hasil.
    - Simpan → nilai sel & dependen berubah; cek DB: `statistical_cells.formula` baru, `versi` +1, baris di `statistical_formula_history`.

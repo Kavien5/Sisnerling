@@ -4,8 +4,8 @@ export { TOKEN_KEY, USER_KEY };
 
 export const ROLE_LABELS = {
   user: "User",
+  user_entry: "User Entry",
   admin: "Admin",
-  super_admin: "Super Admin",
 };
 
 export function roleLabel(role) {
@@ -14,17 +14,17 @@ export function roleLabel(role) {
 
 // Apakah pengguna boleh melakukan aksi penulisan data (entry/edit).
 export function canEditData(user) {
-  return !!(user && (user.role === "admin" || user.role === "super_admin"));
+  return !!(user && (user.role === "user_entry" || user.role === "admin"));
 }
 
-// Apakah pengguna boleh mengubah struktur/konfigurasi (khusus Super Admin).
-export function isSuperAdmin(user) {
-  return !!(user && user.role === "super_admin");
+// Apakah pengguna memiliki kontrol penuh atas sistem.
+export function isAdmin(user) {
+  return !!(user && user.role === "admin");
 }
 
-// Apakah pengguna boleh beroperasi penuh saat maintenance.
+// Admin dapat tetap beroperasi saat maintenance.
 export function hasMaintenanceBypass(user) {
-  return isSuperAdmin(user);
+  return isAdmin(user);
 }
 
 export function getToken() {

@@ -10,14 +10,14 @@ import Dropdown from "../components/Dropdown.jsx";
 
 const ROLE_BADGE = {
   user: { background: "#eef2ff", color: "#4338ca" },
-  admin: { background: "#ecfdf5", color: "#047857" },
-  super_admin: { background: "#fef3c7", color: "#b45309" },
+  user_entry: { background: "#ecfdf5", color: "#047857" },
+  admin: { background: "#fef3c7", color: "#b45309" },
 };
 
 const AVATAR_BG = {
   user: { background: "#e0e7ff", color: "#4338ca" },
-  admin: { background: "#d1fae5", color: "#047857" },
-  super_admin: { background: "#fde68a", color: "#b45309" },
+  user_entry: { background: "#d1fae5", color: "#047857" },
+  admin: { background: "#fde68a", color: "#b45309" },
 };
 
 function initials(nama) {
@@ -36,15 +36,15 @@ const ROLE_INFO = {
     text: "#4338ca",
     desc: "Hanya bisa melihat data. Tidak dapat menambah, mengubah, atau menghapus data.",
   },
-  admin: {
+  user_entry: {
     ring: "#ecfdf5",
     text: "#047857",
-    desc: "Bisa menambah & mengubah data, tetapi hanya pada tabel yang ditugaskan kepadanya.",
+    desc: "Bisa menginput & mengubah data sesuai penugasan, tanpa akses mengelola akun atau pengaturan sistem.",
   },
-  super_admin: {
+  admin: {
     ring: "#fef3c7",
     text: "#b45309",
-    desc: "Akses penuh ke seluruh sistem, termasuk mengelola semua tabel dan seluruh akun pengguna.",
+    desc: "Kontrol penuh atas seluruh sistem, termasuk mengelola data, akun, dan pengaturan.",
   },
 };
 
@@ -294,7 +294,7 @@ export function AdminUsers({ user: currentUser }) {
   const [form, setForm] = React.useState({ nama: "", email: "", password: "", role: "user" });
   const [saving, setSaving] = React.useState(false);
   const [deleteTarget, setDeleteTarget] = React.useState(null);
-  const [roleTarget, setRoleTarget] = React.useState(null); // { u, role } untuk konfirmasi perubahan Super Admin
+  const [roleTarget, setRoleTarget] = React.useState(null); // { u, role } untuk konfirmasi perubahan Admin
   const [pwTarget, setPwTarget] = React.useState(null); // user yang sedang diset password-nya
   const [pwValue, setPwValue] = React.useState("");
   const [pwConfirmValue, setPwConfirmValue] = React.useState("");
@@ -370,9 +370,9 @@ export function AdminUsers({ user: currentUser }) {
     }
   };
 
-  // Perubahan yang menyangkut Super Admin (naik/turun) butuh konfirmasi.
+  // Perubahan yang menyangkut Admin (naik/turun) butuh konfirmasi.
   const requestRoleChange = (u, role) => {
-    if (role === "super_admin" || u.role === "super_admin") {
+    if (role === "admin" || u.role === "admin") {
       setRoleTarget({ u, role });
     } else {
       quickRole(u, role);
@@ -423,7 +423,7 @@ export function AdminUsers({ user: currentUser }) {
     <>
       <div className="page-title">
         <h2>User &amp; Admin Management</h2>
-        <p>Atur akun pengguna, admin, dan super admin beserta hak aksesnya.</p>
+        <p>Atur akun User, User Entry, dan Admin beserta hak aksesnya.</p>
       </div>
 
       <div className="info-callout">
@@ -495,8 +495,8 @@ export function AdminUsers({ user: currentUser }) {
                 onChange={requestFormRole}
                 options={[
                   { value: "user", label: "User (lihat saja)" },
-                  { value: "admin", label: "Admin (entry sesuai tugas)" },
-                  { value: "super_admin", label: "Super Admin (penuh)" },
+                  { value: "user_entry", label: "User Entry (input sesuai tugas)" },
+                  { value: "admin", label: "Admin (kontrol penuh)" },
                 ]}
               />
               <p
@@ -578,8 +578,8 @@ export function AdminUsers({ user: currentUser }) {
                         className="role-row-select"
                         options={[
                           { value: "user", label: "User" },
+                          { value: "user_entry", label: "User Entry" },
                           { value: "admin", label: "Admin" },
-                          { value: "super_admin", label: "Super Admin" },
                         ]}
                       />
                     ) : (
@@ -638,7 +638,7 @@ export function AdminUsers({ user: currentUser }) {
         <ConfirmDialog
           title="Konfirmasi Pilihan Role"
           message={`Jadikan ${editing ? `akun "${editing.nama}"` : "akun baru ini"} sebagai ${roleLabel(roleDraft.next)}? ${ROLE_INFO[roleDraft.next].desc}`}
-          danger={roleDraft.next !== "super_admin"}
+          danger={roleDraft.next !== "admin"}
           confirmLabel="Ya, Gunakan Role Ini"
           cancelLabel="Tidak"
           onCancel={() => setRoleDraft(null)}
@@ -658,13 +658,13 @@ export function AdminUsers({ user: currentUser }) {
 
       {roleTarget && (
         <ConfirmDialog
-          title={roleTarget.role === "super_admin" ? "Jadikan Super Admin" : "Turunkan dari Super Admin"}
+          title={roleTarget.role === "admin" ? "Jadikan Admin" : "Turunkan dari Admin"}
           message={
-            roleTarget.role === "super_admin"
-              ? `Beri akses penuh Super Admin kepada "${roleTarget.u.nama}" (${roleTarget.u.email})? Akun ini akan bisa mengelola seluruh sistem.`
-              : `Turunkan "${roleTarget.u.nama}" (${roleTarget.u.email}) menjadi ${roleLabel(roleTarget.role)}? Akses penuh Super Admin akan dicabut.`
+            roleTarget.role === "admin"
+              ? `Beri kontrol penuh Admin kepada "${roleTarget.u.nama}" (${roleTarget.u.email})? Akun ini akan bisa mengelola seluruh sistem.`
+              : `Turunkan "${roleTarget.u.nama}" (${roleTarget.u.email}) menjadi ${roleLabel(roleTarget.role)}? Kontrol penuh Admin akan dicabut.`
           }
-          danger={roleTarget.role !== "super_admin"}
+          danger={roleTarget.role !== "admin"}
           onCancel={() => setRoleTarget(null)}
           onConfirm={() => {
             const { u, role } = roleTarget;
@@ -715,7 +715,7 @@ export function AdminUsers({ user: currentUser }) {
   );
 }
 
-// ====== 2. Penugasan Tabel untuk Admin ======
+// ====== 2. Penugasan Tabel untuk User Entry ======
 
 const STANDARD_COLUMNS = [
   { key: "kode", label: "Kode" },
@@ -961,7 +961,7 @@ export function AdminTables() {
       ]);
       setPerms(p);
       setScopes(Array.isArray(sc) ? sc : []);
-      setAdmins(users.filter((u) => u.role === "admin"));
+      setAdmins(users.filter((u) => u.role === "user_entry"));
       setSpreadsheets(sp);
       setFiles(loadFiles());
     } catch (err) {
@@ -1176,7 +1176,7 @@ export function AdminTables() {
     };
 
     // Cache sesi: file yang sudah selesai dibangun tidak diimpor ulang saat
-    // Super Admin berpindah file bolak-balik.
+    // Admin berpindah file bolak-balik.
     const cached = pvCacheRef.current.get(file.id);
     if (cached && cached.done && cached.filesRef === files) {
       applySheets(cached.sheets);
@@ -1417,7 +1417,7 @@ export function AdminTables() {
     return null;
   }, [pv, form.tabelId, selectedSheetName, activeSheet, sheetIdByName]);
 
-  // Level cakupan efektif diturunkan dari pilihan Super Admin + seleksi grid.
+  // Level cakupan efektif diturunkan dari pilihan Admin + seleksi grid.
   const derivedLevel = () => {
     if (scopeLevel === "workbook") return "workbook";
     if (scopeLevel === "sheet") return "sheet";
@@ -1488,7 +1488,7 @@ export function AdminTables() {
   };
 
   const scopeReady = () => {
-    if (!form.userId) return "Pilih Admin terlebih dahulu";
+    if (!form.userId) return "Pilih User Entry terlebih dahulu";
     if (!selectedWorkbookKey) return "Pilih File/Workbook terlebih dahulu";
     if (scopeLevel === "selection" && !scopeCtx) return "Pilih Sheet terlebih dahulu";
     if (scopeLevel === "selection" && !gridSel) return "Pilih cell/baris/kolom di pratinjau dulu";
@@ -1699,14 +1699,14 @@ export function AdminTables() {
       <div className="psg-hero">
         <div className="psg-hero-ico" aria-hidden="true">🛡️</div>
         <div style={{ flex: 1, minWidth: 260 }}>
-          <h2>Penugasan Tabel Admin</h2>
+          <h2>Penugasan Tabel User Entry</h2>
           <p>
-            Tentukan hak akses Admin pada workbook &amp; sheet <b>asli</b> — tanpa menyalin data.
-            Pilih Admin, File/Workbook, lalu level cakupan. Aturan paling spesifik yang berlaku menang
+            Tentukan hak akses User Entry pada workbook &amp; sheet <b>asli</b> — tanpa menyalin data.
+            Pilih User Entry, File/Workbook, lalu level cakupan. Aturan paling spesifik yang berlaku menang
             (File → Sheet → Kolom/Baris → Range → Cell).
           </p>
           <div className="psg-stats">
-            <span className="psg-stat">👤 <b>{admins.length}</b> admin</span>
+            <span className="psg-stat">👤 <b>{admins.length}</b> user entry</span>
             <span className="psg-stat">📁 <b>{fileOptions.length}</b> workbook</span>
             <span className="psg-stat">📋 <b>{scopes.length}</b> aturan</span>
             {perms.length > 0 && <span className="psg-stat">🗂️ <b>{perms.length}</b> izin lama</span>}
@@ -1718,18 +1718,18 @@ export function AdminTables() {
         <div className="psg-head">
           <div>
             <h3>➕ Buat / Perbarui Aturan</h3>
-            <div className="psg-sub">Pilih Admin &amp; File, lalu <b>blok area di pratinjau</b> (cell/range, nomor baris, atau huruf kolom) dan tekan <b>Lock / Unlock / Allow Entry</b>. Aksi hanya berlaku pada area yang dipilih.</div>
+            <div className="psg-sub">Pilih User Entry &amp; File, lalu <b>blok area di pratinjau</b> (cell/range, nomor baris, atau huruf kolom) dan tekan <b>Lock / Unlock / Allow Entry</b>. Aksi hanya berlaku pada area yang dipilih.</div>
           </div>
         </div>
         <form className="psg-body" onSubmit={(e) => { e.preventDefault(); applyScope("save"); }}>
           <div className="psg-grid">
             <div className="form-group" style={{ margin: 0 }}>
-              <label>Admin <span className="psg-req">*</span></label>
+              <label>User Entry <span className="psg-req">*</span></label>
               <Dropdown
                 value={form.userId}
                 onChange={(v) => setForm((f) => ({ ...f, userId: v }))}
                 options={[
-                  { value: "", label: "Pilih admin..." },
+                  { value: "", label: "Pilih User Entry..." },
                   ...admins.map((a) => ({ value: String(a.id), label: `${a.nama} (${a.email})` })),
                 ]}
               />
@@ -1791,7 +1791,7 @@ export function AdminTables() {
           <div className="psg-actions">
             <button className="btn btn-primary" type="submit" disabled={loading}>💾 Simpan</button>
             <button className="btn" type="button" onClick={fetchAll} disabled={loading}>↻ Muat Ulang</button>
-            <span className="psg-hint">🔒 Rumus (formula) selalu terkunci untuk Admin.</span>
+            <span className="psg-hint">🔒 Rumus (formula) selalu terkunci untuk User Entry.</span>
           </div>
         </form>
       </div>
@@ -1955,7 +1955,7 @@ export function AdminTables() {
             <thead>
               <tr>
                 <th style={{ width: 56 }}>ID</th>
-                <th>Admin</th>
+                <th>User Entry</th>
                 <th>File / Tabel</th>
                 <th style={{ width: 130 }}>Lapisan</th>
                 <th>Cakupan</th>
@@ -2101,7 +2101,7 @@ export function AdminMaintenance() {
     <>
       <div className="page-title">
         <h2>Maintenance Mode</h2>
-        <p>Blokir sementara akses seluruh User &amp; Admin. Super Admin tetap dapat masuk.</p>
+        <p>Blokir sementara akses User &amp; User Entry. Admin tetap dapat masuk.</p>
       </div>
 
       <div className="card">
@@ -2346,7 +2346,7 @@ export function AdminSettings() {
               <strong>Izinkan pendaftaran terbuka (User baru)</strong>
             </label>
             <p className="text-muted" style={{ margin: "6px 0 0", fontSize: 13 }}>
-              Bila dinonaktifkan, halaman daftar tidak digunakan; semua akun dibuat oleh Super Admin di panel
+              Bila dinonaktifkan, halaman daftar tidak digunakan; semua akun dibuat oleh Admin di panel
               User &amp; Admin Management.
             </p>
           </div>
@@ -2382,7 +2382,7 @@ export function AdminSettings() {
         <div className="card" style={{ padding: 18 }}>
           <h3 style={{ margin: "0 0 4px" }}>Keamanan &amp; Sesi</h3>
           <p className="text-muted" style={{ margin: "0 0 12px", fontSize: 13 }}>
-            Berlaku untuk pendaftaran baru, akun yang dibuat Super Admin, dan sesi login berikutnya.
+            Berlaku untuk pendaftaran baru, akun yang dibuat Admin, dan sesi login berikutnya.
           </p>
           <div className="form-group">
             <label>Durasi sesi login (hari)</label>
@@ -2553,13 +2553,13 @@ export function AdminMaintenanceBlockedPage({ maintenance, user, onLogout }) {
             <h1>{maintenance?.title || "Sistem Sedang Maintenance"}</h1>
             <p className="maint-admin-user">
               Halo, <strong>{user?.nama || "Admin"}</strong> ({user?.email || "admin"}). Akses
-              Admin dibatasi sementara oleh Super Admin.
+              User Entry dibatasi sementara oleh Admin.
             </p>
           </div>
         </div>
 
         <p className="maint-admin-msg">
-          {maintenance?.message || "Sistem sedang dalam perawatan. Seluruh akses Admin & User dihentikan sementara. Silakan kembali setelah maintenance selesai."}
+          {maintenance?.message || "Sistem sedang dalam perawatan. Akses User & User Entry dihentikan sementara. Silakan kembali setelah maintenance selesai."}
         </p>
 
         <div className="maint-admin-grid">
@@ -2569,12 +2569,12 @@ export function AdminMaintenanceBlockedPage({ maintenance, user, onLogout }) {
           </div>
           <div className="maint-admin-info">
             <span className="label">Perkiraan selesai</span>
-            <strong>{endText || "Menunggu info Super Admin"}</strong>
+            <strong>{endText || "Menunggu info Admin"}</strong>
             {countdown && <span className="maint-countdown">Sisa {countdown}</span>}
           </div>
           <div className="maint-admin-info">
             <span className="label">Yang tetap aktif</span>
-            <strong>Super Admin tetap dapat masuk</strong>
+            <strong>Admin tetap dapat masuk</strong>
           </div>
         </div>
 
@@ -2587,7 +2587,7 @@ export function AdminMaintenanceBlockedPage({ maintenance, user, onLogout }) {
           </button>
         </div>
         <p className="maint-admin-foot">
-          Butuh akses darurat? Hubungi Super Admin. Halaman ini otomatis kembali normal
+          Butuh akses darurat? Hubungi Admin. Halaman ini otomatis kembali normal
           setelah maintenance dinonaktifkan.
         </p>
       </div>

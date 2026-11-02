@@ -28,7 +28,7 @@ function fmtDate(value) {
   return new Intl.DateTimeFormat("id-ID", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(d);
 }
 
-export default function FilesPage({ files = [], onOpen, onRemove, onRename, onImport, canImport = false, canPublish = false }) {
+export default function FilesPage({ files = [], onOpen, onRemove, onRename, onImport, canImport = false, canPublish = false, canManage = false }) {
   const toast = useToast();
   const [confirmId, setConfirmId] = React.useState(null);
   const [renameId, setRenameId] = React.useState(null);
@@ -197,7 +197,7 @@ export default function FilesPage({ files = [], onOpen, onRemove, onRename, onIm
     <div className="files-page">
       <div className="page-title">
         <h2>File &amp; Import</h2>
-        <p>Upload file Excel, lalu buka dan kelola file terimport dalam satu halaman.</p>
+        <p>{canManage ? "Upload file Excel, lalu buka dan kelola file terimport dalam satu halaman." : "Lihat dan buka file Excel yang telah diimport."}</p>
       </div>
 
       {canImport && (
@@ -284,7 +284,7 @@ export default function FilesPage({ files = [], onOpen, onRemove, onRename, onIm
                   <IconFileSpreadsheet size={18} />
                 </span>
                 <div className="files-list-main">
-                  {renameId === f.id ? (
+                  {canManage && renameId === f.id ? (
                     <div className="files-list-rename">
                       <input
                         ref={renameInputRef}
@@ -323,21 +323,25 @@ export default function FilesPage({ files = [], onOpen, onRemove, onRename, onIm
                       Publikasikan
                     </button>
                   )}
-                  <button className="btn btn-outline btn-sm" onClick={() => startRename(f)} title="Ubah nama file">
-                    <IconEdit size={14} />
-                  </button>
+                  {canManage && (
+                    <button className="btn btn-outline btn-sm" onClick={() => startRename(f)} title="Ubah nama file">
+                      <IconEdit size={14} />
+                    </button>
+                  )}
                   <button className="btn btn-primary btn-sm" onClick={() => onOpen(f.id)} title="Buka file di Spreadsheet">
                     Buka
                   </button>
-                  <button
-                    className="btn btn-outline btn-sm"
-                    onClick={() => setConfirmId(f.id)}
-                    title="Hapus file"
-                    style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
-                  >
-                    <IconTrash size={13} />
-                    Hapus
-                  </button>
+                  {canManage && (
+                    <button
+                      className="btn btn-outline btn-sm"
+                      onClick={() => setConfirmId(f.id)}
+                      title="Hapus file"
+                      style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+                    >
+                      <IconTrash size={13} />
+                      Hapus
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
@@ -349,13 +353,13 @@ export default function FilesPage({ files = [], onOpen, onRemove, onRename, onIm
             <div className="big">&#128196;</div>
             <p>Belum ada file yang diimport.</p>
             <p className="text-muted">
-              {canImport ? "Gunakan kotak Import di atas untuk mengimport file Excel pertama Anda." : "Hubungi Super Admin untuk mengimport file Excel."}
+              {canImport ? "Gunakan kotak Import di atas untuk mengimport file Excel pertama Anda." : "Hubungi Admin untuk mengimport file Excel."}
             </p>
           </div>
         </div>
       )}
 
-      {target && (
+      {canManage && target && (
         <div className="overlay" onClick={() => setConfirmId(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">

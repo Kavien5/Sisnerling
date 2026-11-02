@@ -156,7 +156,7 @@ CREATE TABLE IF NOT EXISTS statistical_module_state (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Riwayat perubahan rumus sel statistik. Menyimpan rumus & hasil lama sebagai
--- backup sehingga Super Admin dapat memulihkannya lewat dialog editor rumus.
+-- backup sehingga Admin dapat memulihkannya lewat dialog editor rumus.
 CREATE TABLE IF NOT EXISTS statistical_formula_history (
   id INT AUTO_INCREMENT PRIMARY KEY,
   sheet_id INT NOT NULL,
@@ -187,6 +187,7 @@ CREATE TABLE IF NOT EXISTS users (
   id INT AUTO_INCREMENT PRIMARY KEY,
   nama VARCHAR(150) NOT NULL,
   email VARCHAR(190) NOT NULL UNIQUE,
+  role ENUM('user','user_entry','admin') NOT NULL DEFAULT 'user',
   avatar MEDIUMTEXT NULL,
   password_hash VARCHAR(255) NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

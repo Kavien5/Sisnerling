@@ -7,10 +7,10 @@ const { getSecuritySettings, saveSecuritySettings, LIMITS: SECURITY_LIMITS } = r
 
 const router = express.Router();
 
-// Seluruh route di sini dikunci: hanya Super Admin.
-router.use(requireRole("super_admin"));
+// Seluruh route di sini dikunci: hanya admin.
+router.use(requireRole("admin"));
 
-const ROLES = ["user", "admin", "super_admin"];
+const ROLES = ["user", "user_entry", "admin"];
 
 function validateEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || "").trim());
@@ -106,15 +106,15 @@ router.put("/users/:id", async (req, res, next) => {
     if (req.body.role !== undefined) {
       const role = req.body.role;
       if (!ROLES.includes(role)) return res.status(400).json({ error: "Role tidak valid" });
-      // Jangan biarkan Super Admin menurunkan dirinya sendiri.
-      if (uid === req.user.id && role !== "super_admin") {
+      // Jangan biarkan admin menurunkan dirinya sendiri.
+      if (uid === req.user.id && role !== "admin") {
         return res.status(400).json({ error: "Anda tidak dapat menurunkan role pada diri sendiri" });
       }
-      // Pastikan minimal satu Super Admin tetap ada.
-      if (user.role === "super_admin" && role !== "super_admin") {
-        const [[{ n }]] = await pool.query("SELECT COUNT(*) AS n FROM users WHERE role = 'super_admin'");
+      // Pastikan minimal satu admin tetap ada.
+      if (user.role === "admin" && role !== "admin") {
+        const [[{ n }]] = await pool.query("SELECT COUNT(*) AS n FROM users WHERE role = 'admin'");
         if (Number(n) <= 1) {
-          return res.status(400).json({ error: "Minimal harus ada satu Super Admin" });
+          return res.status(400).json({ error: "Minimal harus ada satu admin" });
         }
       }
       sets.push("role = ?");
@@ -153,10 +153,10 @@ router.delete("/users/:id", async (req, res, next) => {
     }
     const [[user]] = await pool.query("SELECT id, nama, email, role FROM users WHERE id = ?", [uid]);
     if (!user) return res.status(404).json({ error: "Pengguna tidak ditemukan" });
-    if (user.role === "super_admin") {
-      const [[{ n }]] = await pool.query("SELECT COUNT(*) AS n FROM users WHERE role = 'super_admin'");
+    if (user.role === "admin") {
+      const [[{ n }]] = await pool.query("SELECT COUNT(*) AS n FROM users WHERE role = 'admin'");
       if (Number(n) <= 1) {
-        return res.status(400).json({ error: "Minimal harus ada satu Super Admin" });
+        return res.status(400).json({ error: "Minimal harus ada satu admin" });
       }
     }
     logAudit({
@@ -331,8 +331,8 @@ router.post("/permissions", async (req, res, next) => {
     }
     const [[user]] = await pool.query("SELECT id, role FROM users WHERE id = ?", [userId]);
     if (!user) return res.status(404).json({ error: "Pengguna tidak ditemukan" });
-    if (user.role !== "admin") {
-      return res.status(400).json({ error: "Penugasan tabel hanya untuk pengguna berperan Admin" });
+    if (user.role !== "user_entry") {
+      return res.status(400).json({ error: "Penugasan tabel hanya untuk pengguna berperan User Entry" });
     }
     if (!(await tableExists(tipe, tabelId))) {
       return res.status(404).json({ error: "Tabel/spreadsheet tidak ditemukan" });
@@ -405,7 +405,7 @@ router.put("/permissions/:id", async (req, res, next) => {
     if (req.body.userId !== undefined) {
       const n = Number(req.body.userId);
       const [[u]] = await pool.query("SELECT id, role FROM users WHERE id = ?", [n]);
-      if (!u || u.role !== "admin") return res.status(400).json({ error: "Admin tujuan tidak valid" });
+      if (!u || u.role !== "user_entry") return res.status(400).json({ error: "User Entry tujuan tidak valid" });
       sets.push("user_id = ?");
       params.push(n);
     }
@@ -523,7 +523,7 @@ async function findOriginalSheet({ workbookKey, sheetName, sheetId }) {
     || null;
 }
 
-// Daftar aturan (dengan nama admin) - hanya Super Admin.
+// Daftar aturan (dengan nama user entry) - hanya admin.
 router.get("/scopes", async (req, res, next) => {
   try {
     const where = [];
@@ -556,7 +556,7 @@ router.post("/scopes", async (req, res, next) => {
     if (!LEVELS.includes(level)) return res.status(400).json({ error: "Cakupan tidak valid" });
     const [[admin]] = await pool.query("SELECT id, role FROM users WHERE id = ?", [adminId]);
     if (!admin) return res.status(404).json({ error: "Admin tidak ditemukan" });
-    if (admin.role !== "admin") return res.status(400).json({ error: "Penugasan hanya untuk role Admin" });
+    if (admin.role !== "user_entry") return res.status(400).json({ error: "Penugasan hanya untuk role User Entry" });
 
     const workbookKey = String(req.body.workbookKey || "").trim();
     const workbookName = String(req.body.workbookName || workbookKey).trim();
