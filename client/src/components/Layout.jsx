@@ -1036,7 +1036,7 @@ export default function Layout({ page, setPage, children, importedFiles, user, o
   );
 
   return (
-    <div className="layout">
+    <div className={`layout${page === "chat" ? " layout-chat" : ""}`}>
       <aside className={`sidebar${open ? " open" : ""}`}>
         <div className="sidebar-brand" onClick={() => setPage("dashboard")} style={{ cursor: "pointer" }}>
           <div className="brand-logo">
