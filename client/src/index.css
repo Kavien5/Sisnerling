@@ -5357,6 +5357,25 @@ td.cell.cell-match {
   border: 1px solid rgba(199, 210, 254, 0.35);
 }
 .nav-item.active .nav-item-label { color: #fff; font-weight: 700; }
+.nav-item-badge {
+  display: inline-flex;
+  min-width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+.nav-item.active .nav-item-badge {
+  background: #fff;
+  color: #7c3aed;
+}
 .nav-sub-item {
   border-radius: 8px;
   transition: background 0.16s ease, color 0.16s ease;

@@ -22,21 +22,45 @@ export default function ChatPage() {
   const [loading, setLoading] = React.useState(true);
   const [sending, setSending] = React.useState(false);
   const [error, setError] = React.useState("");
-  const messageEndRef = React.useRef(null);
+  const messagesContainerRef = React.useRef(null);
+  const messagesRef = React.useRef([]);
+  const scrollToBottomRef = React.useRef(false);
 
   React.useEffect(() => {
     let active = true;
+    let requestPending = false;
+    let hasLoaded = false;
     const loadMessages = async () => {
+      if (requestPending) return;
+      requestPending = true;
       try {
         const response = await api.chatMessages();
         if (active) {
-          setMessages(response.messages || []);
+          const nextMessages = response.messages || [];
+          const previousMessages = messagesRef.current;
+          const changed =
+            nextMessages.length !== previousMessages.length ||
+            nextMessages.some((message, index) => message.id !== previousMessages[index]?.id);
+
+          if (!hasLoaded || changed) {
+            const container = messagesContainerRef.current;
+            const distanceFromBottom = container
+              ? container.scrollHeight - container.scrollTop - container.clientHeight
+              : 0;
+            if (!hasLoaded || distanceFromBottom < 80) {
+              scrollToBottomRef.current = true;
+            }
+            messagesRef.current = nextMessages;
+            setMessages(nextMessages);
+          }
+          hasLoaded = true;
           setError("");
         }
       } catch (err) {
         if (active) setError(err.message);
       } finally {
         if (active) setLoading(false);
+        requestPending = false;
       }
     };
 
@@ -50,7 +74,10 @@ export default function ChatPage() {
   }, []);
 
   React.useEffect(() => {
-    messageEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    if (!scrollToBottomRef.current) return;
+    scrollToBottomRef.current = false;
+    const container = messagesContainerRef.current;
+    if (container) container.scrollTop = container.scrollHeight;
   }, [messages]);
 
   const handleSend = async (event) => {
@@ -63,7 +90,13 @@ export default function ChatPage() {
     try {
       const response = await api.sendChatMessage({ message });
       setDraft("");
-      setMessages((current) => [...current, response.message].slice(-100));
+      const nextMessages = [
+        ...messagesRef.current.filter((item) => item.id !== response.message.id),
+        response.message,
+      ].slice(-100);
+      messagesRef.current = nextMessages;
+      scrollToBottomRef.current = true;
+      setMessages(nextMessages);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -91,7 +124,7 @@ export default function ChatPage() {
 
           {error && <div className="chat-page-error" role="alert">{error}</div>}
 
-          <div className="chat-page-messages" aria-live="polite">
+          <div className="chat-page-messages" aria-live="polite" ref={messagesContainerRef}>
             {loading ? (
               <p className="chat-page-empty">Memuat pesan...</p>
             ) : messages.length ? (
@@ -118,7 +151,6 @@ export default function ChatPage() {
                 Belum ada pesan. Mulai percakapan dengan mengirim pesan di bawah.
               </p>
             )}
-            <div ref={messageEndRef} />
           </div>
 
           <form className="chat-page-compose" onSubmit={handleSend}>

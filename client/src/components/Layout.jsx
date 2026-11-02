@@ -598,8 +598,11 @@ function RoleChip({ role, style }) {
 
 export default function Layout({ page, setPage, children, importedFiles, user, onLogout, onUserUpdated, onAccountDeleted, maintenance }) {
   const toast = useToast();
+  const toastRef = React.useRef(toast);
+  toastRef.current = toast;
   const [open, setOpen] = React.useState(false);
   const [profileOpen, setProfileOpen] = React.useState(false);
+  const [unreadChatCount, setUnreadChatCount] = React.useState(0);
   const [kategori, setKategori] = React.useState([]);
   const [addModal, setAddModal] = React.useState(null);
   const [addForm, setAddForm] = React.useState({ nama_kategori: "", deskripsi: "" });
@@ -616,6 +619,110 @@ export default function Layout({ page, setPage, children, importedFiles, user, o
   const [editKategoriModal, setEditKategoriModal] = React.useState(null);
   const [editKategoriForm, setEditKategoriForm] = React.useState({ nama_kategori: "", deskripsi: "" });
   const [editKategoriSaving, setEditKategoriSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!user?.id) return undefined;
+
+    const storageKey = `sisnerling_chat_notifications_${user.id}`;
+    let active = true;
+    let initialized = false;
+    let lastMessageId = 0;
+    let unreadCount = 0;
+    let requestPending = false;
+    let requestFailureNotified = false;
+    let storageFailureNotified = false;
+
+    const saveStatus = () => {
+      try {
+        localStorage.setItem(storageKey, JSON.stringify({ lastMessageId, unreadCount }));
+      } catch {
+        if (!storageFailureNotified) {
+          storageFailureNotified = true;
+          toastRef.current("Status notifikasi chat tidak dapat disimpan di perangkat ini.", "error");
+        }
+      }
+    };
+
+    const loadMessages = async () => {
+      if (requestPending) return;
+      requestPending = true;
+      try {
+        const response = await api.chatMessages();
+        if (!active) return;
+
+        const messages = response.messages || [];
+        const latestMessageId = messages.reduce(
+          (latest, message) => Math.max(latest, Number(message.id) || 0),
+          0
+        );
+
+        if (!initialized) {
+          initialized = true;
+          try {
+            const saved = JSON.parse(localStorage.getItem(storageKey) || "null");
+            if (saved && Number.isFinite(Number(saved.lastMessageId))) {
+              lastMessageId = Number(saved.lastMessageId);
+              unreadCount = Math.max(0, Number(saved.unreadCount) || 0);
+            } else {
+              const accountCreatedAt = new Date(user.created_at).getTime();
+              lastMessageId = Number.isFinite(accountCreatedAt)
+                ? messages.reduce((latest, message) => {
+                    const messageCreatedAt = new Date(message.created_at).getTime();
+                    return Number.isFinite(messageCreatedAt) && messageCreatedAt < accountCreatedAt
+                      ? Math.max(latest, Number(message.id) || 0)
+                      : latest;
+                  }, 0)
+                : 0;
+            }
+          } catch {
+            lastMessageId = 0;
+            unreadCount = 0;
+          }
+        }
+
+        const newMessages = messages
+          .filter((message) => Number(message.id) > lastMessageId)
+          .sort((a, b) => Number(a.id) - Number(b.id));
+
+        if (page === "chat") {
+          unreadCount = 0;
+          lastMessageId = Math.max(lastMessageId, latestMessageId);
+        } else if (newMessages.length) {
+          const incomingMessages = newMessages.filter(
+            (message) => Number(message.sender_id) !== Number(user.id)
+          );
+          unreadCount += incomingMessages.length;
+          lastMessageId = Math.max(lastMessageId, latestMessageId);
+          const latestIncoming = incomingMessages[incomingMessages.length - 1];
+          if (latestIncoming) {
+            const preview = String(latestIncoming.message || "").replace(/\s+/g, " ").trim();
+            toastRef.current(
+              `Pesan baru dari ${latestIncoming.sender_name}: ${preview.slice(0, 80)}${preview.length > 80 ? "..." : ""}`,
+              "success"
+            );
+          }
+        }
+
+        setUnreadChatCount(unreadCount);
+        saveStatus();
+        requestFailureNotified = false;
+      } catch (err) {
+        if (active && !requestFailureNotified) {
+          requestFailureNotified = true;
+          toastRef.current(`Notifikasi chat gagal diperbarui: ${err.message}`, "error");
+        }
+      } finally {
+        requestPending = false;
+      }
+    };
+
+    loadMessages();
+    const timer = window.setInterval(loadMessages, 4000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [page, user?.id]);
 
   const fetchSubKategori = React.useCallback((katList) => {
     katList.forEach((k) => {
@@ -911,14 +1018,20 @@ export default function Layout({ page, setPage, children, importedFiles, user, o
     </div>
   );
 
-  const renderLeaf = ({ key, label, icon: Icon }) => (
+  const renderLeaf = ({ key, label, icon: Icon, badge = 0 }) => (
     <button
       key={key}
       className={`nav-item${page === key ? " active" : ""}`}
       onClick={() => go(key)}
+      aria-label={badge ? `${label}, ${badge} pesan belum dibaca` : label}
     >
       <span className="icon"><Icon /></span>
       {label}
+      {badge > 0 && (
+        <span className="nav-item-badge" aria-hidden="true">
+          {badge > 99 ? "99+" : badge}
+        </span>
+      )}
     </button>
   );
 
@@ -939,7 +1052,7 @@ export default function Layout({ page, setPage, children, importedFiles, user, o
           {renderLeaf({ key: "spreadsheet", label: "Spreadsheet", icon: IconFileSpreadsheet })}
           {renderLeaf({ key: "statistik", label: "Spreadsheet Statistik", icon: IconFileSpreadsheet })}
           {renderLeaf({ key: "neraca-input", label: "Input & Pengolahan Neraca", icon: IconGrid })}
-          {renderLeaf({ key: "chat", label: "Grup Chat", icon: IconMessage })}
+          {renderLeaf({ key: "chat", label: "Grup Chat", icon: IconMessage, badge: unreadChatCount })}
           {renderLeaf({ key: "files", label: "File & Import", icon: IconDatabase })}
           {renderLeaf({ key: "laporan", label: "Laporan", icon: IconFileText })}
           {renderLeaf({ key: "panduan", label: "Panduan", icon: IconBox })}
