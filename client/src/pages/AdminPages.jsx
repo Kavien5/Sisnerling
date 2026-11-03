@@ -7,6 +7,7 @@ import { loadFiles } from "../excelStorage.js";
 import { workbookToSheetsProgressive, detectSheetLayout } from "../excelImportUtil.js";
 import { colName, evaluateGrid, createExternalResolverHook } from "../spreadsheet.js";
 import Dropdown from "../components/Dropdown.jsx";
+import "./AdminMaintenance.css";
 
 const ROLE_BADGE = {
   user: { background: "#eef2ff", color: "#4338ca" },
@@ -2085,7 +2086,7 @@ export function AdminTables() {
 
 export function AdminMaintenance() {
   const toast = useToast();
-  const [form, setForm] = React.useState({ active: false, title: "Maintenance", message: "", start_at: "", end_at: "" });
+  const [form, setForm] = React.useState({ active: false, title: "Maintenance", message: "" });
   const [saving, setSaving] = React.useState(false);
 
   React.useEffect(() => {
@@ -2094,8 +2095,6 @@ export function AdminMaintenance() {
         active: !!m.active,
         title: m.title || "Maintenance",
         message: m.message || "",
-        start_at: (m.start_at || "").slice(0, 16),
-        end_at: (m.end_at || "").slice(0, 16),
       });
     }).catch(() => {});
   }, []);
@@ -2110,8 +2109,6 @@ export function AdminMaintenance() {
         active: form.active,
         title: form.title,
         message: form.message,
-        start_at: form.start_at ? new Date(form.start_at).toISOString() : null,
-        end_at: form.end_at ? new Date(form.end_at).toISOString() : null,
       };
       const res = await api.setMaintenance(body);
       toast(res.message || "Pengaturan maintenance disimpan");
@@ -2123,47 +2120,77 @@ export function AdminMaintenance() {
   };
 
   return (
-    <>
-      <div className="page-title">
-        <h2>Maintenance Mode</h2>
-        <p>Blokir sementara akses User &amp; User Entry. Admin tetap dapat masuk.</p>
+    <div className="maintenance-page">
+      <div className="maintenance-page-heading">
+        <span className="maintenance-eyebrow">PENGATURAN SISTEM</span>
+        <h2>Atur maintenance</h2>
+        <p>Kelola akses pengguna saat sistem sedang diperbaiki.</p>
       </div>
 
-      <div className="card">
-        <form onSubmit={submit} style={{ padding: 18, maxWidth: 640 }}>
-          <div className="form-group">
-            <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-              <Toggle value={form.active} onChange={(v) => setForm((f) => ({ ...f, active: v }))} />
-              <strong>Aktifkan Maintenance sekarang</strong>
-            </label>
-          </div>
-          <div className="form-group">
-            <label>Judul</label>
-            <input className="form-control" value={form.title} onChange={set("title")} placeholder="Maintenance" />
-          </div>
-          <div className="form-group">
-            <label>Pesan</label>
-            <textarea className="form-control" rows="3" value={form.message} onChange={set("message")} placeholder="Sedang perbaikan sistem, mohon kembali nanti." />
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div className="form-group">
-              <label>Mulai (opsional)</label>
-              <input className="form-control" type="datetime-local" value={form.start_at} onChange={set("start_at")} />
-            </div>
-            <div className="form-group">
-              <label>Selesai (opsional)</label>
-              <input className="form-control" type="datetime-local" value={form.end_at} onChange={set("end_at")} />
-            </div>
-          </div>
-          <p className="text-muted" style={{ fontSize: 13, margin: "4px 0 12px" }}>
-            Jika jadwal kosong, maintenance berjalan tanpa batas waktu sampai dinonaktifkan. Di luar jadwal yang ditentukan, sistem kembali normal otomatis.
-          </p>
-          <button className="btn btn-primary" type="submit" disabled={saving}>
-            {saving ? "Menyimpan..." : form.active ? "Simpan & Nyalakan" : "Simpan"}
-          </button>
-        </form>
+      <div className={`maintenance-status-card${form.active ? " is-active" : ""}`}>
+        <span className="maintenance-status-indicator" aria-hidden="true" />
+        <div className="maintenance-status-copy">
+          <strong>{form.active ? "Maintenance sedang aktif" : "Sistem berjalan normal"}</strong>
+          <span>
+            {form.active
+              ? "Akses User dan User Entry diblokir. Admin tetap dapat masuk."
+              : "Semua pengguna dapat mengakses sistem seperti biasa."}
+          </span>
+        </div>
+        <span className="maintenance-status-badge">{form.active ? "AKTIF" : "NORMAL"}</span>
       </div>
-    </>
+
+      <div className="maintenance-content-grid">
+        <section className="card maintenance-settings">
+          <div className="maintenance-card-heading">
+            <div>
+              <h3>Pengaturan maintenance</h3>
+              <p>Tentukan status dan pesan maintenance.</p>
+            </div>
+          </div>
+
+          <form onSubmit={submit} className="maintenance-form">
+            <div className={`maintenance-toggle-row${form.active ? " is-active" : ""}`}>
+              <div className="maintenance-toggle-copy">
+                <strong>Aktifkan maintenance</strong>
+                <span>Blokir sementara akses User &amp; User Entry.</span>
+              </div>
+              <label className="maintenance-switch" aria-label="Aktifkan Maintenance sekarang">
+                <Toggle value={form.active} onChange={(v) => setForm((f) => ({ ...f, active: v }))} />
+                <span className="maintenance-switch-track" aria-hidden="true"><span /></span>
+              </label>
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="maintenance-title">Judul pengumuman</label>
+              <input id="maintenance-title" className="form-control" value={form.title} onChange={set("title")} placeholder="Contoh: Pemeliharaan sistem" />
+            </div>
+            <div className="form-group">
+              <label htmlFor="maintenance-message">Pesan untuk pengguna</label>
+              <textarea id="maintenance-message" className="form-control" rows="4" value={form.message} onChange={set("message")} placeholder="Sedang ada perbaikan sistem. Silakan kembali beberapa saat lagi." />
+            </div>
+
+            <div className="maintenance-form-footer">
+              <p>Maintenance langsung aktif saat dinyalakan dan tetap berjalan sampai dinonaktifkan.</p>
+              <button className="btn btn-primary" type="submit" disabled={saving}>
+                {saving ? "Menyimpan..." : form.active ? "Simpan & Nyalakan" : "Simpan Pengaturan"}
+              </button>
+            </div>
+          </form>
+        </section>
+
+        <aside className="maintenance-help-card">
+          <span className="maintenance-help-icon" aria-hidden="true">i</span>
+          <h3>Yang perlu diketahui</h3>
+          <p>Gunakan mode ini saat ada perbaikan agar pengguna mendapat informasi yang jelas.</p>
+          <ul>
+            <li>Admin tetap bisa masuk dan mengelola sistem.</li>
+            <li>Judul dan pesan akan ditampilkan kepada pengguna yang diblokir.</li>
+            <li>Atur waktu mulai dan selesai agar maintenance berjalan otomatis.</li>
+          </ul>
+        </aside>
+      </div>
+    </div>
   );
 }
 
@@ -2449,41 +2476,7 @@ export function AdminSettings() {
 
 // ====== Halaman maintenance untuk User (tampilan baru) ======
 
-function useCountdown(target) {
-  const [now, setNow] = React.useState(() => Date.now());
-  React.useEffect(() => {
-    if (!target) return;
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, [target]);
-  if (!target) return null;
-  const diff = new Date(target).getTime() - now;
-  if (Number.isNaN(diff) || diff <= 0) return null;
-  const h = Math.floor(diff / 3600000);
-  const m = Math.floor((diff % 3600000) / 60000);
-  const s = Math.floor((diff % 60000) / 1000);
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${pad(h)}:${pad(m)}:${pad(s)}`;
-}
-
-function formatTanggalPanjang(v) {
-  try {
-    return new Date(v).toLocaleString("id-ID", {
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return "";
-  }
-}
-
 export function MaintenancePage({ maintenance, user, onLogout }) {
-  const countdown = useCountdown(maintenance?.end_at);
-  const endText = maintenance?.end_at ? formatTanggalPanjang(maintenance.end_at) : null;
-
   return (
     <div className="maint-user-page">
       <div className="maint-user-card">
@@ -2517,22 +2510,12 @@ export function MaintenancePage({ maintenance, user, onLogout }) {
           </p>
         )}
         <p className="maint-user-msg">
-          {maintenance?.message || "SISNERLING sedang dalam perawatan berkala untuk meningkatkan kualitas layanan. Akses dihentikan sementara dan akan kembali normal setelah selesai."}
+          {maintenance?.message || "SISNERLING sedang dalam perawatan berkala untuk meningkatkan kualitas layanan. Akses dihentikan sementara dan akan kembali normal setelah maintenance dinonaktifkan."}
         </p>
 
-        <div className="maint-user-schedule">
-          <div className="row">
-            <span>Perkiraan selesai</span>
-            <strong>{endText || "Menyusul — pantau berkala"}</strong>
-          </div>
-          {countdown && (
-            <div className="row countdown">
-              <span>Sisa waktu</span>
-              <strong className="timer">{countdown}</strong>
-            </div>
-          )}
-          <div className="bar"><span /></div>
-        </div>
+        <p className="maint-user-foot">
+          Akses akan kembali normal setelah maintenance dinonaktifkan oleh Admin.
+        </p>
 
         <div className="maint-user-actions">
           <button className="btn btn-outline" onClick={() => window.location.reload()}>
@@ -2542,9 +2525,6 @@ export function MaintenancePage({ maintenance, user, onLogout }) {
             Keluar / Ganti Akun
           </button>
         </div>
-        <p className="maint-user-foot">
-          Halaman ini akan kembali normal otomatis setelah maintenance selesai. Tidak perlu menghubungi admin kecuali keadaan mendesak.
-        </p>
       </div>
     </div>
   );
@@ -2555,10 +2535,6 @@ export function MaintenancePage({ maintenance, user, onLogout }) {
 // role === "admin" dan maintenance aktif: info jadwal + status lebih jelas.
 
 export function AdminMaintenanceBlockedPage({ maintenance, user, onLogout }) {
-  const endText = maintenance?.end_at ? formatTanggalPanjang(maintenance.end_at) : null;
-  const startText = maintenance?.start_at ? formatTanggalPanjang(maintenance.start_at) : null;
-  const countdown = useCountdown(maintenance?.end_at);
-
   return (
     <div className="maint-admin-page">
       <div className="maint-admin-card">
@@ -2584,18 +2560,17 @@ export function AdminMaintenanceBlockedPage({ maintenance, user, onLogout }) {
         </div>
 
         <p className="maint-admin-msg">
-          {maintenance?.message || "Sistem sedang dalam perawatan. Akses User & User Entry dihentikan sementara. Silakan kembali setelah maintenance selesai."}
+          {maintenance?.message || "Sistem sedang dalam perawatan. Akses User & User Entry dihentikan sementara. Silakan kembali setelah maintenance dinonaktifkan."}
         </p>
 
         <div className="maint-admin-grid">
           <div className="maint-admin-info">
-            <span className="label">Mulai</span>
-            <strong>{startText || "Sekarang"}</strong>
+            <span className="label">Status maintenance</span>
+            <strong>Aktif</strong>
           </div>
           <div className="maint-admin-info">
-            <span className="label">Perkiraan selesai</span>
-            <strong>{endText || "Menunggu info Admin"}</strong>
-            {countdown && <span className="maint-countdown">Sisa {countdown}</span>}
+            <span className="label">Akses pengguna</span>
+            <strong>Diblokir sementara</strong>
           </div>
           <div className="maint-admin-info">
             <span className="label">Yang tetap aktif</span>
@@ -2612,8 +2587,7 @@ export function AdminMaintenanceBlockedPage({ maintenance, user, onLogout }) {
           </button>
         </div>
         <p className="maint-admin-foot">
-          Butuh akses darurat? Hubungi Admin. Halaman ini otomatis kembali normal
-          setelah maintenance dinonaktifkan.
+          Halaman ini kembali normal setelah maintenance dinonaktifkan oleh Admin.
         </p>
       </div>
     </div>

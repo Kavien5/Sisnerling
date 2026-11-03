@@ -875,8 +875,6 @@ router.get("/maintenance", async (_req, res, next) => {
       active: !!cfg.active,
       title: cfg.title || "Maintenance",
       message: cfg.message || "",
-      start_at: cfg.start_at || null,
-      end_at: cfg.end_at || null,
     });
   } catch (err) {
     next(err);
@@ -895,9 +893,7 @@ router.put("/maintenance", async (req, res, next) => {
     const active = req.body.active !== undefined ? !!req.body.active : !!prev.active;
     const title = req.body.title !== undefined ? String(req.body.title).trim() : (prev.title || "Maintenance");
     const message = req.body.message !== undefined ? String(req.body.message).trim() : (prev.message || "");
-    const start_at = req.body.start_at !== undefined ? (req.body.start_at || null) : (prev.start_at || null);
-    const end_at = req.body.end_at !== undefined ? (req.body.end_at || null) : (prev.end_at || null);
-    const cfg = { active, title, message, start_at, end_at };
+    const cfg = { active, title, message };
     await pool.query(
       `INSERT INTO app_settings (skey, svalue) VALUES ('maintenance', ?)
        ON DUPLICATE KEY UPDATE svalue = VALUES(svalue)`,
@@ -908,7 +904,7 @@ router.put("/maintenance", async (req, res, next) => {
       action: active ? "update" : "update",
       module: "maintenance",
       description: active ? "Mengaktifkan mode maintenance" : "Menonaktifkan mode maintenance",
-      oldData: { active: !!prev.active, title: prev.title || "", end_at: prev.end_at || null },
+      oldData: { active: !!prev.active, title: prev.title || "" },
       newData: cfg,
       req,
     });

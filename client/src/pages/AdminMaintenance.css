@@ -1,0 +1,345 @@
+.maintenance-page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.maintenance-page-heading {
+  margin-bottom: 2px;
+}
+
+.maintenance-eyebrow {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--primary-600);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+
+.maintenance-page-heading h2 {
+  color: var(--ink);
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+.maintenance-page-heading p {
+  margin-top: 5px;
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.maintenance-status-card {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 15px 18px;
+  border: 1px solid #a7f3d0;
+  border-radius: var(--radius);
+  background: linear-gradient(110deg, #ecfdf5, #fff 80%);
+}
+
+.maintenance-status-card.is-active {
+  border-color: #fed7aa;
+  background: linear-gradient(110deg, #fff7ed, #fff 80%);
+}
+
+.maintenance-status-indicator {
+  width: 11px;
+  height: 11px;
+  flex: 0 0 11px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.12);
+}
+
+.maintenance-status-card.is-active .maintenance-status-indicator {
+  background: #f97316;
+  box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.13);
+}
+
+.maintenance-status-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.maintenance-status-copy strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.maintenance-status-copy span {
+  color: var(--ink-2);
+  font-size: 12px;
+}
+
+.maintenance-status-badge {
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: #d1fae5;
+  color: #047857;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.maintenance-status-card.is-active .maintenance-status-badge {
+  background: #ffedd5;
+  color: #c2410c;
+}
+
+.maintenance-content-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(240px, 0.8fr);
+  align-items: start;
+  gap: 18px;
+}
+
+.maintenance-settings {
+  overflow: hidden;
+}
+
+.maintenance-card-heading {
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.maintenance-card-heading h3,
+.maintenance-help-card h3 {
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 750;
+}
+
+.maintenance-card-heading p {
+  margin-top: 3px;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.maintenance-form {
+  padding: 20px;
+}
+
+.maintenance-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding: 14px 15px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #f8fafc;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.maintenance-toggle-row.is-active {
+  border-color: #c4b5fd;
+  background: var(--primary-50);
+}
+
+.maintenance-toggle-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.maintenance-toggle-copy strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.maintenance-toggle-copy span {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.maintenance-switch {
+  position: relative;
+  display: inline-flex;
+  width: 46px;
+  height: 26px;
+  flex: 0 0 46px;
+  cursor: pointer;
+}
+
+.maintenance-switch input {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.maintenance-switch-track {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  padding: 3px;
+  border-radius: 999px;
+  background: #cbd5e1;
+  transition: background 0.18s ease;
+}
+
+.maintenance-switch-track span {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.2);
+  transition: transform 0.18s ease;
+}
+
+.maintenance-switch input:checked + .maintenance-switch-track {
+  background: var(--primary-600);
+}
+
+.maintenance-switch input:checked + .maintenance-switch-track span {
+  transform: translateX(20px);
+}
+
+.maintenance-switch input:focus-visible + .maintenance-switch-track {
+  outline: 3px solid rgba(124, 58, 237, 0.24);
+  outline-offset: 2px;
+}
+
+.maintenance-form .form-group {
+  margin-bottom: 16px;
+}
+
+.maintenance-form .form-group label {
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.maintenance-form .form-control {
+  border-radius: 9px;
+}
+
+.maintenance-form textarea.form-control {
+  min-height: 104px;
+  resize: vertical;
+}
+
+.maintenance-form-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 2px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.maintenance-form-footer p {
+  max-width: 390px;
+  color: var(--ink-3);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.maintenance-form-footer .btn {
+  flex: 0 0 auto;
+}
+
+.maintenance-help-card {
+  padding: 20px;
+  border: 1px solid #ddd6fe;
+  border-radius: var(--radius);
+  background: linear-gradient(145deg, #f5f3ff, #fff 85%);
+  box-shadow: var(--shadow-sm);
+}
+
+.maintenance-help-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  margin-bottom: 13px;
+  border-radius: 9px;
+  background: #ede9fe;
+  color: var(--primary-700);
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.maintenance-help-card > p {
+  margin-top: 7px;
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.maintenance-help-card ul {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 17px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.maintenance-help-card li {
+  position: relative;
+  padding-left: 18px;
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.maintenance-help-card li::before {
+  position: absolute;
+  top: 0;
+  left: 0;
+  color: var(--primary-600);
+  content: "✓";
+  font-weight: 800;
+}
+
+@media (max-width: 900px) {
+  .maintenance-content-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .maintenance-page {
+    gap: 14px;
+  }
+
+  .maintenance-page-heading h2 {
+    font-size: 19px;
+  }
+
+  .maintenance-status-card {
+    align-items: flex-start;
+    padding: 13px;
+  }
+
+  .maintenance-status-badge {
+    margin-left: auto;
+  }
+
+  .maintenance-card-heading,
+  .maintenance-form,
+  .maintenance-help-card {
+    padding: 16px;
+  }
+
+  .maintenance-form-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .maintenance-form-footer .btn {
+    width: 100%;
+  }
+}

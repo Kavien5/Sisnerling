@@ -1094,12 +1094,7 @@ export default function Layout({ page, setPage, children, importedFiles, user, o
             <span className="maint-top-dot" />
             <div className="maint-top-text">
               <strong>Maintenance AKTIF{maintenance?.title ? `: ${maintenance.title}` : ""}</strong>
-              <span>
-                User &amp; User Entry sedang diblokir.
-                {maintenance?.end_at
-                  ? ` Perkiraan selesai: ${new Date(maintenance.end_at).toLocaleString("id-ID")}.`
-                  : " Belum ada jadwal selesai."}
-              </span>
+              <span>User &amp; User Entry sedang diblokir sampai maintenance dinonaktifkan.</span>
             </div>
             <button className="btn btn-sm maint-top-btn" onClick={() => setPage("admin-maintenance")}>
               Kelola Maintenance

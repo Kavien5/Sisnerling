@@ -297,8 +297,8 @@ export default function Panduan({ user }) {
                 <Step n="1">Buka menu <b>Maintenance</b>.</Step>
                 <Step n="2">Aktifkan toggle <b>Aktifkan Maintenance sekarang</b>.</Step>
                 <Step n="3">Isi <b>Judul</b> dan <b>Pesan</b> yang tampil untuk pengguna lain.</Step>
-                <Step n="4">(Opsional) tentukan <b>Mulai</b> dan <b>Selesai</b>. Di luar jadwal, sistem kembali normal otomatis.</Step>
-                <Step n="5">Klik <b>Simpan &amp; Nyalakan</b>. Untuk menonaktifkan, matikan toggle lalu simpan.</Step>
+                <Step n="4">Klik <b>Simpan &amp; Nyalakan</b>. Maintenance langsung aktif sampai dinonaktifkan.</Step>
+                <Step n="5">Untuk menonaktifkan, matikan toggle lalu simpan.</Step>
               </ol>
             </div>
           </div>

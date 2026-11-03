@@ -35,15 +35,10 @@ async function isMaintenanceActive() {
     if (!row || !row.svalue) return null;
     const cfg = typeof row.svalue === "string" ? JSON.parse(row.svalue) : row.svalue;
     if (!cfg || !cfg.active) return null;
-    const now = Date.now();
-    if (cfg.start_at && new Date(cfg.start_at).getTime() > now) return null;
-    if (cfg.end_at && new Date(cfg.end_at).getTime() < now) return null;
     return {
       active: true,
       title: cfg.title || "Maintenance",
       message: cfg.message || "",
-      start_at: cfg.start_at || null,
-      end_at: cfg.end_at || null,
     };
   } catch {
     return null;
