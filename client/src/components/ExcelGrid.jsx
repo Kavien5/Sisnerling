@@ -2186,10 +2186,6 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
 
   const renderCell = (r, ci) => {
     const key = allKeys[ci];
-    const col = colByMap.get(key);
-    // Kolom tersembunyi dari file (mis. kolom D–K di sheet Oil) tidak dirender,
-    // konsisten dengan header (col.hidden => null) — layout mengikuti Excel.
-    if (isColumnHidden(ci)) return null;
     const occ = mergeMap.get(`${r}:${ci}`);
     // Bentang merge versi RENDER (kolom/baris yang benar-benar dirender saja).
     // colSpan/rowSpan HARUS memakai hitungan visible ini: kolom hidden tidak
@@ -2197,28 +2193,30 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
     // kolom visible sesudahnya dan menggeser seluruh tabel (mis. merge yang
     // mencakup kolom D–K yang disembunyikan file).
     const mspan = occ ? mergeSpanInfo.get(`${occ.r1}:${occ.c1}`) : null;
-    if (occ && occ.r1 !== r) {
-      return <td key={key} style={{ display: "none" }} />;
-    }
-    if (occ && occ.c1 !== ci) {
-      return null;
-    }
-    const span =
-      occ && mspan && (occ.r2 !== r || occ.c2 !== ci)
-        ? { rowSpan: Math.max(1, mspan.rowSpan), colSpan: Math.max(1, mspan.colSpan) }
-        : null;
-    const isActive = active !== null && active.r === r && active.key === key;
+    const isMergeAnchor = !!(occ && mspan && r === mspan.visR && ci === mspan.visC);
+    // Merge yang anchor aslinya tersembunyi tetap ditampilkan di slot visible
+    // pertama; semua slot lain dalam rentangnya tidak membuat <td> tambahan.
+    if (isColumnHidden(ci) && !isMergeAnchor) return null;
+    if (occ && !isMergeAnchor) return null;
+    const sourceR = occ ? occ.r1 : r;
+    const sourceCi = occ ? occ.c1 : ci;
+    const sourceKey = allKeys[sourceCi] || key;
+    const col = colByMap.get(sourceKey);
+    const span = occ && mspan
+      ? { rowSpan: Math.max(1, mspan.rowSpan), colSpan: Math.max(1, mspan.colSpan) }
+      : null;
+    const isActive = active !== null && active.r === sourceR && active.key === sourceKey;
     const inSel = isInRange(r, ci);
-    const rw = rows[r] || {};
-    const cached = rw["__cv_" + key];
+    const rw = rows[sourceR] || {};
+    const cached = rw["__cv_" + sourceKey];
     const hasCached = cached !== undefined && cached !== "";
     // Format angka = numFmt SEL PER-SEL dari file (General bila tidak ada).
     // Tanpa fallback ke `col.numFmt`: kolom bisa berisi sel berformat akuntansi
     // DAN sel berformat General (mis. header tahun) — memakai format mayoritas
     // kolom membuat header "2014" tampil jadi "2.014,00" (beda dari file asli).
-    const cellFmt = rw["__nf_" + key];
-    const rawVal = rw[key];
-    let value = computed ? computed.get(`${r}:${key}`) : rawVal;
+    const cellFmt = rw["__nf_" + sourceKey];
+    const rawVal = rw[sourceKey];
+    let value = computed ? computed.get(`${sourceR}:${sourceKey}`) : rawVal;
     const isFormula = typeof rawVal === "string" && rawVal.startsWith("=");
     const computedError =
       (typeof value === "string" && value.startsWith("#")) ||
@@ -2241,25 +2239,26 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
     let cellStyle = null;
     if (!cellStyleCacheRef.current) cellStyleCacheRef.current = { widths: null, map: new WeakMap() };
     const csc = cellStyleCacheRef.current;
-    if (csc.widths !== allColWidth || csc.merges !== merges) {
+    if (csc.widths !== allColWidth || csc.merges !== merges || csc.colWidths !== colGeo.ws) {
       csc.map = new WeakMap();
       csc.widths = allColWidth;
       csc.merges = merges;
+      csc.colWidths = colGeo.ws;
     }
     let rowStyles = csc.map.get(rw);
     if (!rowStyles) {
       rowStyles = new Map();
       csc.map.set(rw, rowStyles);
     }
-    cellStyle = rowStyles.get(key);
+    cellStyle = rowStyles.get(sourceKey);
     if (!cellStyle) {
-      const cellBg = rw["__" + key];
-      const bold = rw["__b_" + key];
-      const italic = rw["__i_" + key];
-      const underline = rw["__u_" + key];
-      const sz = rw["__sz_" + key];
-      const fn = rw["__fn_" + key];
-      const fc = rw["__fc_" + key];
+      const cellBg = rw["__" + sourceKey];
+      const bold = rw["__b_" + sourceKey];
+      const italic = rw["__i_" + sourceKey];
+      const underline = rw["__u_" + sourceKey];
+      const sz = rw["__sz_" + sourceKey];
+      const fn = rw["__fn_" + sourceKey];
+      const fc = rw["__fc_" + sourceKey];
       // Teks yang kontrasnya terlalu rendah terhadap latar (nyaris putih/nyaris
       // menyatu) ditimpa warna terbaca — sisanya dipertahankan apa adanya.
       let textColor = fc;
@@ -2268,9 +2267,9 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
         const ratio = colorContrastRatio(fc, effBg);
         if (ratio !== null && ratio < FONT_CONTRAST_MIN) textColor = readableColorOn(effBg);
       }
-      const ha = rw["__ha_" + key];
-      const va = rw["__va_" + key];
-      const wrap = rw["__wr_" + key];
+      const ha = rw["__ha_" + sourceKey];
+      const va = rw["__va_" + sourceKey];
+      const wrap = rw["__wr_" + sourceKey];
       const rh = rows[r] && rows[r].height && rows[r].height > 0 ? rowPx(r) : 0;
       const baseW = { minWidth: allColWidth[ci] || DEFAULT_COL_WIDTH, width: allColWidth[ci] || DEFAULT_COL_WIDTH };
       // BORDER TIDAK lagi digambar di <td>. Semua garis data (border asli Excel
@@ -2298,7 +2297,7 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
         ...(va ? { verticalAlign: va } : undefined),
         ...(wrap ? { whiteSpace: "pre-wrap" } : undefined),
       };
-      rowStyles.set(key, cellStyle);
+      rowStyles.set(sourceKey, cellStyle);
     }
     // Freeze pane (file impor): kolom &/atau baris pertama "beku" — pakai
     // position:sticky dengan offset asal (left = cumW[ci], top = headH +
@@ -2307,7 +2306,7 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
     const frCol = freezeCols > 0 && ci < freezeCols;
     const frRow = freezeRows > 0 && r < freezeRows;
     if (frCol || frRow) {
-      const fBg = rw["__" + key] || "#ffffff";
+      const fBg = rw["__" + sourceKey] || "#ffffff";
       const sticky = {
         position: "sticky",
         ...(frCol ? { left: cumW[ci] ?? 0, backgroundColor: fBg } : {}),
@@ -2315,10 +2314,10 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
         zIndex: ci < 2 ? (frRow ? 5 : 4) : frCol && frRow ? 3 : 2,
       };
       cellStyle = { ...cellStyle, ...sticky };
-      rowStyles.set(key, cellStyle);
+      rowStyles.set(sourceKey, cellStyle);
     }
     // Overlay Lock/Unlock (Penugasan Tabel): tint + outline di atas tampilan asli.
-    const hl = highlights.get(`${r}:${ci}`);
+    const hl = highlights.get(`${sourceR}:${sourceCi}`);
     if (hl) {
       cellStyle = {
         ...cellStyle,
@@ -2326,7 +2325,7 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
         outlineOffset: "-1px",
         boxShadow: `inset 0 0 0 1000px ${hl === "lock" ? "rgba(220,38,38,0.10)" : "rgba(5,150,105,0.10)"}`,
       };
-      rowStyles.set(key, cellStyle);
+      rowStyles.set(sourceKey, cellStyle);
     }
     if (isActive && inline) {
       return (
@@ -2362,8 +2361,8 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
     // menimpa isi tetangga. Sel kosong di kanan dibiarkan agar label panjang
     // tampil utuh, persis Excel (bukan "keluar dari garis kotak").
     let clipText = false;
-    if (!isNum && !rw["__wr_" + key] && !span && typeof display === "string" && display.length > 0) {
-      const occSet = occupiedByRow[r];
+    if (!isNum && !rw["__wr_" + sourceKey] && !span && typeof display === "string" && display.length > 0) {
+      const occSet = occupiedByRow[sourceR];
       if (occSet) {
         let nc = ci + 1;
         while (nc < columns.length && (colGeo.ws[nc] || 0) <= 0) nc++;
@@ -2371,25 +2370,25 @@ const ExcelGrid = React.forwardRef(function ExcelGrid(props, ref) {
       }
     }
     const matched = !!sq && rawVal !== null && rawVal !== undefined && String(rawVal).toLowerCase().includes(sq);
-    const isFillAnchor = !!sel && r === sel.r2 && ci === sel.c2;
+    const isFillAnchor = !!sel && sourceR === sel.r2 && sourceCi === sel.c2;
     return (
       <td
         key={key}
         rowSpan={span?.rowSpan}
         colSpan={span?.colSpan}
-        data-r={r}
-        data-ci={ci}
+        data-r={sourceR}
+        data-ci={sourceCi}
         {...(span ? { rowSpan: span.rowSpan, colSpan: span.colSpan } : {})}
         className={`cell${isActive ? " active" : ""}${inSel ? " in-range" : ""}${err ? " cell-error" : ""
           }${isNum ? " number" : ""}${matched ? " cell-match" : ""}${clipText ? " cell-clip" : ""}`}
         style={cellStyle}
-        onMouseDown={(e) => onCellMouseDown(r, key, e)}
-        onMouseOver={() => onCellMouseOver(r, key)}
-        onClick={() => onCellClick(r, key)}
-        onDoubleClick={() => beginEdit(r, key)}
+        onMouseDown={(e) => onCellMouseDown(sourceR, sourceKey, e)}
+        onMouseOver={() => onCellMouseOver(sourceR, sourceKey)}
+        onClick={() => onCellClick(sourceR, sourceKey)}
+        onDoubleClick={() => beginEdit(sourceR, sourceKey)}
         onContextMenu={(e) => {
           e.preventDefault();
-          setContextMenu({ x: e.clientX, y: e.clientY, r, ci });
+          setContextMenu({ x: e.clientX, y: e.clientY, r: sourceR, ci: sourceCi });
         }}
       >
         {display}
