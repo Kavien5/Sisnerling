@@ -46,26 +46,6 @@ npm start
 
 Server melayani halaman dan API pada port `PORT` (default `3000`). Setelah domain/reverse proxy aktif, periksa `https://<domain>/api/health`, login, fungsi spreadsheet, ekspor file, dan koneksi realtime. Build lokal terverifikasi berhasil; Vite masih memberi peringatan bahwa bundle JavaScript utama lebih dari 500 kB, tetapi build selesai.
 
-### Halaman Input & Pengolahan Neraca
-
-Halaman ini **sudah ada di checkout laptop ini dan di branch GitHub `main`**, dengan isi yang sama. File sumber dan stylesheet-nya:
-
-- [`client/src/pages/InputPengolahanNeraca.jsx`](./client/src/pages/InputPengolahanNeraca.jsx)
-- [`client/src/pages/InputPengolahanNeraca.css`](./client/src/pages/InputPengolahanNeraca.css)
-
-Halaman sudah diimpor dan ditampilkan oleh [`client/src/App.jsx`](./client/src/App.jsx), serta memakai endpoint neraca pada backend. Menjalankan `npm run build` dari root akan memasukkannya ke bundle frontend yang disalin ke `server/public`; file JSX tidak perlu disalin terpisah ke hosting.
-
-Jika halaman tidak muncul di device lain, pastikan device tersebut mengambil branch `main` yang terbaru dan membangun ulang aplikasinya, bukan mengirim folder hasil build lama saja:
-
-```sh
-git pull origin main
-npm ci --prefix server
-npm ci --prefix client
-npm run build
-```
-
-Kirim/deploy source repository beserta hasil build terbaru. Jangan menimpa source dengan salinan lama atau hanya mengunggah bundle `server/public` yang sudah ada sebelumnya.
-
 ## Blocker dan keputusan sebelum go-live
 
 1. **Jangan buka ke pengguna produksi sebelum isu penyimpanan password diperbaiki.** Saat ini backend menyimpan password pengguna sebagai teks biasa di `password_plain` dan endpoint manajemen admin membacanya. Ini perlu dihapus dari alur aplikasi/database dan ditinjau keamanannya sebelum data/akun riil dipakai.
