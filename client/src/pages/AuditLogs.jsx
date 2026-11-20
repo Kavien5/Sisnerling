@@ -279,6 +279,7 @@ function ReadOnlyAuditLogs() {
 }
 
 function SuperAdminAuditLogs({ user }) {
+  const [refreshKey, setRefreshKey] = React.useState(0);
   const [q, setQ] = React.useState("");
   const [qInput, setQInput] = React.useState("");
   const [userId, setUserId] = React.useState("");
@@ -412,7 +413,7 @@ function SuperAdminAuditLogs({ user }) {
   React.useEffect(() => {
     fetchLogs(1, perPage, scope);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, userId, action, module, from, to, perPage, scope]);
+  }, [q, userId, action, module, from, to, perPage, scope, refreshKey]);
 
   React.useEffect(() => {
     let active = true;
