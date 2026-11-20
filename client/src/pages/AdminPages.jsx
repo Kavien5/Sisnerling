@@ -98,6 +98,22 @@ function Toggle({ value, onChange }) {
   );
 }
 
+const NERACA_TASK_STATUS = {
+  not_started: { label: "Belum dimulai", className: "pending" },
+  in_progress: { label: "Sedang dikerjakan", className: "progress" },
+  submitted: { label: "Menunggu verifikasi", className: "submitted" },
+  revision_requested: { label: "Perlu revisi", className: "revision" },
+  completed: { label: "Selesai", className: "completed" },
+};
+
+function formatTaskDate(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? String(value)
+    : date.toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" });
+}
+
 // Kontrol zoom tampilan untuk pratinjau Penugasan. Hanya mengubah skala visual
 // (diteruskan ke prop `zoom` ExcelGrid) — tidak menyentuh data/workbook asli.
 const ZOOM_MIN = 0.5;
@@ -293,7 +309,7 @@ export function AdminUsers({ user: currentUser }) {
   const [users, setUsers] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [editing, setEditing] = React.useState(null); // null = mode tambah
-  const [form, setForm] = React.useState({ nama: "", email: "", password: "", role: "user" });
+  const [form, setForm] = React.useState({ nama: "", email: "", nip: "", password: "", role: "user" });
   const [saving, setSaving] = React.useState(false);
   const [deleteTarget, setDeleteTarget] = React.useState(null);
   const [roleTarget, setRoleTarget] = React.useState(null); // { u, role } untuk konfirmasi perubahan Admin
@@ -319,20 +335,34 @@ export function AdminUsers({ user: currentUser }) {
 
   const startEdit = (u) => {
     setEditing(u);
-    setForm({ nama: u.nama, email: u.email, password: "", role: u.role });
+    setForm({ nama: u.nama, email: u.email, nip: u.nip || "", password: "", role: u.role });
   };
 
   const startCreate = () => {
     setEditing(null);
-    setForm({ nama: "", email: "", password: "", role: "user" });
+    setForm({ nama: "", email: "", nip: "", password: "", role: "user" });
   };
 
   const submit = async (e) => {
     e.preventDefault();
+    const nip = String(form.nip || "").trim();
+    if (!editing && !nip) {
+      toast("NIP wajib diisi untuk akun baru.", "error");
+      return;
+    }
+    if (nip && !/^[0-9]{18}$/.test(nip)) {
+      toast("NIP harus terdiri dari tepat 18 angka.", "error");
+      return;
+    }
+    if (editing?.nip && !nip) {
+      toast("NIP yang sudah terdaftar tidak dapat dikosongkan.", "error");
+      return;
+    }
     setSaving(true);
     try {
       if (editing) {
         const body = { nama: form.nama, email: form.email, role: form.role };
+        if (nip && nip !== String(editing.nip || "")) body.nip = nip;
         if (form.password) body.password = form.password;
         await api.updateAdminUser(editing.id, body);
         toast("Pengguna berhasil diperbarui");
@@ -489,6 +519,32 @@ export function AdminUsers({ user: currentUser }) {
                 <label htmlFor="user-form-email">Alamat email</label>
                 <input id="user-form-email" className="form-control" type="email" value={form.email} onChange={set("email")} placeholder="nama@email.com" autoComplete="email" required />
               </div>
+              <div className="form-group">
+                <label htmlFor="user-form-nip">
+                  NIP
+                  {editing && !editing.nip && <span className="label-hint">boleh diisi bertahap</span>}
+                </label>
+                <input
+                  id="user-form-nip"
+                  className="form-control"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  value={form.nip}
+                  onChange={set("nip")}
+                  placeholder="198705152010011002"
+                  minLength={18}
+                  maxLength={18}
+                  pattern="[0-9]{18}"
+                  title="NIP harus terdiri dari tepat 18 angka."
+                  required={!editing || !!editing.nip}
+                />
+                <span className="user-field-hint">
+                  {editing && !editing.nip
+                    ? "Akun lama boleh belum memiliki NIP; isi 18 angka untuk melengkapinya."
+                    : "Wajib diisi dengan tepat 18 angka."}
+                </span>
+              </div>
               <div className="form-group user-form-password">
                 <label htmlFor="user-form-password">
                   Password
@@ -563,6 +619,7 @@ export function AdminUsers({ user: currentUser }) {
                 <th className="th-id">ID</th>
                 <th>Nama</th>
                 <th>Email</th>
+                <th>NIP</th>
                 <th>Role</th>
                 <th>
                   <span className="th-with-icon">
@@ -592,6 +649,9 @@ export function AdminUsers({ user: currentUser }) {
                     </div>
                   </td>
                   <td className="text-muted">{u.email}</td>
+                  <td className="user-nip-cell">
+                    {u.nip || <span className="user-nip-missing">Belum diisi</span>}
+                  </td>
                   <td>
                     <RoleBadge role={u.role} />
                     {!isSelf(u) ? (
@@ -652,7 +712,7 @@ export function AdminUsers({ user: currentUser }) {
                 </tr>
               ))}
               {users.length === 0 && !loading && (
-                <tr><td colSpan="8"><div className="empty-state">Belum ada pengguna</div></td></tr>
+                <tr><td colSpan="9"><div className="empty-state">Belum ada pengguna</div></td></tr>
               )}
             </tbody>
           </table>
@@ -954,6 +1014,19 @@ export function AdminTables() {
   const toast = useToast();
   const [perms, setPerms] = React.useState([]);
   const [admins, setAdmins] = React.useState([]);
+  const [neracaTasks, setNeracaTasks] = React.useState([]);
+  const [neracaDatasets, setNeracaDatasets] = React.useState([]);
+  const [taskForm, setTaskForm] = React.useState({
+    datasetId: "",
+    title: "",
+    description: "",
+    deadlineAt: "",
+  });
+  const [taskSaving, setTaskSaving] = React.useState(false);
+  const [reviewTarget, setReviewTarget] = React.useState(null);
+  const [reviewNote, setReviewNote] = React.useState("");
+  const [reviewSaving, setReviewSaving] = React.useState(false);
+  const [userEntrySearch, setUserEntrySearch] = React.useState("");
   const [spreadsheets, setSpreadsheets] = React.useState([]);
   const [files, setFiles] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
@@ -979,15 +1052,19 @@ export function AdminTables() {
 
   const fetchAll = React.useCallback(async () => {
     try {
-      const [p, users, sp, sc] = await Promise.all([
+      const [p, users, sp, sc, tasks, datasets] = await Promise.all([
         api.getAdminPermissions(),
         api.getAdminUsers(),
         api.getSpreadsheet().catch(() => []),
         api.getAdminScopes().catch(() => []),
+        api.getNeracaTasks(),
+        api.neracaDatasets(),
       ]);
       setPerms(p);
       setScopes(Array.isArray(sc) ? sc : []);
       setAdmins(users.filter((u) => u.role === "user_entry"));
+      setNeracaTasks(Array.isArray(tasks) ? tasks : []);
+      setNeracaDatasets(Array.isArray(datasets.datasets) ? datasets.datasets : []);
       setSpreadsheets(sp);
       setFiles(loadFiles());
     } catch (err) {
@@ -998,6 +1075,52 @@ export function AdminTables() {
   }, [toast]);
 
   React.useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  const handleCreateNeracaTask = async (event) => {
+    event.preventDefault();
+    const deadline = new Date(taskForm.deadlineAt);
+    if (!Number.isFinite(deadline.getTime())) {
+      toast("Pilih tenggat waktu yang valid.", "error");
+      return;
+    }
+    setTaskSaving(true);
+    try {
+      const task = await api.createNeracaTask({
+        assigneeId: form.userId,
+        datasetId: taskForm.datasetId,
+        title: taskForm.title,
+        description: taskForm.description,
+        deadlineAt: deadline.toISOString(),
+      });
+      setNeracaTasks((current) => [task, ...current]);
+      setTaskForm({ datasetId: "", title: "", description: "", deadlineAt: "" });
+      toast("Tugas Neraca berhasil diberikan.", "success");
+    } catch (err) {
+      toast(err.message || "Gagal membuat tugas Neraca.", "error");
+    } finally {
+      setTaskSaving(false);
+    }
+  };
+
+  const handleReviewNeracaTask = async (task, status, note = "") => {
+    if (status === "completed" && !window.confirm(`Setujui dan selesaikan tugas "${task.title}"?`)) return;
+    if (status === "revision_requested" && !note.trim()) {
+      toast("Catatan revisi wajib diisi.", "error");
+      return;
+    }
+    setReviewSaving(true);
+    try {
+      const updated = await api.reviewNeracaTask(task.id, { status, reviewNote: note.trim() });
+      setNeracaTasks((current) => current.map((item) => item.id === updated.id ? updated : item));
+      setReviewTarget(null);
+      setReviewNote("");
+      toast(status === "completed" ? "Tugas disetujui dan selesai." : "Permintaan revisi dikirim.", "success");
+    } catch (err) {
+      toast(err.message || "Gagal memperbarui hasil verifikasi.", "error");
+    } finally {
+      setReviewSaving(false);
+    }
+  };
 
   // Workbook -> sheet: satu file (Workbook) dapat memiliki banyak sheet.
   const fileGroups = React.useMemo(() => {
@@ -1601,17 +1724,17 @@ export function AdminTables() {
   };
 
   const scopeScopeLabel = (r) => {
-    if (r.level === "workbook") return "Seluruh workbook";
-    if (r.level === "sheet") return `Sheet ${r.sheetName || r.sheetId}`;
+    if (r.level === "workbook") return "Semua sheet dalam file";
+    if (r.level === "sheet") return `Seluruh sheet: ${r.sheetName || r.sheetId}`;
     if (r.level === "column") {
       const keys = r.colKeys || [];
       if (!keys.length) return "Semua kolom";
-      if (keys.length === 1) return `Kolom ${keys[0]}`;
-      return `Kolom ${keys[0]}:${keys[keys.length - 1]}`;
+      if (keys.length === 1) return `Kolom ${keys[0]} (semua baris)`;
+      return `Kolom ${keys[0]}–${keys[keys.length - 1]} (semua baris)`;
     }
     if (r.level === "row") return `Baris ${(r.r1 ?? 0) + 1}:${(r.r2 ?? 0) + 1}`;
-    if (r.level === "cell") return `${colName(r.c1 ?? 0)}${(r.r1 ?? 0) + 1}`;
-    return `${colName(r.c1 ?? 0)}${(r.r1 ?? 0) + 1}:${colName(r.c2 ?? 0)}${(r.r2 ?? 0) + 1}`;
+    if (r.level === "cell") return `Sel ${colName(r.c1 ?? 0)}${(r.r1 ?? 0) + 1}`;
+    return `Rentang ${colName(r.c1 ?? 0)}${(r.r1 ?? 0) + 1}:${colName(r.c2 ?? 0)}${(r.r2 ?? 0) + 1}`;
   };
 
   // Aturan milik sheet yang sedang dipakai, untuk overlay di pratinjau.
@@ -1692,33 +1815,42 @@ export function AdminTables() {
     <div className="psg-scope-actions">
       <div className="psg-selinfo">
         <span className="psg-sel-label">
-          Pilihan:{" "}
+          Area yang dipilih:{" "}
           <b>
             {scopeLevel === "workbook"
-              ? "Seluruh File"
+              ? "Semua sheet dalam file"
               : scopeLevel === "sheet"
-                ? "Seluruh Sheet"
-                : selLabel() || "—"}
+                ? "Seluruh sheet"
+                : selLabel() || "Belum dipilih"}
           </b>
         </span>
         {scopeLevel === "selection" && (
           <span className="psg-sel-level">
-            {gridSel ? `Level: ${derivedLevel() || "-"}` : "Klik / drag area di tabel (cell, nomor baris, atau huruf kolom)"}
+            {gridSel ? `Jenis area: ${derivedLevel() || "-"}` : "Pilih sel, baris, atau kolom pada pratinjau"}
           </span>
         )}
         <span className="psg-sel-state">
-          {form.locked ? "🔒 Locked" : "🔓 Unlocked"} · {form.canEntry ? "✏️ Entry diizinkan" : "🚫 Tanpa Entry"}
+          {form.locked ? "🔒 Tidak boleh mengubah data" : "🔓 Boleh mengubah data"} · {form.canEntry ? "Boleh menambah data" : "Tidak boleh menambah data"}
         </span>
       </div>
       <div className="psg-actbtns">
-        <button type="button" className={`btn btn-sm ${form.locked ? "btn-primary" : "btn-outline"}`} onClick={() => applyScope("lock")} disabled={loading}>🔒 Lock</button>
-        <button type="button" className={`btn btn-sm ${!form.locked ? "btn-primary" : "btn-outline"}`} onClick={() => applyScope("unlock")} disabled={loading}>🔓 Unlock</button>
-        <button type="button" className={`btn btn-sm ${form.canEntry ? "btn-primary" : "btn-outline"}`} onClick={() => applyScope("entry")} disabled={loading}>✏️ Allow Entry</button>
-        <button type="button" className={`btn btn-sm ${!form.canEntry ? "btn-primary" : "btn-outline"}`} onClick={() => applyScope("noentry")} disabled={loading}>🚫 No Entry</button>
-        <button type="button" className="btn btn-sm" onClick={() => { setGridSel(null); gridSelRef.current = null; }}>✕ Bersihkan</button>
+        <button type="button" className={`btn btn-sm ${form.locked ? "btn-primary" : "btn-outline"}`} onClick={() => applyScope("lock")} disabled={loading}>🔒 Larang perubahan</button>
+        <button type="button" className={`btn btn-sm ${!form.locked ? "btn-primary" : "btn-outline"}`} onClick={() => applyScope("unlock")} disabled={loading}>🔓 Izinkan perubahan</button>
+        <button type="button" className={`btn btn-sm ${form.canEntry ? "btn-primary" : "btn-outline"}`} onClick={() => applyScope("entry")} disabled={loading}>➕ Izinkan tambah data</button>
+        <button type="button" className={`btn btn-sm ${!form.canEntry ? "btn-primary" : "btn-outline"}`} onClick={() => applyScope("noentry")} disabled={loading}>🚫 Larang tambah data</button>
+        <button type="button" className="btn btn-sm" onClick={() => { setGridSel(null); gridSelRef.current = null; }}>✕ Hapus pilihan area</button>
       </div>
     </div>
   );
+
+  const taskStatusCounts = neracaTasks.reduce((counts, task) => {
+    counts[task.status] = (counts[task.status] || 0) + 1;
+    return counts;
+  }, {});
+  const filteredUserEntries = admins.filter((account) => {
+    const query = userEntrySearch.trim().toLocaleLowerCase();
+    return !query || `${account.nama} ${account.email}`.toLocaleLowerCase().includes(query);
+  });
 
   return (
     <>
@@ -1727,9 +1859,8 @@ export function AdminTables() {
         <div style={{ flex: 1, minWidth: 260 }}>
           <h2>Penugasan Tabel User Entry</h2>
           <p>
-            Tentukan hak akses User Entry pada workbook &amp; sheet <b>asli</b> — tanpa menyalin data.
-            Pilih User Entry, File/Workbook, lalu level cakupan. Aturan paling spesifik yang berlaku menang
-            (File → Sheet → Kolom/Baris → Range → Cell).
+            Atur bagian spreadsheet yang boleh ditambah atau diubah oleh setiap User Entry.
+            Perubahan izin berlaku langsung pada file asli.
           </p>
           <div className="psg-stats">
             <span className="psg-stat">👤 <b>{admins.length}</b> user entry</span>
@@ -1740,17 +1871,228 @@ export function AdminTables() {
         </div>
       </div>
 
+      <div className="card psg-card psg-task-card">
+        <div className="psg-head">
+          <div>
+            <h3>📝 Penugasan pekerjaan Neraca <span className="psg-count">{neracaTasks.length}</span></h3>
+            <div className="psg-sub">Berikan pekerjaan ke akun User Entry. Penerima akan membuka dataset yang ditentukan, mengerjakan Neraca, lalu mengirim hasil untuk verifikasi.</div>
+          </div>
+          <button className="btn btn-sm" type="button" onClick={fetchAll} disabled={loading}>↻ Muat Ulang</button>
+        </div>
+        <div className="psg-body">
+          <div className="psg-task-summary" aria-label="Ringkasan status tugas">
+            {Object.entries(NERACA_TASK_STATUS).map(([status, config]) => (
+              <span className={`psg-task-stat ${config.className}`} key={status}>
+                <b>{taskStatusCounts[status] || 0}</b>{config.label}
+              </span>
+            ))}
+          </div>
+
+          <form className="psg-task-form" onSubmit={handleCreateNeracaTask}>
+            <h4>Buat tugas Neraca</h4>
+            <div className="psg-task-fields">
+              <label className="psg-task-wide">
+                Cari User Entry penerima tugas
+                <input
+                  type="search"
+                  value={userEntrySearch}
+                  onChange={(event) => setUserEntrySearch(event.target.value)}
+                  placeholder="Cari berdasarkan nama atau email..."
+                  aria-label="Cari akun User Entry berdasarkan nama atau email"
+                />
+              </label>
+              <div className="psg-user-choice-grid psg-task-wide" role="group" aria-label="Pilihan User Entry penerima tugas">
+                {filteredUserEntries.map((account) => {
+                  const selected = String(form.userId) === String(account.id);
+                  const initials = String(account.nama || "?")
+                    .trim()
+                    .split(/\s+/)
+                    .slice(0, 2)
+                    .map((part) => part.charAt(0))
+                    .join("")
+                    .toLocaleUpperCase();
+                  return (
+                    <button
+                      type="button"
+                      key={account.id}
+                      className={`psg-user-choice${selected ? " selected" : ""}`}
+                      onClick={() => setForm((formState) => ({ ...formState, userId: String(account.id) }))}
+                      aria-pressed={selected}
+                    >
+                      <span className="psg-user-choice-avatar" aria-hidden="true">{initials}</span>
+                      <span className="psg-user-choice-info">
+                        <strong>{account.nama}</strong>
+                        <small>{account.email}</small>
+                      </span>
+                      <span className="psg-user-choice-state">{selected ? "Dipilih" : "Pilih"}</span>
+                    </button>
+                  );
+                })}
+                {!filteredUserEntries.length && (
+                  <p className="psg-user-choice-empty">
+                    {loading
+                      ? "Memuat daftar akun User Entry..."
+                      : admins.length
+                        ? "Tidak ada User Entry yang cocok dengan pencarian."
+                        : "Belum ada akun dengan role User Entry. Buat akun User Entry terlebih dahulu."}
+                  </p>
+                )}
+              </div>
+              <label>
+                Dataset Neraca
+                <select
+                  required
+                  value={taskForm.datasetId}
+                  onChange={(event) => setTaskForm((formState) => ({ ...formState, datasetId: event.target.value }))}
+                >
+                  <option value="">Pilih dataset...</option>
+                  {neracaDatasets.map((dataset) => (
+                    <option key={dataset.id} value={dataset.id}>{dataset.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Tenggat waktu
+                <input
+                  required
+                  type="datetime-local"
+                  value={taskForm.deadlineAt}
+                  onChange={(event) => setTaskForm((formState) => ({ ...formState, deadlineAt: event.target.value }))}
+                />
+              </label>
+              <label className="psg-task-wide">
+                Nama pekerjaan
+                <input
+                  required
+                  minLength={3}
+                  maxLength={180}
+                  value={taskForm.title}
+                  onChange={(event) => setTaskForm((formState) => ({ ...formState, title: event.target.value }))}
+                  placeholder="Contoh: Lengkapi data neraca tahun 2025"
+                />
+              </label>
+              <label className="psg-task-wide">
+                Instruksi pekerjaan
+                <textarea
+                  required
+                  maxLength={5000}
+                  rows={3}
+                  value={taskForm.description}
+                  onChange={(event) => setTaskForm((formState) => ({ ...formState, description: event.target.value }))}
+                  placeholder="Jelaskan data yang perlu diisi atau diperiksa."
+                />
+              </label>
+            </div>
+            <div className="psg-task-form-footer">
+              <span>Dataset tugas akan dibuka khusus saat penerima mulai mengerjakannya.</span>
+              <button className="btn btn-primary" type="submit" disabled={taskSaving || !form.userId || !neracaDatasets.length}>
+                {taskSaving ? "Menyimpan..." : "Berikan tugas"}
+              </button>
+            </div>
+          </form>
+
+          {reviewTarget && (
+            <form
+              className="psg-review-panel"
+              onSubmit={(event) => {
+                event.preventDefault();
+                handleReviewNeracaTask(reviewTarget, "revision_requested", reviewNote);
+              }}
+            >
+              <div>
+                <strong>Minta revisi: {reviewTarget.title}</strong>
+                <p>Tuliskan bagian yang perlu diperbaiki. Catatan ini akan terlihat oleh penerima tugas.</p>
+              </div>
+              <textarea
+                required
+                maxLength={5000}
+                rows={3}
+                value={reviewNote}
+                onChange={(event) => setReviewNote(event.target.value)}
+                placeholder="Jelaskan revisi yang diperlukan..."
+              />
+              <div className="psg-row-actions">
+                <button className="btn btn-primary" type="submit" disabled={reviewSaving}>Kirim permintaan revisi</button>
+                <button className="btn" type="button" onClick={() => { setReviewTarget(null); setReviewNote(""); }} disabled={reviewSaving}>Batal</button>
+              </div>
+            </form>
+          )}
+
+          <div className="psg-task-list-heading">
+            <h4>Daftar tugas</h4>
+            <span>{neracaTasks.length} tugas tersimpan</span>
+          </div>
+          <div className="table-wrap psg-task-table-wrap">
+            <table className="table psg-task-table">
+              <thead>
+                <tr>
+                  <th>Pekerjaan</th>
+                  <th>Penerima</th>
+                  <th>Dataset &amp; tenggat</th>
+                  <th>Status</th>
+                  <th>Catatan verifikasi</th>
+                  <th>Tindakan</th>
+                </tr>
+              </thead>
+              <tbody>
+                {neracaTasks.map((task) => {
+                  const state = NERACA_TASK_STATUS[task.status] || NERACA_TASK_STATUS.not_started;
+                  return (
+                    <tr key={task.id}>
+                      <td>
+                        <strong>{task.title}</strong>
+                        <span className="psg-task-description">{task.description}</span>
+                      </td>
+                      <td>{task.recipient_name || "Akun dihapus"}</td>
+                      <td>
+                        <strong>{task.dataset_name}</strong>
+                        {!task.dataset_available && <span className="psg-task-unavailable">Dataset tidak tersedia</span>}
+                        <span className="psg-task-description">Tenggat: {formatTaskDate(task.deadline_at)}</span>
+                      </td>
+                      <td><span className={`psg-task-status ${state.className}`}>{state.label}</span></td>
+                      <td>{task.review_note || "—"}</td>
+                      <td>
+                        {task.status === "submitted" ? (
+                          <div className="psg-row-actions">
+                            <button className="btn btn-sm btn-primary" onClick={() => handleReviewNeracaTask(task, "completed")}>Setujui</button>
+                            <button className="btn btn-sm" onClick={() => { setReviewTarget(task); setReviewNote(""); }}>Minta revisi</button>
+                          </div>
+                        ) : <span className="text-muted">—</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!neracaTasks.length && (
+                  <tr><td colSpan="6"><div className="psg-empty">Belum ada tugas Neraca. Buat tugas pertama melalui formulir di atas.</div></td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <section className="psg-guide" aria-labelledby="psg-guide-title">
+        <h3 id="psg-guide-title">Cara mengatur izin spreadsheet</h3>
+        <ol>
+          <li><b>1</b><span>Pilih akun User Entry yang akan diberi akses.</span></li>
+          <li><b>2</b><span>Pilih file Excel dan sheet yang ingin diatur.</span></li>
+          <li><b>3</b><span>Pilih seluruh sheet/file atau tandai area pada pratinjau.</span></li>
+          <li><b>4</b><span>Tentukan apakah area boleh diubah dan data baru boleh ditambahkan.</span></li>
+        </ol>
+        <p><strong>Catatan:</strong> izin tabel umum tetap berlaku; aturan area yang lebih rinci mengatur bagian yang dipilih.</p>
+      </section>
+
       <div className="card psg-card">
         <div className="psg-head">
           <div>
-            <h3>➕ Buat / Perbarui Aturan</h3>
-            <div className="psg-sub">Pilih User Entry &amp; File, lalu <b>blok area di pratinjau</b> (cell/range, nomor baris, atau huruf kolom) dan tekan <b>Lock / Unlock / Allow Entry</b>. Aksi hanya berlaku pada area yang dipilih.</div>
+            <h3>Atur akses</h3>
+            <div className="psg-sub">Pilih akun dan file terlebih dahulu. Setelah area dipilih, gunakan tombol akses untuk langsung menyimpan perubahan.</div>
           </div>
         </div>
         <form className="psg-body" onSubmit={(e) => { e.preventDefault(); applyScope("save"); }}>
           <div className="psg-grid">
             <div className="form-group" style={{ margin: 0 }}>
-              <label>User Entry <span className="psg-req">*</span></label>
+              <label>1. Akun User Entry <span className="psg-req">*</span></label>
               <Dropdown
                 value={form.userId}
                 onChange={(v) => setForm((f) => ({ ...f, userId: v }))}
@@ -1759,44 +2101,50 @@ export function AdminTables() {
                   ...admins.map((a) => ({ value: String(a.id), label: `${a.nama} (${a.email})` })),
                 ]}
               />
+              <div className="psg-hint">Pilihan akun ini juga digunakan sebagai penerima tugas Neraca.</div>
             </div>
             <div className="form-group" style={{ margin: 0 }}>
-              <label>File / Workbook <span className="psg-req">*</span></label>
+              <label>2. File Excel <span className="psg-req">*</span></label>
               <Dropdown
                 value={form.fileId}
                 onChange={(f) => { onFileChange(f); resetScope(); }}
                 options={[
-                  { value: "", label: "Semua file" },
+                  { value: "", label: "Pilih file..." },
                   ...fileOptions.map((g) => ({ value: g.key, label: g.label })),
                 ]}
               />
             </div>
             <div className="form-group" style={{ margin: 0 }}>
-              <label>Sheet</label>
+              <label>3. Sheet (lembar kerja)</label>
               <Dropdown
                 value={form.tabelId}
                 onChange={(t) => { onSheetChange(t); resetScope(); }}
                 disabled={scopeLevel === "workbook"}
                 options={[
-                  { value: "", label: form.fileId ? "Semua sheet (lihat semua sheet di file ini)" : "Pilih sheet..." },
+                  { value: "", label: "Pilih sheet..." },
                   ...sheetOptions.map((t) => ({ value: t.value, label: t.label, disabled: t.disabled })),
                 ]}
               />
               {scopeLevel === "workbook" && (
                 <div className="psg-hint" style={{ marginTop: 6 }}>
-                  Cakupan <b>Seluruh File</b>: aturan berlaku ke semua sheet pada file ini. Pilih satu sheet bila ingin mengatur per-sheet.
+                  Akses akan berlaku untuk semua sheet dalam file yang dipilih.
+                </div>
+              )}
+              {form.fileId && scopeLevel !== "workbook" && (
+                <div className="psg-hint" style={{ marginTop: 6 }}>
+                  Pilih satu sheet. Untuk mengatur semua sheet sekaligus, pilih “Semua sheet dalam file” pada bagian berikutnya.
                 </div>
               )}
             </div>
           </div>
 
           <div className="psg-field">
-            <label>Cakupan</label>
+            <label>4. Bagian yang diatur</label>
             <div className="psg-levels">
               {[
-                ["selection", "Seleksi Grid", "▦"],
-                ["sheet", "Seluruh Sheet", "📄"],
-                ["workbook", "Seluruh File", "📁"],
+                ["selection", "Area tertentu", "▦"],
+                ["sheet", "Satu sheet", "📄"],
+                ["workbook", "Semua sheet dalam file", "📁"],
               ].map(([lv, label, ico]) => (
                 <button
                   key={lv}
@@ -1810,24 +2158,32 @@ export function AdminTables() {
               ))}
             </div>
             <div className="psg-hint" style={{ marginTop: 6 }}>
-              <b>Seleksi Grid</b>: blok cell secara bebas (klik / drag, klik nomor baris, klik huruf kolom). Cakupan (cell / range / baris / kolom / sheet) ditentukan otomatis dari blok yang dipilih — Lock/Unlock <b>hanya berlaku pada area itu</b>, bukan seluruh tabel.
+              {scopeLevel === "selection"
+                ? <>Pada pratinjau, klik atau tarik untuk memilih sel. Klik nomor baris atau huruf kolom untuk memilih seluruh baris/kolom.</>
+                : scopeLevel === "sheet"
+                  ? <>Aturan berlaku untuk semua sel pada sheet yang dipilih.</>
+                  : <>Aturan berlaku untuk semua sheet dalam file yang dipilih.</>}
             </div>
           </div>
 
           <div className="psg-actions">
-            <button className="btn btn-primary" type="submit" disabled={loading}>💾 Simpan</button>
+            <button className="btn btn-primary" type="submit" disabled={loading}>💾 Terapkan akses ke pilihan</button>
             <button className="btn" type="button" onClick={fetchAll} disabled={loading}>↻ Muat Ulang</button>
-            <span className="psg-hint">🔒 Rumus (formula) selalu terkunci untuk User Entry.</span>
+            <span className="psg-hint">Rumus spreadsheet tetap terkunci.</span>
           </div>
         </form>
       </div>
 
-      {selectedWorkbookKey && !form.tabelId && (
+      {selectedWorkbookKey && (!form.tabelId || scopeLevel === "workbook") && (
         <div className="card psg-card">
           <div className="psg-head">
             <div>
               <h3>📁 {String(fileLabel(selectedWorkbookKey, selectedSheet || {})).toUpperCase()}</h3>
-              <div className="psg-sub">Cakupan: <b>Seluruh File</b> — pilih salah satu sheet di bawah, lalu blok area untuk Lock/Unlock/Entry.</div>
+              <div className="psg-sub">
+                {scopeLevel === "workbook"
+                  ? <>Meninjau file ini. Aturan yang disimpan berlaku untuk semua sheet.</>
+                  : <>Pilih sheet di bawah untuk melihat atau mengatur area tertentu.</>}
+              </div>
             </div>
             <div className="psg-head-tools">
               <span className="psg-count" title="Jumlah sheet">{pvNames.length || pvSheets.length} sheet</span>
@@ -1970,25 +2326,24 @@ export function AdminTables() {
           <div>
             <h3>📋 Aturan &amp; Izin Penugasan <span className="psg-count">{mergedRows.length}</span></h3>
             <div className="psg-sub">
-              Satu tabel gabungan dua lapisan: <b>Scope</b> ({scopes.length}) dan <b>Izin lama</b> ({perms.length}).
-              Baris <b>Cerminan scope</b> dibuat otomatis dari aturan scope. Kedua lapisan berlaku <b>AND</b> saat mengunci akses.
+              Aturan area mengatur bagian tertentu; izin tabel mengatur akses umum. User Entry bisa mengubah data hanya jika kedua izin memperbolehkannya.
             </div>
           </div>
           <button className="btn btn-sm" type="button" onClick={fetchAll}>↻ Muat Ulang</button>
         </div>
-        <div className="table-wrap">
-          <table className="table">
+        <div className="table-wrap psg-rules-wrap">
+          <table className="table psg-rules-table">
             <thead>
               <tr>
                 <th style={{ width: 56 }}>ID</th>
                 <th>User Entry</th>
                 <th>File / Tabel</th>
-                <th style={{ width: 130 }}>Lapisan</th>
-                <th>Cakupan</th>
-                <th style={{ width: 110 }}>Status</th>
-                <th style={{ width: 64 }}>Entry</th>
-                <th style={{ width: 64 }}>Edit</th>
-                <th style={{ width: 160 }}>Aksi</th>
+                <th style={{ width: 150 }}>Jenis aturan</th>
+                <th>Sheet / area</th>
+                <th style={{ width: 155 }}>Ubah data</th>
+                <th style={{ width: 115 }}>Tambah data</th>
+                <th style={{ width: 115 }}>Edit data</th>
+                <th style={{ width: 175 }}>Tindakan</th>
               </tr>
             </thead>
             <tbody>
@@ -1997,25 +2352,25 @@ export function AdminTables() {
                   <td className="text-muted">S{m.row.id}</td>
                   <td className="font-bold">{m.row.nama_admin || `User #${m.row.admin_id}`}</td>
                   <td>{m.row.workbookName || m.row.workbookKey}</td>
-                  <td><span className="badge psg-level-badge">Scope · {m.row.level}</span></td>
+                  <td><span className="badge psg-level-badge">Aturan area</span></td>
                   <td className="font-bold">{m.row.label || scopeScopeLabel(m.row)}</td>
                   <td>
                     <span className={`psg-status ${m.row.status === "lock" ? "lock" : "unlock"}`}>
-                      {m.row.status === "lock" ? "🔒 LOCK" : "🔓 UNLOCK"}
+                      {m.row.status === "lock" ? "🔒 Dilarang ubah" : "🔓 Boleh ubah"}
                     </span>
                   </td>
                   <td>
-                    <button className="btn btn-sm" title="Izin Entry pada area ini (terpisah dari Lock)" onClick={() => toggleScopeEntry(m.row)}>
-                      {m.row.canEntry !== false ? "✏️ Ya" : "🚫 Tidak"}
+                    <button className="btn btn-sm" title="Ubah izin untuk menambah data pada area ini" onClick={() => toggleScopeEntry(m.row)}>
+                      {m.row.canEntry !== false ? "Ya" : "Tidak"}
                     </button>
                   </td>
-                  <td className="text-muted">{m.row.canEdit !== false ? "✅" : "—"}</td>
+                  <td>{m.row.canEdit !== false ? "Diizinkan" : "Dilarang"}</td>
                   <td>
-                    <div style={{ display: "flex", gap: 6 }}>
+                    <div className="psg-row-actions">
                       <button className="btn btn-sm" onClick={() => toggleScopeStatus(m.row)}>
-                        {m.row.status === "lock" ? "🔓 Unlock" : "🔒 Lock"}
+                        {m.row.status === "lock" ? "Izinkan ubah" : "Larang ubah"}
                       </button>
-                      <button className="btn btn-sm btn-danger" onClick={() => setDeleteTarget({ kind: "scope", rule: m.row, label: m.row.label || scopeScopeLabel(m.row) })}>Hapus</button>
+                      <button className="btn btn-sm btn-danger" aria-label="Hapus aturan area" onClick={() => setDeleteTarget({ kind: "scope", rule: m.row, label: m.row.label || scopeScopeLabel(m.row) })}>Hapus</button>
                     </div>
                   </td>
                 </tr>
@@ -2031,20 +2386,30 @@ export function AdminTables() {
                         m.row.asal === "scope"
                           ? (m.row.sisa
                             ? "Dibuat otomatis oleh sistem aturan scope, tetapi aturan induknya sudah dihapus."
-                            : `Otomatis dicerminkan dari aturan scope. Saat ini ada ${m.row.jumlah_aturan || 0} aturan untuk sheet ini.`)
-                          : "Izin lama/manual (lapisan pertama)."
+                            : `Dibuat otomatis dari ${m.row.jumlah_aturan || 0} aturan area pada sheet ini.`)
+                          : "Izin umum pada tabel ini."
                       }
                     >
-                      {m.row.asal === "scope" ? (m.row.sisa ? "Cerminan · sisa" : "Cerminan scope") : "Izin lama"}
+                      {m.row.asal === "scope" ? (m.row.sisa ? "Izin tersisa" : "Cerminan otomatis") : "Izin tabel"}
                     </span>
                   </td>
                   <td style={{ maxWidth: 320 }}>
                     <span style={{ fontSize: 12 }}>{scopeLabel(m.row)}</span>
                     {rangeChips(m.row)}
                   </td>
-                  <td className="text-muted">—</td>
-                  <td><Toggle value={m.row.can_entry} onChange={(v) => toggleFlag(m.row, "can_entry", v ? 1 : 0)} /></td>
-                  <td><Toggle value={m.row.can_edit} onChange={(v) => toggleFlag(m.row, "can_edit", v ? 1 : 0)} /></td>
+                  <td className="text-muted">Diatur aturan area</td>
+                  <td>
+                    <label className="psg-table-toggle">
+                      <Toggle value={m.row.can_entry} onChange={(v) => toggleFlag(m.row, "can_entry", v ? 1 : 0)} />
+                      <span>{m.row.can_entry ? "Diizinkan" : "Dilarang"}</span>
+                    </label>
+                  </td>
+                  <td>
+                    <label className="psg-table-toggle">
+                      <Toggle value={m.row.can_edit} onChange={(v) => toggleFlag(m.row, "can_edit", v ? 1 : 0)} />
+                      <span>{m.row.can_edit ? "Diizinkan" : "Dilarang"}</span>
+                    </label>
+                  </td>
                   <td>
                     <button className="btn btn-sm btn-danger" onClick={() => setDeleteTarget({ kind: "perm", perm: m.row, label: `${m.row.nama_user || `User #${m.row.user_id}`} — ${m.row.nama_tabel || `Tabel #${m.row.tabel_id}`}` })}>Hapus</button>
                   </td>

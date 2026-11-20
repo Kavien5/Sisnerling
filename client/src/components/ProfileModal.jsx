@@ -177,6 +177,18 @@ export default function ProfileModal({ user, onClose, onUpdated, onLogout, onAcc
           <label>Email</label>
           <input className="form-control" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
         </div>
+        <div className="form-group">
+          <label htmlFor="profile-nip">NIP</label>
+          <input
+            id="profile-nip"
+            className="form-control"
+            value={user?.nip || ""}
+            placeholder="Belum diisi"
+            readOnly
+            aria-readonly="true"
+          />
+          <small className="profile-nip-hint">NIP hanya dapat diperbarui oleh admin.</small>
+        </div>
 
         <div className="profile-meta">
           <span className="profile-meta-label">Akun dibuat pada</span>

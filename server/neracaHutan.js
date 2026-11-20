@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const express = require("express");
 const { logAudit } = require("./auditLog");
+const { pool } = require("./db");
 const { requireRole } = require("./auth");
 const ExcelJS = require("exceljs");
 
@@ -776,11 +777,11 @@ function applyNeracaCellValues(cells) {
 }
 
 // Response lengkap ke klien: data dataset aktif + daftar dataset.
-function neracaResponse() {
-  const data = activeData();
+function neracaResponse(datasetId = null) {
+  const dataset = datasetId ? getDataset(datasetId) : activeDataset();
   return {
-    ...data,
-    activeDatasetId: loadOrInit().activeDatasetId,
+    ...dataset.data,
+    activeDatasetId: dataset.id,
     datasets: datasetList(),
   };
 }
@@ -1486,20 +1487,245 @@ function createNeracaRouter({ onChange } = {}) {
     });
   };
 
-  router.get("/", (_req, res) => {
-    res.json(neracaResponse());
+  const taskSelect = `
+    SELECT t.*,
+           DATE_FORMAT(t.deadline_at, '%Y-%m-%dT%H:%i:%sZ') AS deadline_at_utc,
+           COALESCE(u.nama, t.assignee_name) AS recipient_name,
+           creator.nama AS creator_name, reviewer.nama AS reviewer_name
+    FROM neraca_tasks t
+    LEFT JOIN users u ON u.id = t.assignee_id
+    LEFT JOIN users creator ON creator.id = t.created_by
+    LEFT JOIN users reviewer ON reviewer.id = t.reviewed_by`;
+  const taskResponse = (task, existingDatasetIds) => {
+    const { deadline_at_utc, ...record } = task;
+    return {
+      ...record,
+      deadline_at: deadline_at_utc || record.deadline_at,
+      dataset_available: existingDatasetIds.has(String(task.dataset_id)),
+    };
+  };
+  const getTask = async (id) => {
+    const [[task]] = await pool.query(`${taskSelect} WHERE t.id = ?`, [id]);
+    return task || null;
+  };
+  const parseDeadline = (value) => {
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) {
+      const err = new Error("Tenggat waktu wajib diisi dengan tanggal yang valid.");
+      err.status = 400;
+      throw err;
+    }
+    return date.toISOString().slice(0, 19).replace("T", " ");
+  };
+  const ensureTaskWriteAccess = async (req, taskId, datasetId) => {
+    if (req.user.role !== "user_entry") return;
+    const [[boundTask]] = await pool.query(
+      "SELECT id FROM neraca_tasks WHERE dataset_id = ? LIMIT 1",
+      [String(datasetId)]
+    );
+    if (!boundTask) return;
+    if (!taskId) {
+      const err = new Error("Pilih dan mulai tugas Neraca yang terkait sebelum menyimpan data.");
+      err.status = 403;
+      throw err;
+    }
+    const [[task]] = await pool.query(
+      "SELECT id, assignee_id, dataset_id, status FROM neraca_tasks WHERE id = ?",
+      [Number(taskId)]
+    );
+    if (!task || Number(task.assignee_id) !== Number(req.user.id)) {
+      const err = new Error("Tugas tidak ditemukan atau bukan milik akun Anda.");
+      err.status = 403;
+      throw err;
+    }
+    if (String(task.dataset_id) !== String(datasetId)) {
+      const err = new Error("Dataset tidak sesuai dengan tugas yang dipilih.");
+      err.status = 403;
+      throw err;
+    }
+    if (task.status !== "in_progress") {
+      const err = new Error("Tugas harus berstatus Sedang dikerjakan untuk menyimpan perubahan.");
+      err.status = 409;
+      throw err;
+    }
+  };
+
+  router.get("/", (req, res) => {
+    try {
+      res.json(neracaResponse(req.query.datasetId || null));
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
+  router.get("/tasks", requireRole("user_entry", "admin"), async (req, res) => {
+    try {
+      const isAdmin = req.user.role === "admin";
+      const where = isAdmin ? "" : "WHERE t.assignee_id = ?";
+      const params = isAdmin ? [] : [req.user.id];
+      const [rows] = await pool.query(
+        `${taskSelect} ${where}
+         ORDER BY FIELD(t.status, 'submitted', 'revision_requested', 'in_progress', 'not_started', 'completed'),
+                  t.deadline_at ASC, t.updated_at DESC`,
+        params
+      );
+      const datasetIds = new Set(loadOrInit().datasets.map((dataset) => String(dataset.id)));
+      res.json(rows.map((task) => taskResponse(task, datasetIds)));
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
+  router.post("/tasks", requireRole("admin"), async (req, res) => {
+    try {
+      const assigneeId = Number(req.body && req.body.assigneeId);
+      const datasetId = String((req.body && req.body.datasetId) || "").trim();
+      const title = String((req.body && req.body.title) || "").trim();
+      const description = String((req.body && req.body.description) || "").trim();
+      if (!Number.isInteger(assigneeId) || assigneeId <= 0) {
+        return res.status(400).json({ error: "Pilih pengguna User Entry yang akan menerima tugas." });
+      }
+      if (!datasetId || datasetId.length > 64) {
+        return res.status(400).json({ error: "Pilih dataset Neraca yang akan dikerjakan." });
+      }
+      if (title.length < 3 || title.length > 180) {
+        return res.status(400).json({ error: "Judul tugas harus berisi 3 sampai 180 karakter." });
+      }
+      if (!description || description.length > 5000) {
+        return res.status(400).json({ error: "Deskripsi wajib diisi dan maksimal 5.000 karakter." });
+      }
+      const deadlineAt = parseDeadline(req.body && req.body.deadlineAt);
+      const [[assignee]] = await pool.query(
+        "SELECT id, nama, role FROM users WHERE id = ?",
+        [assigneeId]
+      );
+      if (!assignee || assignee.role !== "user_entry") {
+        return res.status(400).json({ error: "Penerima tugas harus memiliki role User Entry." });
+      }
+      const dataset = getDataset(datasetId);
+      const [result] = await pool.query(
+        `INSERT INTO neraca_tasks
+          (assignee_id, assignee_name, created_by, dataset_id, dataset_name,
+           title, description, deadline_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [assignee.id, assignee.nama, req.user.id, dataset.id, dataset.name, title, description, deadlineAt]
+      );
+      await logActivity(req, "create", `Membuat tugas Neraca "${title}" untuk ${assignee.nama}`, result.insertId);
+      const task = await getTask(result.insertId);
+      const datasetIds = new Set(loadOrInit().datasets.map((item) => String(item.id)));
+      res.status(201).json(taskResponse(task, datasetIds));
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
+  router.post("/tasks/:id/start", requireRole("user_entry"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "ID tugas tidak valid." });
+      const task = await getTask(id);
+      if (!task || Number(task.assignee_id) !== Number(req.user.id)) {
+        return res.status(404).json({ error: "Tugas tidak ditemukan." });
+      }
+      if (!["not_started", "in_progress", "revision_requested"].includes(task.status)) {
+        return res.status(409).json({ error: "Tugas ini tidak dapat dimulai atau dilanjutkan." });
+      }
+      getDataset(task.dataset_id);
+      await pool.query(
+        `UPDATE neraca_tasks
+         SET status = 'in_progress', started_at = COALESCE(started_at, NOW())
+         WHERE id = ? AND assignee_id = ?`,
+        [id, req.user.id]
+      );
+      if (task.status !== "in_progress") {
+        await logActivity(req, "update", `Memulai tugas Neraca "${task.title}"`, id);
+      }
+      const updated = await getTask(id);
+      const datasetIds = new Set(loadOrInit().datasets.map((item) => String(item.id)));
+      res.json(taskResponse(updated, datasetIds));
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
+  router.post("/tasks/:id/submit", requireRole("user_entry"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "ID tugas tidak valid." });
+      const [result] = await pool.query(
+        `UPDATE neraca_tasks
+         SET status = 'submitted', submitted_at = NOW()
+         WHERE id = ? AND assignee_id = ? AND status = 'in_progress'`,
+        [id, req.user.id]
+      );
+      if (!result.affectedRows) {
+        const task = await getTask(id);
+        if (!task || Number(task.assignee_id) !== Number(req.user.id)) {
+          return res.status(404).json({ error: "Tugas tidak ditemukan." });
+        }
+        return res.status(409).json({ error: "Tugas harus berstatus Sedang dikerjakan sebelum dikirim." });
+      }
+      await logActivity(req, "update", "Mengirim tugas Neraca untuk verifikasi admin", id);
+      const updated = await getTask(id);
+      const datasetIds = new Set(loadOrInit().datasets.map((item) => String(item.id)));
+      res.json(taskResponse(updated, datasetIds));
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
+  router.post("/tasks/:id/review", requireRole("admin"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const status = String((req.body && req.body.status) || "");
+      const reviewNote = String((req.body && req.body.reviewNote) || "").trim();
+      if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "ID tugas tidak valid." });
+      if (!["completed", "revision_requested"].includes(status)) {
+        return res.status(400).json({ error: "Pilih hasil verifikasi yang valid." });
+      }
+      if (status === "revision_requested" && !reviewNote) {
+        return res.status(400).json({ error: "Catatan revisi wajib diisi." });
+      }
+      if (reviewNote.length > 5000) {
+        return res.status(400).json({ error: "Catatan verifikasi maksimal 5.000 karakter." });
+      }
+      const [result] = await pool.query(
+        `UPDATE neraca_tasks
+         SET status = ?, review_note = ?, reviewed_by = ?, reviewed_at = NOW(),
+             completed_at = IF(? = 'completed', NOW(), NULL)
+         WHERE id = ? AND status = 'submitted'`,
+        [status, reviewNote || null, req.user.id, status, id]
+      );
+      if (!result.affectedRows) {
+        const task = await getTask(id);
+        if (!task) return res.status(404).json({ error: "Tugas tidak ditemukan." });
+        return res.status(409).json({ error: "Tugas ini belum dikirim atau sudah diverifikasi." });
+      }
+      const updated = await getTask(id);
+      await logActivity(
+        req,
+        "update",
+        status === "completed" ? `Menyetujui tugas Neraca "${updated.title}"` : `Meminta revisi tugas Neraca "${updated.title}"`,
+        id
+      );
+      const datasetIds = new Set(loadOrInit().datasets.map((item) => String(item.id)));
+      res.json(taskResponse(updated, datasetIds));
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
   });
 
   router.post("/cell", requireRole("user_entry", "admin"), async (req, res) => {
-    const { updates, datasetId, sheet, section, row, year, value } = req.body || {};
+    const { updates, datasetId, taskId, sheet, section, row, year, value } = req.body || {};
     if (Array.isArray(updates) && updates.length > 0) {
       try {
         const updatesByDataset = new Map();
-        updates.forEach((update) => {
+        for (const update of updates) {
           const targetId = update.datasetId || datasetId || activeDataset().id;
+          await ensureTaskWriteAccess(req, update.taskId || taskId, targetId);
           if (!updatesByDataset.has(targetId)) updatesByDataset.set(targetId, []);
           updatesByDataset.get(targetId).push(update);
-        });
+        }
 
         const oldCells = [];
         const newCells = [];
@@ -1545,7 +1771,7 @@ function createNeracaRouter({ onChange } = {}) {
         });
         return res.json({
           message: "Seluruh data berhasil diperbarui dan formulasi dihitung ulang!",
-          ...neracaResponse(),
+          ...neracaResponse(updates[0].datasetId || datasetId || null),
         });
       } catch (err) {
         return res.status(err.status || 500).json({ error: err.message });
@@ -1562,6 +1788,7 @@ function createNeracaRouter({ onChange } = {}) {
         row,
         year: String(year),
       };
+      await ensureTaskWriteAccess(req, taskId, cell.datasetId);
       const oldValue = getNeracaCellValue(cell);
       updateCell({ datasetId, sheet, section, row, year, value });
       notifyChange("cell");
@@ -1574,7 +1801,7 @@ function createNeracaRouter({ onChange } = {}) {
         newData: { cells: [{ ...cell, value: getNeracaCellValue(cell) }] },
         req,
       });
-      res.json({ message: "Sel berhasil diperbarui dan formulasi dihitung ulang!", ...neracaResponse() });
+      res.json({ message: "Sel berhasil diperbarui dan formulasi dihitung ulang!", ...neracaResponse(cell.datasetId) });
     } catch (err) {
       res.status(err.status || 500).json({ error: err.message });
     }
@@ -1634,6 +1861,17 @@ function createNeracaRouter({ onChange } = {}) {
 
   router.delete("/datasets/:id", requireRole("admin"), async (req, res) => {
     try {
+      const [[activeTask]] = await pool.query(
+        `SELECT id FROM neraca_tasks
+         WHERE dataset_id = ? AND status <> 'completed'
+         LIMIT 1`,
+        [req.params.id]
+      );
+      if (activeTask) {
+        return res.status(409).json({
+          error: "Dataset tidak dapat dihapus karena masih memiliki tugas yang belum selesai atau menunggu verifikasi.",
+        });
+      }
       deleteDataset(req.params.id);
       notifyChange("dataset-deleted");
       await logActivity(req, "delete", "Menghapus dataset Input & Pengolahan Neraca Hutan");

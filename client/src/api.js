@@ -251,7 +251,16 @@ export const api = {
     request("/api/statistical/formula", { method: "PUT", body: JSON.stringify(body) }),
   statisticalFormulaHistory: (sheetId, row, col) =>
     request(`/api/statistical/formula/history?sheet_id=${sheetId}&row=${row}&col=${col}`),
-  neracaSpreadsheet: () => request("/api/neraca"),
+  neracaSpreadsheet: (datasetId) =>
+    request(datasetId ? `/api/neraca?datasetId=${encodeURIComponent(datasetId)}` : "/api/neraca"),
+  neracaDatasets: () => request("/api/neraca/datasets"),
+  getNeracaTasks: () => request("/api/neraca/tasks"),
+  createNeracaTask: (body) =>
+    request("/api/neraca/tasks", { method: "POST", body: JSON.stringify(body) }),
+  startNeracaTask: (id) => request(`/api/neraca/tasks/${id}/start`, { method: "POST" }),
+  submitNeracaTask: (id) => request(`/api/neraca/tasks/${id}/submit`, { method: "POST" }),
+  reviewNeracaTask: (id, body) =>
+    request(`/api/neraca/tasks/${id}/review`, { method: "POST", body: JSON.stringify(body) }),
   neracaUpdateCell: (body) =>
     request("/api/neraca/cell", { method: "POST", body: JSON.stringify(body) }),
   neracaAddYear: (year) =>

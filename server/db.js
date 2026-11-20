@@ -161,6 +161,30 @@ async function initDatabase() {
     );
   }
 
+  // ---- NIP pengguna: nullable untuk akun lama, unik untuk akun baru ----
+  const [[colNip]] = await admin.query(
+    `SELECT COUNT(*) AS n FROM information_schema.columns
+     WHERE table_schema = DATABASE() AND table_name = 'users' AND column_name = 'nip'`
+  );
+  if (Number(colNip.n) === 0) {
+    await admin.query("ALTER TABLE users ADD COLUMN nip VARCHAR(18) NULL AFTER email");
+  }
+  const [[nipIndex]] = await admin.query(
+    `SELECT COUNT(*) AS n FROM information_schema.statistics
+     WHERE table_schema = DATABASE() AND table_name = 'users' AND index_name = 'uq_users_nip'`
+  );
+  if (Number(nipIndex.n) === 0) {
+    const [[duplicateNip]] = await admin.query(
+      `SELECT nip, COUNT(*) AS n FROM users
+       WHERE nip IS NOT NULL
+       GROUP BY nip HAVING COUNT(*) > 1 LIMIT 1`
+    );
+    if (duplicateNip) {
+      throw new Error(`Migrasi NIP dibatalkan: nilai NIP ${duplicateNip.nip} sudah digunakan lebih dari satu akun.`);
+    }
+    await admin.query("ALTER TABLE users ADD UNIQUE INDEX uq_users_nip (nip)");
+  }
+
   // ---- Kolom password_plain: menyimpan password teks-biasa agar admin
   // bisa melihatnya di halaman Manajemen User & Admin (idempoten) ----
   const [[colPwPlain]] = await admin.query(

@@ -4,6 +4,7 @@ const bcrypt = require("bcryptjs");
 const { pool } = require("./db");
 const { logAudit } = require("./auditLog");
 const { getSecuritySettings } = require("./securitySettings");
+const { normalizeNip, isValidNip, isNipDuplicateError } = require("./userValidation");
 
 const router = express.Router();
 
@@ -11,6 +12,7 @@ const publicUser = (u) => ({
   id: u.id,
   nama: u.nama,
   email: u.email,
+  nip: u.nip || null,
   role: u.role || "user",
   avatar: u.avatar || null,
   created_at: u.created_at || null,
@@ -87,12 +89,14 @@ router.post("/register", async (req, res, next) => {
   try {
     const nama = String(req.body.nama || "").trim();
     const email = String(req.body.email || "").trim().toLowerCase();
+    const nip = normalizeNip(req.body.nip);
     const password = String(req.body.password || "");
     const konfirmasi = String(req.body.konfirmasiPassword || "");
 
     if (!nama) return res.status(400).json({ error: "Nama wajib diisi" });
     if (nama.length < 2) return res.status(400).json({ error: "Nama terlalu pendek (minimal 2 karakter)" });
     if (!validateEmail(email)) return res.status(400).json({ error: "Format email tidak valid" });
+    if (!isValidNip(nip)) return res.status(400).json({ error: "NIP wajib diisi dan harus terdiri dari 18 angka." });
     if (!password) return res.status(400).json({ error: "Password wajib diisi" });
     const { password_min_length } = await getSecuritySettings();
     if (password.length < password_min_length) {
@@ -118,16 +122,18 @@ router.post("/register", async (req, res, next) => {
 
     const [[existing]] = await pool.query("SELECT id FROM users WHERE email = ?", [email]);
     if (existing) return res.status(409).json({ error: "Email sudah terdaftar" });
+    const [[existingNip]] = await pool.query("SELECT id FROM users WHERE nip = ?", [nip]);
+    if (existingNip) return res.status(409).json({ error: "NIP sudah terdaftar." });
 
     const passwordHash = await bcrypt.hash(password, 10);
     const [result] = await pool.query(
-      "INSERT INTO users (nama, email, password_hash, password_plain) VALUES (?, ?, ?, ?)",
-      [nama, email, passwordHash, password]
+      "INSERT INTO users (nama, email, nip, password_hash, password_plain) VALUES (?, ?, ?, ?, ?)",
+      [nama, email, nip, passwordHash, password]
     );
     const userId = result.insertId;
 
     const [[newUser]] = await pool.query(
-      "SELECT id, nama, email, role, avatar, created_at FROM users WHERE id = ?",
+      "SELECT id, nama, email, nip, role, avatar, created_at FROM users WHERE id = ?",
       [userId]
     );
 
@@ -143,6 +149,7 @@ router.post("/register", async (req, res, next) => {
     });
     res.status(201).json({ message: "Registrasi berhasil", token, user: publicUser(newUser) });
   } catch (err) {
+    if (isNipDuplicateError(err)) return res.status(409).json({ error: "NIP sudah terdaftar." });
     next(err);
   }
 });
@@ -158,7 +165,7 @@ router.post("/login", async (req, res, next) => {
     }
 
     const [[user]] = await pool.query(
-      "SELECT id, nama, email, avatar, created_at, password_hash, role FROM users WHERE email = ?",
+      "SELECT id, nama, email, nip, avatar, created_at, password_hash, role FROM users WHERE email = ?",
       [email]
     );
     if (!user) return res.status(401).json({ error: "Email atau password salah" });
@@ -224,7 +231,7 @@ router.get("/me", async (req, res, next) => {
     if (!token) return res.status(401).json({ error: "Belum login" });
 
     const [[row]] = await pool.query(
-      `SELECT s.token, s.expires_at, u.id, u.nama, u.email, u.avatar, u.role, u.created_at
+      `SELECT s.token, s.expires_at, u.id, u.nama, u.email, u.nip, u.avatar, u.role, u.created_at
        FROM sessions s
        JOIN users u ON u.id = s.user_id
        WHERE s.token = ?`,
@@ -251,7 +258,7 @@ async function authRequired(req, res, next) {
     if (!token) return res.status(401).json({ error: "Belum login" });
 
     const [[row]] = await pool.query(
-      `SELECT s.token, s.expires_at, u.id, u.nama, u.email, u.avatar, u.role, u.created_at
+      `SELECT s.token, s.expires_at, u.id, u.nama, u.email, u.nip, u.avatar, u.role, u.created_at
        FROM sessions s
        JOIN users u ON u.id = s.user_id
        WHERE s.token = ?`,
@@ -309,7 +316,7 @@ router.put("/profile", authRequired, async (req, res, next) => {
     await pool.query(`UPDATE users SET ${sets.join(", ")} WHERE id = ?`, params);
 
     const [[row]] = await pool.query(
-      "SELECT id, nama, email, role, avatar, created_at FROM users WHERE id = ?",
+      "SELECT id, nama, email, nip, role, avatar, created_at FROM users WHERE id = ?",
       [uid]
     );
     logAudit({

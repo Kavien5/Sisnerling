@@ -34,7 +34,21 @@ const ICONS = {
   ),
 };
 
-export default function AuthField({ label, icon = "user", type = "text", value, onChange, placeholder, autoComplete }) {
+export default function AuthField({
+  label,
+  icon = "user",
+  type = "text",
+  value,
+  onChange,
+  placeholder,
+  autoComplete,
+  inputMode,
+  minLength,
+  maxLength,
+  pattern,
+  required,
+  hint,
+}) {
   const [show, setShow] = React.useState(false);
   const isPw = type === "password";
   const inputType = isPw && show ? "text" : type;
@@ -51,6 +65,11 @@ export default function AuthField({ label, icon = "user", type = "text", value, 
           onChange={onChange}
           placeholder={placeholder}
           autoComplete={autoComplete}
+          inputMode={inputMode}
+          minLength={minLength}
+          maxLength={maxLength}
+          pattern={pattern}
+          required={required}
         />
         {isPw && (
           <button
@@ -64,6 +83,7 @@ export default function AuthField({ label, icon = "user", type = "text", value, 
           </button>
         )}
       </div>
+      {hint && <small className="auth-field-hint">{hint}</small>}
     </div>
   );
 }

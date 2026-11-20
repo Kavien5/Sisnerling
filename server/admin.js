@@ -4,6 +4,7 @@ const { pool } = require("./db");
 const { requireRole } = require("./auth");
 const { logAudit } = require("./auditLog");
 const { getSecuritySettings, saveSecuritySettings, LIMITS: SECURITY_LIMITS } = require("./securitySettings");
+const { normalizeNip, isValidNip, isNipDuplicateError } = require("./userValidation");
 
 const router = express.Router();
 
@@ -21,7 +22,7 @@ function validateEmail(email) {
 router.get("/users", async (_req, res, next) => {
   try {
     const [rows] = await pool.query(
-      `SELECT u.id, u.nama, u.email, u.role, u.avatar, u.password_plain, u.created_at,
+      `SELECT u.id, u.nama, u.email, u.nip, u.role, u.avatar, u.password_plain, u.created_at,
               (SELECT COUNT(*) FROM admin_table_permissions p WHERE p.user_id = u.id) AS jumlah_tugas
        FROM users u
        ORDER BY u.id ASC`
@@ -36,22 +37,26 @@ router.post("/users", async (req, res, next) => {
   try {
     const nama = String(req.body.nama || "").trim();
     const email = String(req.body.email || "").trim().toLowerCase();
+    const nip = normalizeNip(req.body.nip);
     const password = String(req.body.password || "");
     const role = ROLES.includes(req.body.role) ? req.body.role : "user";
 
     if (!nama || nama.length < 2) return res.status(400).json({ error: "Nama minimal 2 karakter" });
     if (!validateEmail(email)) return res.status(400).json({ error: "Format email tidak valid" });
+    if (!isValidNip(nip)) return res.status(400).json({ error: "NIP wajib diisi dan harus terdiri dari 18 angka." });
     const { password_min_length } = await getSecuritySettings();
     if (!password || password.length < password_min_length) {
       return res.status(400).json({ error: `Password minimal ${password_min_length} karakter` });
     }
     const [[dup]] = await pool.query("SELECT id FROM users WHERE email = ?", [email]);
     if (dup) return res.status(409).json({ error: "Email sudah terdaftar" });
+    const [[dupNip]] = await pool.query("SELECT id FROM users WHERE nip = ?", [nip]);
+    if (dupNip) return res.status(409).json({ error: "NIP sudah terdaftar." });
 
     const hash = await bcrypt.hash(password, 10);
     const [result] = await pool.query(
-      "INSERT INTO users (nama, email, password_hash, password_plain, role) VALUES (?, ?, ?, ?, ?)",
-      [nama, email, hash, password, role]
+      "INSERT INTO users (nama, email, nip, password_hash, password_plain, role) VALUES (?, ?, ?, ?, ?, ?)",
+      [nama, email, nip, hash, password, role]
     );
     logAudit({
       userId: req.user.id,
@@ -64,6 +69,7 @@ router.post("/users", async (req, res, next) => {
     });
     res.status(201).json({ id: result.insertId, message: "Pengguna berhasil dibuat" });
   } catch (err) {
+    if (isNipDuplicateError(err)) return res.status(409).json({ error: "NIP sudah terdaftar." });
     next(err);
   }
 });
@@ -71,7 +77,7 @@ router.post("/users", async (req, res, next) => {
 router.put("/users/:id", async (req, res, next) => {
   try {
     const uid = Number(req.params.id);
-    const [[user]] = await pool.query("SELECT id, nama, email, role FROM users WHERE id = ?", [uid]);
+    const [[user]] = await pool.query("SELECT id, nama, email, nip, role FROM users WHERE id = ?", [uid]);
     if (!user) return res.status(404).json({ error: "Pengguna tidak ditemukan" });
 
     const sets = [];
@@ -90,6 +96,16 @@ router.put("/users/:id", async (req, res, next) => {
       if (dupe) return res.status(409).json({ error: "Email sudah terdaftar" });
       sets.push("email = ?");
       params.push(em);
+    }
+    if (req.body.nip !== undefined) {
+      const nip = normalizeNip(req.body.nip);
+      if (!isValidNip(nip)) {
+        return res.status(400).json({ error: "NIP harus terdiri dari tepat 18 angka." });
+      }
+      const [[dupeNip]] = await pool.query("SELECT id FROM users WHERE nip = ? AND id <> ?", [nip, uid]);
+      if (dupeNip) return res.status(409).json({ error: "NIP sudah terdaftar." });
+      sets.push("nip = ?");
+      params.push(nip);
     }
     if (req.body.password !== undefined && String(req.body.password) !== "") {
       const pw = String(req.body.password);
@@ -135,12 +151,14 @@ router.put("/users/:id", async (req, res, next) => {
         nama: req.body.nama !== undefined ? String(req.body.nama).trim() : user.nama,
         email: req.body.email !== undefined ? String(req.body.email).trim().toLowerCase() : user.email,
         role: req.body.role !== undefined ? req.body.role : user.role,
+        nip_diperbarui: req.body.nip !== undefined,
         password_diganti: !!req.body.password,
       },
       req,
     });
     res.json({ message: "Pengguna berhasil diperbarui" });
   } catch (err) {
+    if (isNipDuplicateError(err)) return res.status(409).json({ error: "NIP sudah terdaftar." });
     next(err);
   }
 });

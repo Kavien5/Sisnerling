@@ -187,11 +187,46 @@ CREATE TABLE IF NOT EXISTS users (
   id INT AUTO_INCREMENT PRIMARY KEY,
   nama VARCHAR(150) NOT NULL,
   email VARCHAR(190) NOT NULL UNIQUE,
+  nip VARCHAR(18) NULL,
   role ENUM('user','user_entry','admin') NOT NULL DEFAULT 'user',
   avatar MEDIUMTEXT NULL,
   password_hash VARCHAR(255) NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_users_nip (nip)
 ) ENGINE=InnoDB;
+
+-- Workflow pekerjaan input Neraca. Berbeda dari admin_assignment_scopes yang
+-- hanya membatasi izin spreadsheet, tugas ini mengikat user ke dataset JSON.
+CREATE TABLE IF NOT EXISTS neraca_tasks (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  assignee_id INT NULL,
+  assignee_name VARCHAR(150) NOT NULL,
+  created_by INT NULL,
+  reviewed_by INT NULL,
+  dataset_id VARCHAR(64) NOT NULL,
+  dataset_name VARCHAR(150) NOT NULL,
+  title VARCHAR(180) NOT NULL,
+  description TEXT NOT NULL,
+  deadline_at DATETIME NOT NULL,
+  status ENUM('not_started','in_progress','submitted','revision_requested','completed')
+    NOT NULL DEFAULT 'not_started',
+  review_note TEXT NULL,
+  started_at DATETIME NULL,
+  submitted_at DATETIME NULL,
+  reviewed_at DATETIME NULL,
+  completed_at DATETIME NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_neraca_tasks_assignee (assignee_id, status, deadline_at),
+  KEY idx_neraca_tasks_dataset (dataset_id),
+  KEY idx_neraca_tasks_status (status, updated_at),
+  CONSTRAINT fk_neraca_tasks_assignee FOREIGN KEY (assignee_id)
+    REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT fk_neraca_tasks_creator FOREIGN KEY (created_by)
+    REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT fk_neraca_tasks_reviewer FOREIGN KEY (reviewed_by)
+    REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS chat_messages (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,

@@ -377,12 +377,33 @@ function avatarColor(id) {
   return `hsl(${hue}, 70%, 45%)`;
 }
 
+const IPN_TASK_STATUS = {
+  not_started: { label: "Belum dimulai", className: "pending" },
+  in_progress: { label: "Sedang dikerjakan", className: "progress" },
+  submitted: { label: "Menunggu verifikasi", className: "submitted" },
+  revision_requested: { label: "Perlu revisi", className: "revision" },
+  completed: { label: "Selesai", className: "completed" },
+};
+
+function formatTaskDeadline(value) {
+  if (!value) return "Tidak ditentukan";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? String(value)
+    : date.toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" });
+}
+
 export default function InputPengolahanNeraca() {
   const toast = useToast();
   const currentUser = getUser();
-  const canEdit = canEditData(currentUser);
+  const canEditRole = canEditData(currentUser);
   const canManage = currentUser?.role === "admin";
   const [data, setData] = React.useState(null);
+  const [neracaTasks, setNeracaTasks] = React.useState([]);
+  const [tasksLoading, setTasksLoading] = React.useState(false);
+  const [tasksError, setTasksError] = React.useState("");
+  const [selectedTaskId, setSelectedTaskId] = React.useState(null);
+  const [taskActionBusy, setTaskActionBusy] = React.useState(false);
   const [activeUsers, setActiveUsers] = React.useState([]);
   const [presenceStatus, setPresenceStatus] = React.useState("connecting");
   const [loadError, setLoadError] = React.useState(null);
@@ -402,6 +423,13 @@ export default function InputPengolahanNeraca() {
   const pendingCellUpdates = React.useRef(new Map());
   const saveChain = React.useRef(Promise.resolve());
   const fileInputRef = React.useRef(null);
+  const taskDatasetIdRef = React.useRef(null);
+  const selectedTask = neracaTasks.find((task) => String(task.id) === String(selectedTaskId)) || null;
+  const canEdit = canEditRole && (
+    currentUser?.role !== "user_entry" ||
+    !selectedTask ||
+    selectedTask.status === "in_progress"
+  );
 
   React.useEffect(() => {
     statusRef.current = status;
@@ -418,14 +446,14 @@ export default function InputPengolahanNeraca() {
       setActiveUsers(Array.isArray(users) ? users : []);
     };
     const onNeracaUpdated = () => {
-      loadSpreadsheet();
+      loadSpreadsheet(taskDatasetIdRef.current);
     };
     const joinPresence = () => {
       setPresenceStatus("connecting");
       socket.emit("join-neraca-presence", (result) => {
         if (result && result.ok) {
           setPresenceStatus("live");
-          loadSpreadsheet();
+          loadSpreadsheet(taskDatasetIdRef.current);
         } else {
           setPresenceStatus("offline");
           console.error("Gagal bergabung ke presence Neraca Hutan:", result && result.error);
@@ -458,10 +486,10 @@ export default function InputPengolahanNeraca() {
     };
   }, []);
 
-  const loadSpreadsheet = React.useCallback(async () => {
+  const loadSpreadsheet = React.useCallback(async (datasetId = taskDatasetIdRef.current) => {
     setLoadError(null);
     try {
-      const res = await api.neracaSpreadsheet();
+      const res = await api.neracaSpreadsheet(datasetId);
       if (!res || !Array.isArray(res.years) || !res.sheets) {
         throw new Error(
           "Respons server tidak valid. Pastikan server API sudah dijalankan ulang (restart \"npm run dev\") agar rute /api/neraca aktif."
@@ -487,6 +515,33 @@ export default function InputPengolahanNeraca() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  React.useEffect(() => {
+    if (!["user_entry", "admin"].includes(currentUser?.role)) return undefined;
+    let active = true;
+    setTasksLoading(true);
+    const refreshTasks = () => {
+      api.getNeracaTasks()
+        .then((tasks) => {
+          if (active) {
+            setNeracaTasks(Array.isArray(tasks) ? tasks : []);
+            setTasksError("");
+          }
+        })
+        .catch((err) => {
+          if (active) setTasksError(err.message || "Gagal memuat daftar tugas Neraca.");
+        })
+        .finally(() => {
+          if (active) setTasksLoading(false);
+        });
+    };
+    refreshTasks();
+    const interval = setInterval(refreshTasks, 30000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [currentUser?.role]);
 
   const toggleTheme = () => {
     const next = theme === "dark" ? "light" : "dark";
@@ -644,12 +699,82 @@ export default function InputPengolahanNeraca() {
     return true;
   };
 
+  const handleSelectTask = async (task) => {
+    if (!task.dataset_available) {
+      toast("Dataset untuk tugas ini sudah tidak tersedia. Hubungi admin.", "error");
+      return;
+    }
+    if (inputModalOpen) {
+      toast("Simpan atau tutup form input sebelum membuka tugas lain.", "error");
+      return;
+    }
+    if (!(await flushCurrentDatasetChanges())) return;
+    taskDatasetIdRef.current = String(task.dataset_id);
+    setSelectedTaskId(task.id);
+    setData(null);
+    setActiveSheet("Jati Jawa");
+    setRawSheetIdx(0);
+    await loadSpreadsheet(String(task.dataset_id));
+  };
+
+  const handleCloseTask = async () => {
+    if (inputModalOpen) {
+      toast("Simpan atau tutup form input sebelum menutup tugas.", "error");
+      return;
+    }
+    if (!(await flushCurrentDatasetChanges())) return;
+    taskDatasetIdRef.current = null;
+    setSelectedTaskId(null);
+    setData(null);
+    await loadSpreadsheet(null);
+  };
+
+  const handleStartTask = async () => {
+    if (!selectedTask || taskActionBusy) return;
+    setTaskActionBusy(true);
+    try {
+      const updated = await api.startNeracaTask(selectedTask.id);
+      setNeracaTasks((tasks) => tasks.map((task) => task.id === updated.id ? updated : task));
+      taskDatasetIdRef.current = String(updated.dataset_id);
+      await loadSpreadsheet(String(updated.dataset_id));
+      toast("Tugas dimulai. Perubahan data akan tersimpan pada dataset tugas ini.", "success");
+    } catch (err) {
+      toast(err.message || "Gagal memulai tugas.", "error");
+    } finally {
+      setTaskActionBusy(false);
+    }
+  };
+
+  const handleSubmitTask = async () => {
+    if (!selectedTask || taskActionBusy || !canEdit) return;
+    if (inputModalOpen) {
+      toast("Simpan atau tutup form input sebelum mengirim tugas.", "error");
+      return;
+    }
+    setTaskActionBusy(true);
+    try {
+      if (Object.keys(cellDrafts).length || pendingCellUpdates.current.size) {
+        const saved = await handleManualSave();
+        if (!saved) return;
+      } else {
+        await saveChain.current;
+      }
+      const updated = await api.submitNeracaTask(selectedTask.id);
+      setNeracaTasks((tasks) => tasks.map((task) => task.id === updated.id ? updated : task));
+      toast("Tugas berhasil dikirim dan menunggu verifikasi admin.", "success");
+    } catch (err) {
+      toast(err.message || "Gagal mengirim tugas untuk verifikasi.", "error");
+    } finally {
+      setTaskActionBusy(false);
+    }
+  };
+
   const handleManualSave = async () => {
-    if (!canEdit) return;
+    if (!canEdit) return false;
     const drafts = Object.entries(cellDrafts);
     if (!drafts.length && pendingCellUpdates.current.size === 0 && status !== "saving") {
       toast("Tidak ada perubahan yang perlu disimpan.", "info");
-      return;
+      return true;
     }
 
     const updates = drafts.map(([key, raw]) => {
@@ -684,8 +809,10 @@ export default function InputPengolahanNeraca() {
       }
       await flushPendingCellUpdates();
       toast("Perubahan Neraca Hutan berhasil disimpan dan tercatat di Audit Log.", "success");
+      return true;
     } catch {
       // flushPendingCellUpdates already reports save failures.
+      return false;
     } finally {
       setManualSaving(false);
     }
@@ -712,7 +839,7 @@ export default function InputPengolahanNeraca() {
       if (activeInputRow.isPenunjang) {
         const rec = updatedData.sheets["Data Penunjang"]?.records?.find((r) => r.id === activeInputRow.id);
         if (rec) rec.values[y] = clean;
-        updates.push({ datasetId: data.activeDatasetId, sheet: "Data Penunjang", section: "data_penunjang", row: activeInputRow.id, year: y, value: clean });
+        updates.push({ datasetId: data.activeDatasetId, taskId: selectedTask?.id, sheet: "Data Penunjang", section: "data_penunjang", row: activeInputRow.id, year: y, value: clean });
       } else {
         if (!updatedData.sheets[activeSheet][activeInputRow.section]) {
           updatedData.sheets[activeSheet][activeInputRow.section] = {};
@@ -721,7 +848,7 @@ export default function InputPengolahanNeraca() {
           updatedData.sheets[activeSheet][activeInputRow.section][activeInputRow.id] = {};
         }
         updatedData.sheets[activeSheet][activeInputRow.section][activeInputRow.id][y] = clean;
-        updates.push({ datasetId: data.activeDatasetId, sheet: activeSheet, section: activeInputRow.section, row: activeInputRow.id, year: y, value: clean });
+        updates.push({ datasetId: data.activeDatasetId, taskId: selectedTask?.id, sheet: activeSheet, section: activeInputRow.section, row: activeInputRow.id, year: y, value: clean });
       }
     });
 
@@ -736,7 +863,7 @@ export default function InputPengolahanNeraca() {
         savedData = await api.neracaUpdateCell({ updates });
       } catch {
         await Promise.all(updates.map((update) => api.neracaUpdateCell(update)));
-        savedData = await api.neracaSpreadsheet();
+        savedData = await api.neracaSpreadsheet(data.activeDatasetId);
       }
       setData(savedData);
       setStatus("saved");
@@ -785,7 +912,7 @@ export default function InputPengolahanNeraca() {
       recalculateLocal(next);
       return next;
     });
-    queueSave({ datasetId: data?.activeDatasetId, sheet, section, row, year, value });
+    queueSave({ datasetId: data?.activeDatasetId, taskId: selectedTask?.id, sheet, section, row, year, value });
   };
 
   const openAddYear = () => {
@@ -958,6 +1085,10 @@ export default function InputPengolahanNeraca() {
 
   const handleSelectDataset = async (id) => {
     if (!canEdit || importing || !id || id === data.activeDatasetId) return;
+    if (selectedTask && currentUser?.role === "user_entry") {
+      toast("Dataset terkunci mengikuti tugas yang sedang dipilih.", "info");
+      return;
+    }
     if (inputModalOpen) {
       toast("Simpan atau tutup form input sebelum mengganti dataset.", "error");
       return;
@@ -967,6 +1098,8 @@ export default function InputPengolahanNeraca() {
     }
     try {
       const res = await api.neracaSelectDataset(id);
+      taskDatasetIdRef.current = null;
+      setSelectedTaskId(null);
       setData(res);
       setRawSheetIdx(0);
       const ds = (res.datasets || []).find((d) => d.id === id);
@@ -1017,6 +1150,110 @@ export default function InputPengolahanNeraca() {
     }
   };
 
+  const taskStatusCounts = neracaTasks.reduce((counts, task) => {
+    counts[task.status] = (counts[task.status] || 0) + 1;
+    return counts;
+  }, {});
+  const taskBoard = ["user_entry", "admin"].includes(currentUser?.role) ? (
+    <section className="ipn-task-board" aria-labelledby="ipn-task-title">
+      <div className="ipn-task-heading">
+        <div>
+          <span className="ipn-task-eyebrow">RUANG KERJA</span>
+          <h2 id="ipn-task-title">Tugas Neraca</h2>
+          <p>Pilih tugas untuk membuka dataset yang ditugaskan. Kirim hasil setelah data tersimpan.</p>
+        </div>
+        <span className="ipn-task-total">{neracaTasks.length} tugas</span>
+      </div>
+
+      <div className="ipn-task-summary">
+        {Object.entries(IPN_TASK_STATUS).map(([statusKey, statusInfo]) => (
+          <div className={`ipn-task-metric ${statusInfo.className}`} key={statusKey}>
+            <strong>{taskStatusCounts[statusKey] || 0}</strong>
+            <span>{statusInfo.label}</span>
+          </div>
+        ))}
+      </div>
+
+      {tasksError && <p className="ipn-task-error" role="alert">{tasksError}</p>}
+      {tasksLoading ? (
+        <p className="ipn-task-empty">Memuat daftar tugas...</p>
+      ) : neracaTasks.length ? (
+        <div className="ipn-task-list">
+          {neracaTasks.map((task) => {
+            const state = IPN_TASK_STATUS[task.status] || IPN_TASK_STATUS.not_started;
+            const isSelected = String(task.id) === String(selectedTaskId);
+            return (
+              <article className={`ipn-task-item${isSelected ? " selected" : ""}`} key={task.id}>
+                <div className="ipn-task-item-top">
+                  <span className={`ipn-task-status ${state.className}`}>{state.label}</span>
+                  {!task.dataset_available && <span className="ipn-task-unavailable">Dataset tidak tersedia</span>}
+                </div>
+                <h3>{task.title}</h3>
+                <p className="ipn-task-item-meta">{task.dataset_name} · Tenggat {formatTaskDeadline(task.deadline_at)}</p>
+                {currentUser?.role === "admin" && (
+                  <p className="ipn-task-item-meta">Penerima: {task.recipient_name || "Akun dihapus"}</p>
+                )}
+                <button
+                  type="button"
+                  className="ipn-task-open"
+                  onClick={() => handleSelectTask(task)}
+                  disabled={!task.dataset_available || taskActionBusy}
+                >
+                  {isSelected ? "Muat ulang tugas" : "Lihat tugas"}
+                </button>
+              </article>
+            );
+          })}
+        </div>
+      ) : !tasksError ? (
+        <p className="ipn-task-empty">Belum ada tugas Neraca yang ditugaskan kepada akun ini.</p>
+      ) : null}
+
+      {selectedTask && (
+        <div className="ipn-task-detail">
+          <div className="ipn-task-detail-header">
+            <div>
+              <span className="ipn-task-eyebrow">DETAIL TUGAS</span>
+              <h3>{selectedTask.title}</h3>
+            </div>
+            <span className={`ipn-task-status ${(IPN_TASK_STATUS[selectedTask.status] || IPN_TASK_STATUS.not_started).className}`}>
+              {(IPN_TASK_STATUS[selectedTask.status] || IPN_TASK_STATUS.not_started).label}
+            </span>
+          </div>
+          <p className="ipn-task-description">{selectedTask.description}</p>
+          <div className="ipn-task-detail-meta">
+            <span>Dataset <b>{selectedTask.dataset_name}</b></span>
+            <span>Pemberi tugas <b>{selectedTask.creator_name || "Admin"}</b></span>
+            <span>Tenggat <b>{formatTaskDeadline(selectedTask.deadline_at)}</b></span>
+          </div>
+          {selectedTask.review_note && (
+            <div className="ipn-task-feedback">
+              <strong>Catatan verifikasi</strong>
+              <p>{selectedTask.review_note}</p>
+            </div>
+          )}
+          {currentUser?.role === "user_entry" && (
+            <div className="ipn-task-actions">
+              {["not_started", "revision_requested"].includes(selectedTask.status) && (
+                <button type="button" className="btn btn-primary" onClick={handleStartTask} disabled={taskActionBusy}>
+                  {taskActionBusy ? "Memproses..." : selectedTask.status === "revision_requested" ? "Lanjutkan revisi" : "Mulai mengerjakan"}
+                </button>
+              )}
+              {selectedTask.status === "in_progress" && (
+                <button type="button" className="btn btn-primary" onClick={handleSubmitTask} disabled={taskActionBusy || !canEdit}>
+                  {taskActionBusy ? "Mengirim..." : "Kirim untuk verifikasi"}
+                </button>
+              )}
+              {selectedTask.status === "submitted" && <span className="ipn-task-action-note">Tugas sudah dikirim. Menunggu pemeriksaan admin.</span>}
+              {selectedTask.status === "completed" && <span className="ipn-task-action-note">Tugas telah disetujui dan diselesaikan.</span>}
+            </div>
+          )}
+          <button type="button" className="ipn-task-close" onClick={handleCloseTask} disabled={taskActionBusy}>Tutup detail tugas</button>
+        </div>
+      )}
+    </section>
+  ) : null;
+
   if (!data) {
     return (
       <div className="ipn-root" data-theme={theme}>
@@ -1030,6 +1267,7 @@ export default function InputPengolahanNeraca() {
         ) : (
           <div className="ipn-loading">Memuat tabel neracaâ€¦</div>
         )}
+        {taskBoard}
       </div>
     );
   }
@@ -1334,14 +1572,16 @@ export default function InputPengolahanNeraca() {
         </div>
       </header>
 
+      {taskBoard}
+
       <div className="ipn-dataset-bar">
         <span className="ipn-dataset-label">Dataset</span>
         <select
           className="ipn-dataset-select"
           value={data.activeDatasetId || ""}
           onChange={(e) => handleSelectDataset(e.target.value)}
-          disabled={!canEdit || importing}
-          title="Pilih dataset yang ditampilkan"
+          disabled={!canEdit || importing || (!!selectedTask && currentUser?.role === "user_entry")}
+          title={selectedTask && currentUser?.role === "user_entry" ? "Dataset mengikuti tugas yang dipilih" : "Pilih dataset yang ditampilkan"}
         >
           {(data.datasets || []).map((d) => (
             <option key={d.id} value={d.id}>

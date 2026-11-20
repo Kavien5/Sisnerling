@@ -8,6 +8,7 @@ export default function Register({ onRegister, onSwitchToLogin }) {
   const [form, setForm] = React.useState({
     nama: "",
     email: "",
+    nip: "",
     password: "",
     konfirmasiPassword: "",
   });
@@ -22,6 +23,7 @@ export default function Register({ onRegister, onSwitchToLogin }) {
   const validate = () => {
     if (form.nama.trim().length < 2) return "Nama terlalu pendek (minimal 2 karakter)";
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) return "Format email tidak valid";
+    if (!/^[0-9]{18}$/.test(form.nip.trim())) return "NIP wajib diisi dengan tepat 18 angka";
     if (!form.password) return "Password wajib diisi";
     if (form.password !== form.konfirmasiPassword) return "Konfirmasi password tidak cocok";
     return null;
@@ -40,6 +42,7 @@ export default function Register({ onRegister, onSwitchToLogin }) {
       const res = await api.register({
         nama: form.nama.trim(),
         email: form.email.trim(),
+        nip: form.nip.trim(),
         password: form.password,
         konfirmasiPassword: form.konfirmasiPassword,
       });
@@ -154,6 +157,21 @@ export default function Register({ onRegister, onSwitchToLogin }) {
                 placeholder="nama@email.com"
                 value={form.email}
                 onChange={set("email")}
+              />
+              <AuthField
+                label="NIP"
+                icon="user"
+                type="text"
+                inputMode="numeric"
+                autoComplete="off"
+                minLength={18}
+                maxLength={18}
+                pattern="[0-9]{18}"
+                required
+                hint="NIP harus terdiri dari 18 angka."
+                placeholder="198705152010011002"
+                value={form.nip}
+                onChange={set("nip")}
               />
               <AuthField
                 label="Password"
