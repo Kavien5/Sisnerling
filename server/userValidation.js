@@ -1,5 +1,6 @@
 function normalizeNip(value) {
-  return typeof value === "string" ? value.trim() : "";
+  if (value === null || value === undefined) return "";
+  return String(value).trim();
 }
 
 function isValidNip(value) {

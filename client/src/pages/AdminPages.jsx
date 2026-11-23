@@ -310,13 +310,10 @@ export function AdminUsers({ user: currentUser }) {
   const [loading, setLoading] = React.useState(true);
   const [editing, setEditing] = React.useState(null); // null = mode tambah
   const [form, setForm] = React.useState({ nama: "", email: "", nip: "", password: "", role: "user" });
+  const userFormRef = React.useRef(null);
   const [saving, setSaving] = React.useState(false);
   const [deleteTarget, setDeleteTarget] = React.useState(null);
   const [roleTarget, setRoleTarget] = React.useState(null); // { u, role } untuk konfirmasi perubahan Admin
-  const [pwTarget, setPwTarget] = React.useState(null); // user yang sedang diset password-nya
-  const [pwValue, setPwValue] = React.useState("");
-  const [pwConfirmValue, setPwConfirmValue] = React.useState("");
-  const [pwSaving, setPwSaving] = React.useState(false);
   const [roleDraft, setRoleDraft] = React.useState(null); // { next } menunggu konfirmasi role di form
 
   const fetchAll = React.useCallback(async () => {
@@ -330,6 +327,10 @@ export function AdminUsers({ user: currentUser }) {
   }, [toast]);
 
   React.useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  React.useEffect(() => {
+    if (editing) userFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [editing]);
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
@@ -370,7 +371,7 @@ export function AdminUsers({ user: currentUser }) {
         await api.createAdminUser(form);
         toast("Pengguna berhasil dibuat");
       }
-      setEditing(null);
+      startCreate();
       await fetchAll();
     } catch (err) {
       toast(err.message, "error");
@@ -411,12 +412,6 @@ export function AdminUsers({ user: currentUser }) {
     }
   };
 
-  const openSetPassword = (u) => {
-    setPwTarget(u);
-    setPwValue("");
-    setPwConfirmValue("");
-  };
-
   // Memilih role di form harus dikonfirmasi dulu (Ya / Tidak).
   const requestFormRole = (next) => {
     if (next === form.role) return;
@@ -426,29 +421,6 @@ export function AdminUsers({ user: currentUser }) {
   const confirmFormRole = () => {
     setForm((f) => ({ ...f, role: roleDraft.next }));
     setRoleDraft(null);
-  };
-
-  const submitSetPassword = async () => {
-    if (!pwTarget) return;
-    if (!pwValue || pwValue.length < 6) {
-      toast("Password minimal 6 karakter", "error");
-      return;
-    }
-    if (pwValue !== pwConfirmValue) {
-      toast("Konfirmasi password tidak cocok", "error");
-      return;
-    }
-    setPwSaving(true);
-    try {
-      await api.updateAdminUser(pwTarget.id, { password: pwValue });
-      toast(`Password ${pwTarget.nama} berhasil diganti`);
-      setPwTarget(null);
-      await fetchAll();
-    } catch (err) {
-      toast(err.message, "error");
-    } finally {
-      setPwSaving(false);
-    }
   };
 
   return (
@@ -466,13 +438,13 @@ export function AdminUsers({ user: currentUser }) {
           </svg>
         </span>
         <p>
-          Kolom <b>Password</b> menampilkan password tiap akun — klik ikon mata untuk melihat. Akun yang bertanda
-          <i> belum ada</i> dibuat sebelum fitur ini, sehingga passwordnya hanya tersimpan sebagai hash satu arah;
-          set password lewat tombol <b>Password</b> atau passwordnya akan terekam otomatis saat akun tersebut login.
+          Ubah nama, email, NIP, role, dan password melalui tombol <b>Ubah</b>. Kosongkan kolom password jika tidak ingin
+          menggantinya. Kolom <b>Password</b> menampilkan password yang tercatat; akun lama mungkin belum memiliki
+          password yang dapat ditampilkan.
         </p>
       </div>
 
-      <div className={"card user-form" + (editing ? " is-editing" : "")}>
+      <div ref={userFormRef} className={"card user-form" + (editing ? " is-editing" : "")}>
         <div className="user-form-head">
           <span className="user-form-icon" aria-hidden="true">
             {editing ? (
@@ -530,8 +502,11 @@ export function AdminUsers({ user: currentUser }) {
                   type="text"
                   inputMode="numeric"
                   autoComplete="off"
-                  value={form.nip}
-                  onChange={set("nip")}
+                   value={form.nip}
+                   onChange={(e) => {
+                     const v = e.target.value.replace(/[^0-9]/g, "").slice(0, 18);
+                     setForm((f) => ({ ...f, nip: v }));
+                   }}
                   placeholder="198705152010011002"
                   minLength={18}
                   maxLength={18}
@@ -681,26 +656,16 @@ export function AdminUsers({ user: currentUser }) {
                   <td className="td-actions">
                     <span className="act-group">
                       <button
-                        className="btn btn-sm act act-pw"
-                        title="Ganti password akun ini"
-                        onClick={() => openSetPassword(u)}
-                      >
-                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                          <rect x="4" y="10.5" width="16" height="10" rx="2" />
-                          <path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" />
-                        </svg>
-                        Ganti Password
-                      </button>
-                      <button
                         className="btn btn-sm act"
+                        type="button"
                         title="Ubah data akun ini"
-                        disabled={isSelf(u)}
                         onClick={() => startEdit(u)}
                       >
                         Ubah
                       </button>
                       <button
                         className="btn btn-sm act act-danger"
+                        type="button"
                         title="Hapus akun ini"
                         disabled={isSelf(u)}
                         onClick={() => setDeleteTarget(u)}
@@ -759,44 +724,6 @@ export function AdminUsers({ user: currentUser }) {
         />
       )}
 
-      {pwTarget && (
-        <div
-          className="modal-backdrop"
-          style={{ display: "flex", alignItems: "center", justifyContent: "center", position: "fixed", inset: 0, background: "rgba(15,23,42,.55)", zIndex: 2000 }}
-          onClick={() => setPwTarget(null)}
-        >
-          <div className="modal" style={{ maxWidth: 420, width: "100%", margin: 16 }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>Ganti Password - {pwTarget.nama}</h3>
-              <button className="modal-close" onClick={() => setPwTarget(null)}>&times;</button>
-            </div>
-            <div className="modal-body">
-              <p style={{ margin: "0 0 12px", fontSize: 13, color: "var(--ink-2)" }}>
-                Masukkan password baru untuk akun ini. Password lama tidak diperlukan.
-              </p>
-              <PasswordField
-                id="user-form-password"
-                value={pwValue}
-                onChange={(e) => setPwValue(e.target.value)}
-                placeholder="Minimal 6 karakter"
-              />
-              <div style={{ marginTop: 12 }}>
-                <PasswordField
-                  value={pwConfirmValue}
-                  onChange={(e) => setPwConfirmValue(e.target.value)}
-                  placeholder="Konfirmasi password baru"
-                />
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="btn" onClick={() => setPwTarget(null)} disabled={pwSaving}>Batal</button>
-              <button className="btn btn-primary" onClick={submitSetPassword} disabled={pwSaving}>
-                {pwSaving ? "Menyimpan..." : "Simpan Password Baru"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }

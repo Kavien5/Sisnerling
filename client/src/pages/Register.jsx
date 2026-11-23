@@ -171,7 +171,11 @@ export default function Register({ onRegister, onSwitchToLogin }) {
                 hint="NIP harus terdiri dari 18 angka."
                 placeholder="198705152010011002"
                 value={form.nip}
-                onChange={set("nip")}
+                onChange={(e) => {
+                  const v = e.target.value.replace(/[^0-9]/g, "").slice(0, 18);
+                  setForm((f) => ({ ...f, nip: v }));
+                  if (error) setError("");
+                }}
               />
               <AuthField
                 label="Password"
