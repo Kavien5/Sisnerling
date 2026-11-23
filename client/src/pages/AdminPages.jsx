@@ -954,6 +954,7 @@ export function AdminTables() {
   const [reviewNote, setReviewNote] = React.useState("");
   const [reviewSaving, setReviewSaving] = React.useState(false);
   const [userEntrySearch, setUserEntrySearch] = React.useState("");
+  const [userEntryNip, setUserEntryNip] = React.useState("");
   const [spreadsheets, setSpreadsheets] = React.useState([]);
   const [files, setFiles] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
@@ -1778,6 +1779,13 @@ export function AdminTables() {
     const query = userEntrySearch.trim().toLocaleLowerCase();
     return !query || `${account.nama} ${account.email}`.toLocaleLowerCase().includes(query);
   });
+  const selectedUserEntry = admins.find((account) => String(account.id) === String(form.userId)) || null;
+  const handleUserEntryNipChange = (value) => {
+    const v = String(value || "").replace(/[^0-9]/g, "").slice(0, 18);
+    setUserEntryNip(v);
+    const found = admins.find((account) => String(account.nip || "") === v);
+    setForm((current) => ({ ...current, userId: found ? String(found.id) : "" }));
+  };
 
   return (
     <>
@@ -1819,52 +1827,26 @@ export function AdminTables() {
             <h4>Buat tugas Neraca</h4>
             <div className="psg-task-fields">
               <label className="psg-task-wide">
-                Cari User Entry penerima tugas
+                NIP User Entry penerima tugas
                 <input
-                  type="search"
-                  value={userEntrySearch}
-                  onChange={(event) => setUserEntrySearch(event.target.value)}
-                  placeholder="Cari berdasarkan nama atau email..."
-                  aria-label="Cari akun User Entry berdasarkan nama atau email"
+                  type="text"
+                  inputMode="numeric"
+                  value={userEntryNip}
+                  onChange={(event) => handleUserEntryNipChange(event.target.value)}
+                  placeholder="Masukkan 18 digit NIP User Entry"
+                  maxLength={18}
+                  aria-label="NIP User Entry penerima tugas"
                 />
               </label>
-              <div className="psg-user-choice-grid psg-task-wide" role="group" aria-label="Pilihan User Entry penerima tugas">
-                {filteredUserEntries.map((account) => {
-                  const selected = String(form.userId) === String(account.id);
-                  const initials = String(account.nama || "?")
-                    .trim()
-                    .split(/\s+/)
-                    .slice(0, 2)
-                    .map((part) => part.charAt(0))
-                    .join("")
-                    .toLocaleUpperCase();
-                  return (
-                    <button
-                      type="button"
-                      key={account.id}
-                      className={`psg-user-choice${selected ? " selected" : ""}`}
-                      onClick={() => setForm((formState) => ({ ...formState, userId: String(account.id) }))}
-                      aria-pressed={selected}
-                    >
-                      <span className="psg-user-choice-avatar" aria-hidden="true">{initials}</span>
-                      <span className="psg-user-choice-info">
-                        <strong>{account.nama}</strong>
-                        <small>{account.email}</small>
-                      </span>
-                      <span className="psg-user-choice-state">{selected ? "Dipilih" : "Pilih"}</span>
-                    </button>
-                  );
-                })}
-                {!filteredUserEntries.length && (
-                  <p className="psg-user-choice-empty">
-                    {loading
-                      ? "Memuat daftar akun User Entry..."
-                      : admins.length
-                        ? "Tidak ada User Entry yang cocok dengan pencarian."
-                        : "Belum ada akun dengan role User Entry. Buat akun User Entry terlebih dahulu."}
-                  </p>
-                )}
-              </div>
+              {selectedUserEntry ? (
+                <div className="psg-hint psg-task-wide">
+                  Dipilih: <strong>{selectedUserEntry.nama}</strong> ({selectedUserEntry.email})
+                </div>
+              ) : userEntryNip ? (
+                <div className="psg-hint psg-task-wide">User Entry dengan NIP tersebut tidak ditemukan.</div>
+              ) : (
+                <div className="psg-hint psg-task-wide">Masukkan NIP untuk memilih User Entry.</div>
+              )}
               <label>
                 Dataset Neraca
                 <select
@@ -2019,16 +2001,24 @@ export function AdminTables() {
         <form className="psg-body" onSubmit={(e) => { e.preventDefault(); applyScope("save"); }}>
           <div className="psg-grid">
             <div className="form-group" style={{ margin: 0 }}>
-              <label>1. Akun User Entry <span className="psg-req">*</span></label>
-              <Dropdown
-                value={form.userId}
-                onChange={(v) => setForm((f) => ({ ...f, userId: v }))}
-                options={[
-                  { value: "", label: "Pilih User Entry..." },
-                  ...admins.map((a) => ({ value: String(a.id), label: `${a.nama} (${a.email})` })),
-                ]}
+              <label>1. NIP User Entry <span className="psg-req">*</span></label>
+              <input
+                className="form-control"
+                type="text"
+                inputMode="numeric"
+                value={userEntryNip}
+                onChange={(event) => handleUserEntryNipChange(event.target.value)}
+                placeholder="Masukkan 18 digit NIP User Entry"
+                maxLength={18}
+                aria-label="NIP User Entry"
               />
-              <div className="psg-hint">Pilihan akun ini juga digunakan sebagai penerima tugas Neraca.</div>
+              {selectedUserEntry ? (
+                <div className="psg-hint">Dipilih: <strong>{selectedUserEntry.nama}</strong> ({selectedUserEntry.email})</div>
+              ) : userEntryNip ? (
+                <div className="psg-hint">User Entry dengan NIP tersebut tidak ditemukan.</div>
+              ) : (
+                <div className="psg-hint">Masukkan NIP untuk memilih User Entry. Pilihan akun ini juga digunakan sebagai penerima tugas Neraca.</div>
+              )}
             </div>
             <div className="form-group" style={{ margin: 0 }}>
               <label>2. File Excel <span className="psg-req">*</span></label>
