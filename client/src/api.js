@@ -256,6 +256,16 @@ export const api = {
   neracaDatasets: () => request("/api/neraca/datasets"),
   getNeracaTasks: () => request("/api/neraca/tasks"),
   getNeracaResults: () => request("/api/neraca/results"),
+  getTimberHasil: () => request("/api/neraca/timber/hasil"),
+  saveTimberHasil: (sheet, year, values) =>
+    request(`/api/neraca/timber/hasil/${encodeURIComponent(sheet)}/${encodeURIComponent(year)}`, {
+      method: "PUT",
+      body: JSON.stringify({ values }),
+    }),
+  deleteTimberHasil: (sheet, year) =>
+    request(`/api/neraca/timber/hasil/${encodeURIComponent(sheet)}/${encodeURIComponent(year)}`, {
+      method: "DELETE",
+    }),
   createNeracaTask: (body) =>
     request("/api/neraca/tasks", { method: "POST", body: JSON.stringify(body) }),
   startNeracaTask: (id) => request(`/api/neraca/tasks/${id}/start`, { method: "POST" }),

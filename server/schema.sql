@@ -439,6 +439,19 @@ CREATE TABLE IF NOT EXISTS nilai_variabel_revisi (
   FOREIGN KEY (nilai_id) REFERENCES nilai_variabel(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS hasil_pengolahan_timber (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  sheet VARCHAR(64) NOT NULL,
+  tahun INT NOT NULL,
+  nilai JSON NOT NULL,
+  updated_by INT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_hasil_timber (sheet, tahun),
+  KEY idx_hasil_timber_sheet (sheet),
+  FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 INSERT IGNORE INTO kategori (id, nama_kategori, deskripsi) VALUES
   (1, 'Neraca Terintegrasi', 'Data neraca terintegrasi'),
   (2, 'Neraca Fisik & Moneter Hutan', 'Data neraca fisik & moneter hutan'),

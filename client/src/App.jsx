@@ -215,7 +215,7 @@ export default function App() {
     if (nextPage === "statistik") {
       setActiveFileId(null);
     }
-    setPage(nextPage);
+    setPage(nextPage === "admin-hasil-neraca" ? "neraca-hasil" : nextPage);
   };
 
   const activeFile = importedFiles.find((f) => f.id === activeFileId) || null;
@@ -281,7 +281,7 @@ export default function App() {
         )}
         {page === "statistik" && <StatisticalSpreadsheet user={user} />}
         {page === "neraca-input" && <InputPengolahanNeraca />}
-        {isAdmin(user) && page === "admin-hasil-neraca" && <HasilPengolahanNeraca />}
+        {page === "neraca-hasil" && <HasilPengolahanNeraca user={user} />}
         {page === "chat" && <ChatPage />}
         {page === "files" && (
           <FilesPage

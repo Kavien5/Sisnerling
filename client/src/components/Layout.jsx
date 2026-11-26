@@ -862,7 +862,8 @@ export default function Layout({ page, setPage, children, importedFiles, user, o
     }
   };
 
-  const isActive = (key) => page === key || page.startsWith(`${key}:`);
+  const isActive = (key) =>
+    page === key || page.startsWith(`${key}:`) || (key === "neraca-input" && page === "neraca-hasil");
 
   const topTitle = React.useMemo(() => {
     if (page === "dashboard") return "Dashboard";
@@ -872,7 +873,7 @@ export default function Layout({ page, setPage, children, importedFiles, user, o
     if (page === "spreadsheet") return "Spreadsheet";
     if (page === "statistik") return "Spreadsheet Statistik";
     if (page === "neraca-input") return "Input & Pengolahan Neraca";
-    if (page === "admin-hasil-neraca") return "Hasil Pengolahan Neraca";
+    if (page === "neraca-hasil" || page === "admin-hasil-neraca") return "Hasil Pengolahan Neraca";
     if (page === "chat") return "Grup Chat";
     if (page === "files") return "File & Import";
     if (page === "panduan") return "Panduan Penggunaan";
@@ -1022,7 +1023,7 @@ export default function Layout({ page, setPage, children, importedFiles, user, o
   const renderLeaf = ({ key, label, icon: Icon, badge = 0 }) => (
     <button
       key={key}
-      className={`nav-item${page === key ? " active" : ""}`}
+      className={`nav-item${isActive(key) ? " active" : ""}`}
       onClick={() => go(key)}
       aria-label={badge ? `${label}, ${badge} pesan belum dibaca` : label}
     >
@@ -1052,7 +1053,21 @@ export default function Layout({ page, setPage, children, importedFiles, user, o
           {renderLeaf({ key: "dashboard", label: "Dashboard", icon: IconDashboard })}
           {renderLeaf({ key: "spreadsheet", label: "Spreadsheet", icon: IconFileSpreadsheet })}
           {renderLeaf({ key: "statistik", label: "Spreadsheet Statistik", icon: IconFileSpreadsheet })}
-          {renderLeaf({ key: "neraca-input", label: "Input & Pengolahan Neraca", icon: IconGrid })}
+          <div className="nav-neraca-wrap">
+            {renderLeaf({ key: "neraca-input", label: "Input & Pengolahan Neraca", icon: IconGrid })}
+            <div className="nav-sub nav-neraca-sub">
+              <button
+                type="button"
+                className={`nav-sub-item${page === "neraca-hasil" ? " active" : ""}`}
+                onClick={() => go("neraca-hasil")}
+                title="Hasil Pengolahan Neraca - LK Timber"
+                aria-label="Hasil Pengolahan Neraca - LK Timber"
+              >
+                <span className="icon"><IconFileText /></span>
+                LK Timber
+              </button>
+            </div>
+          </div>
           {renderLeaf({ key: "chat", label: "Grup Chat", icon: IconMessage, badge: unreadChatCount })}
           {renderLeaf({ key: "files", label: "File & Import", icon: IconDatabase })}
           {renderLeaf({ key: "laporan", label: "Laporan", icon: IconFileText })}
@@ -1063,7 +1078,6 @@ export default function Layout({ page, setPage, children, importedFiles, user, o
               <div className="nav-section-label">Pengelolaan</div>
               {renderLeaf({ key: "admin-users", label: "User & Admin", icon: IconDatabase })}
               {renderLeaf({ key: "admin-tables", label: "Penugasan Tabel", icon: IconLayers })}
-              {renderLeaf({ key: "admin-hasil-neraca", label: "Hasil Pengolahan Neraca", icon: IconFileText })}
               {renderLeaf({ key: "admin-maintenance", label: "Maintenance", icon: IconAlert })}
               {renderLeaf({ key: "admin-backup", label: "Backup & Restore", icon: IconHistory })}
               {renderLeaf({ key: "admin-settings", label: "Pengaturan", icon: IconBox })}

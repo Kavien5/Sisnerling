@@ -11,6 +11,15 @@ const STATE_FILE = process.env.NERACA_STATE_FILE
   ? path.resolve(process.env.NERACA_STATE_FILE)
   : path.join(DATA_DIR, "neraca_hutan.json");
 const REGIONAL_SHEETS = ["Jati Jawa", "Rimba Jawa", "Rimba Luar Jawa"];
+const TIMBER_INPUT_FIELDS = [
+  "persediaanAwal",
+  "pertumbuhan",
+  "penanaman",
+  "konversiKerusakan",
+  "penebangan",
+  "bondRate",
+  "gos",
+];
 
 // Teks label dari sel Excel: mendukung string, angka, richText, hyperlink, dan
 // hasil formula. String() biasa akan menghasilkan "[object Object]" untuk sel
@@ -1632,6 +1641,139 @@ function createNeracaRouter({ onChange } = {}) {
         unavailableTaskCount: tasks.filter((task) => !task.dataset_available).length,
         years: [...yearlyTotals.values()].sort((a, b) => Number(a.year) - Number(b.year)),
       });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
+  const parseTimberValues = (raw) => {
+    let values = raw;
+    if (typeof values === "string") {
+      try {
+        values = JSON.parse(values);
+      } catch {
+        values = {};
+      }
+    }
+    const result = {};
+    TIMBER_INPUT_FIELDS.forEach((field) => {
+      const numeric = Number(values && values[field]);
+      result[field] = Number.isFinite(numeric) ? numeric : 0;
+    });
+    return result;
+  };
+
+  router.get("/timber/hasil", async (_req, res) => {
+    try {
+      const [rows] = await pool.query(
+        `SELECT sheet, tahun, nilai, updated_by, updated_at
+         FROM hasil_pengolahan_timber
+         ORDER BY FIELD(sheet, ?, ?, ?), tahun`,
+        REGIONAL_SHEETS
+      );
+      res.json({
+        sheets: REGIONAL_SHEETS,
+        rows: rows.map((row) => ({
+          sheet: row.sheet,
+          year: Number(row.tahun),
+          values: parseTimberValues(row.nilai),
+          updatedBy: row.updated_by,
+          updatedAt: row.updated_at,
+        })),
+      });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
+  router.put("/timber/hasil/:sheet/:year", requireRole("user_entry", "admin"), async (req, res) => {
+    try {
+      const sheet = String(req.params.sheet || "");
+      if (!REGIONAL_SHEETS.includes(sheet)) {
+        const err = new Error("Sheet Timber tidak dikenali.");
+        err.status = 400;
+        throw err;
+      }
+      const year = Number(req.params.year);
+      if (!Number.isInteger(year) || year < 1900 || year > 2100) {
+        const err = new Error("Tahun harus berupa bilangan bulat antara 1900 dan 2100.");
+        err.status = 400;
+        throw err;
+      }
+      const raw = req.body && req.body.values;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        const err = new Error("Nilai hasil pengolahan Timber harus berupa objek.");
+        err.status = 400;
+        throw err;
+      }
+      const values = {};
+      TIMBER_INPUT_FIELDS.forEach((field) => {
+        const numeric = Number(raw[field]);
+        if (!Number.isFinite(numeric)) {
+          const err = new Error(`Nilai ${field} harus berupa angka.`);
+          err.status = 400;
+          throw err;
+        }
+        values[field] = numeric;
+      });
+      if (values.bondRate < 0 || values.gos < 0) {
+        const err = new Error("Discount rate dan GOS per unit tidak boleh negatif.");
+        err.status = 400;
+        throw err;
+      }
+
+      await pool.query(
+        `INSERT INTO hasil_pengolahan_timber (sheet, tahun, nilai, updated_by)
+         VALUES (?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE nilai = VALUES(nilai), updated_by = VALUES(updated_by)`,
+        [sheet, year, JSON.stringify(values), req.user.id]
+      );
+      await logActivity(
+        req,
+        "update",
+        `Menyimpan hasil pengolahan Timber sheet ${sheet} tahun ${year}`,
+        `${sheet}:${year}`
+      );
+      const [[saved]] = await pool.query(
+        "SELECT updated_at FROM hasil_pengolahan_timber WHERE sheet = ? AND tahun = ?",
+        [sheet, year]
+      );
+      res.json({ sheet, year, values, updatedAt: saved ? saved.updated_at : null });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
+  router.delete("/timber/hasil/:sheet/:year", requireRole("user_entry", "admin"), async (req, res) => {
+    try {
+      const sheet = String(req.params.sheet || "");
+      if (!REGIONAL_SHEETS.includes(sheet)) {
+        const err = new Error("Sheet Timber tidak dikenali.");
+        err.status = 400;
+        throw err;
+      }
+      const year = Number(req.params.year);
+      if (!Number.isInteger(year)) {
+        const err = new Error("Tahun tidak valid.");
+        err.status = 400;
+        throw err;
+      }
+      const [result] = await pool.query(
+        "DELETE FROM hasil_pengolahan_timber WHERE sheet = ? AND tahun = ?",
+        [sheet, year]
+      );
+      if (!result.affectedRows) {
+        const err = new Error("Data hasil pengolahan Timber tidak ditemukan.");
+        err.status = 404;
+        throw err;
+      }
+      await logActivity(
+        req,
+        "delete",
+        `Menghapus hasil pengolahan Timber sheet ${sheet} tahun ${year}`,
+        `${sheet}:${year}`
+      );
+      res.json({ ok: true, sheet, year });
     } catch (err) {
       res.status(err.status || 500).json({ error: err.message });
     }
