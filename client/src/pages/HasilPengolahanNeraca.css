@@ -294,6 +294,148 @@
   margin: 0.8rem 0 0;
 }
 
+.hpn-root .hpn-sheet-tabs {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-bottom: none;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  padding: 0.5rem 0.6rem 0;
+}
+
+.hpn-root .hpn-sheet-tab {
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 0.5rem 0.85rem;
+}
+
+.hpn-root .hpn-sheet-tab:hover {
+  background: var(--ipn-primary-light);
+}
+
+.hpn-root .hpn-sheet-tab.active {
+  background: var(--ipn-primary);
+  border-color: var(--ipn-primary);
+  color: #fff;
+}
+
+.hpn-root .hpn-legend {
+  align-items: center;
+  color: var(--text-muted);
+  display: inline-flex;
+  font-size: 0.72rem;
+  gap: 0.4rem;
+}
+
+.hpn-root .hpn-legend i {
+  border-radius: 3px;
+  display: inline-block;
+  height: 11px;
+  margin-left: 0.4rem;
+  width: 11px;
+}
+
+.hpn-root .hpn-legend .legend-input {
+  background: #fff;
+  border: 1px solid #cbd5e1;
+}
+
+.hpn-root .hpn-legend .legend-formula {
+  background: #ffe8b5;
+  border: 1px solid #f0b429;
+}
+
+.hpn-root .timber-grid {
+  min-width: 1100px;
+}
+
+.hpn-root .recap-grid {
+  min-width: 900px;
+}
+
+.hpn-root .timber-grid th,
+.hpn-root .timber-grid td,
+.hpn-root .recap-grid th,
+.hpn-root .recap-grid td {
+  border: 1px solid var(--border-table);
+  font-size: 0.75rem;
+  padding: 0.45rem 0.55rem;
+}
+
+.hpn-root .timber-grid thead th,
+.hpn-root .recap-grid thead th {
+  background: var(--bg-table-header);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.hpn-root .timber-grid tbody th,
+.hpn-root .recap-grid tbody th {
+  background: var(--bg-table-header);
+  left: 0;
+  min-width: 135px;
+  position: sticky;
+  text-align: left;
+  z-index: 1;
+}
+
+.hpn-root .timber-grid td.cell-input,
+.hpn-root .recap-grid td.cell-input {
+  background: #fff;
+  padding: 0;
+  text-align: right;
+}
+
+.hpn-root .timber-grid td.cell-input input,
+.hpn-root .recap-grid td.cell-input input {
+  background: transparent;
+  border: none;
+  color: var(--text-main);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+  padding: 0.45rem 0.55rem;
+  text-align: right;
+  width: 100%;
+}
+
+.hpn-root .timber-grid td.cell-input input:focus,
+.hpn-root .recap-grid td.cell-input input:focus {
+  background: #fff8e1;
+  box-shadow: inset 0 0 0 1px #f0b429;
+}
+
+.hpn-root .timber-grid td.cell-formula,
+.hpn-root .recap-grid td.cell-formula {
+  background: #fff2d2;
+  color: #8a4b08;
+  font-weight: 650;
+  padding-right: 1.8rem;
+  position: relative;
+  text-align: right;
+}
+
+.hpn-root .timber-grid .fx-tag,
+.hpn-root .recap-grid .fx-tag {
+  color: #b45309;
+  font-size: 0.58rem;
+  font-weight: 800;
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
 @media (max-width: 720px) {
   .hpn-root .hpn-header-actions {
     flex-wrap: wrap;

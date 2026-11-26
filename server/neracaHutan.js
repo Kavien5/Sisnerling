@@ -11,6 +11,15 @@ const STATE_FILE = process.env.NERACA_STATE_FILE
   ? path.resolve(process.env.NERACA_STATE_FILE)
   : path.join(DATA_DIR, "neraca_hutan.json");
 const REGIONAL_SHEETS = ["Jati Jawa", "Rimba Jawa", "Rimba Luar Jawa"];
+const TIMBER_SHEETS = [
+  "Jati Jawa",
+  "Rimba Jawa",
+  "Rimba Luar Jawa",
+  "Rekap JJ",
+  "Rekap RJ",
+  "Rekap RLJ",
+  "Rekap",
+];
 const TIMBER_INPUT_FIELDS = [
   "persediaanAwal",
   "pertumbuhan",
@@ -19,6 +28,13 @@ const TIMBER_INPUT_FIELDS = [
   "penebangan",
   "bondRate",
   "gos",
+  "moneterAwal",
+  "moneterPertumbuhan",
+  "moneterPenanaman",
+  "moneterKerusakan",
+  "moneterPenebangan",
+  "moneterRevaluasi",
+  "moneterAkhir",
 ];
 
 // Teks label dari sel Excel: mendukung string, angka, richText, hyperlink, dan
@@ -1668,11 +1684,11 @@ function createNeracaRouter({ onChange } = {}) {
       const [rows] = await pool.query(
         `SELECT sheet, tahun, nilai, updated_by, updated_at
          FROM hasil_pengolahan_timber
-         ORDER BY FIELD(sheet, ?, ?, ?), tahun`,
-        REGIONAL_SHEETS
+         ORDER BY FIELD(sheet, ?, ?, ?, ?, ?, ?, ?), tahun`,
+        TIMBER_SHEETS
       );
       res.json({
-        sheets: REGIONAL_SHEETS,
+        sheets: TIMBER_SHEETS,
         rows: rows.map((row) => ({
           sheet: row.sheet,
           year: Number(row.tahun),
@@ -1689,7 +1705,7 @@ function createNeracaRouter({ onChange } = {}) {
   router.put("/timber/hasil/:sheet/:year", requireRole("user_entry", "admin"), async (req, res) => {
     try {
       const sheet = String(req.params.sheet || "");
-      if (!REGIONAL_SHEETS.includes(sheet)) {
+      if (!TIMBER_SHEETS.includes(sheet)) {
         const err = new Error("Sheet Timber tidak dikenali.");
         err.status = 400;
         throw err;
@@ -1708,6 +1724,10 @@ function createNeracaRouter({ onChange } = {}) {
       }
       const values = {};
       TIMBER_INPUT_FIELDS.forEach((field) => {
+        if (raw[field] === undefined) {
+          values[field] = 0;
+          return;
+        }
         const numeric = Number(raw[field]);
         if (!Number.isFinite(numeric)) {
           const err = new Error(`Nilai ${field} harus berupa angka.`);
@@ -1747,7 +1767,7 @@ function createNeracaRouter({ onChange } = {}) {
   router.delete("/timber/hasil/:sheet/:year", requireRole("user_entry", "admin"), async (req, res) => {
     try {
       const sheet = String(req.params.sheet || "");
-      if (!REGIONAL_SHEETS.includes(sheet)) {
+      if (!TIMBER_SHEETS.includes(sheet)) {
         const err = new Error("Sheet Timber tidak dikenali.");
         err.status = 400;
         throw err;
