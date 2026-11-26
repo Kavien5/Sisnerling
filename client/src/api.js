@@ -255,6 +255,7 @@ export const api = {
     request(datasetId ? `/api/neraca?datasetId=${encodeURIComponent(datasetId)}` : "/api/neraca"),
   neracaDatasets: () => request("/api/neraca/datasets"),
   getNeracaTasks: () => request("/api/neraca/tasks"),
+  getNeracaResults: () => request("/api/neraca/results"),
   createNeracaTask: (body) =>
     request("/api/neraca/tasks", { method: "POST", body: JSON.stringify(body) }),
   startNeracaTask: (id) => request(`/api/neraca/tasks/${id}/start`, { method: "POST" }),

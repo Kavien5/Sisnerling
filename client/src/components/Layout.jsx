@@ -872,6 +872,7 @@ export default function Layout({ page, setPage, children, importedFiles, user, o
     if (page === "spreadsheet") return "Spreadsheet";
     if (page === "statistik") return "Spreadsheet Statistik";
     if (page === "neraca-input") return "Input & Pengolahan Neraca";
+    if (page === "admin-hasil-neraca") return "Hasil Pengolahan Neraca";
     if (page === "chat") return "Grup Chat";
     if (page === "files") return "File & Import";
     if (page === "panduan") return "Panduan Penggunaan";
@@ -1062,6 +1063,7 @@ export default function Layout({ page, setPage, children, importedFiles, user, o
               <div className="nav-section-label">Pengelolaan</div>
               {renderLeaf({ key: "admin-users", label: "User & Admin", icon: IconDatabase })}
               {renderLeaf({ key: "admin-tables", label: "Penugasan Tabel", icon: IconLayers })}
+              {renderLeaf({ key: "admin-hasil-neraca", label: "Hasil Pengolahan Neraca", icon: IconFileText })}
               {renderLeaf({ key: "admin-maintenance", label: "Maintenance", icon: IconAlert })}
               {renderLeaf({ key: "admin-backup", label: "Backup & Restore", icon: IconHistory })}
               {renderLeaf({ key: "admin-settings", label: "Pengaturan", icon: IconBox })}

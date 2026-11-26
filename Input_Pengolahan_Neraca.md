@@ -7,7 +7,8 @@ Halaman **Input & Pengolahan Neraca** (`InputPengolahanNeraca.jsx`) adalah works
 - **Penugasan Tabel (Admin)** (`AdminPages.jsx` → `AdminTables`): admin memilih User Entry, memberi akses area spreadsheet, dan membuat tugas Neraca (dataset, tenggat, judul, instruksi). Tugas tersebut muncul di halaman ini sebagai `taskBoard`.
 - **Manajemen User & Admin** (`AdminUsers`): akun dengan role `user_entry` dibuat di sini; role menentukan hak akses.
 - **Files / Publish** (`FilesPage.jsx`, `ExcelEditor.jsx`): file Excel dipublikasikan ke server agar muncul di Penugasan Tabel dan dapat ditugaskan.
-- **Laporan / NeracaOverview**: hasil data yang disimpan di sini menjadi sumber data laporan.
+- **Hasil Pengolahan Neraca (Admin)**: rekap baca-saja dari dataset tugas yang sudah dikirim User Entry. Halaman ini berbeda dari Laporan Spreadsheet umum.
+- **Laporan**: merangkum workbook pada modul Spreadsheet umum; bukan sumber rekap Neraca.
 - **Collab Socket** (`collabSocket.js`): presence pengguna online dan sinkronisasi real-time.
 - **Dataset Neraca** (API `neraca*`): dataset aktif, rename, delete, select, import, reset.
 
@@ -90,13 +91,31 @@ Halaman **Input & Pengolahan Neraca** (`InputPengolahanNeraca.jsx`) adalah works
 1. Presence dot & avatar menampilkan user online.
 2. Perubahan sinkron via socket.
 
-## 6. Hak Akses
+## 6. Halaman Hasil Pengolahan Neraca (Admin)
+
+Halaman **Hasil Pengolahan Neraca** (`HasilPengolahanNeraca.jsx`) menampilkan agregat hasil input User Entry dengan tampilan yang mengikuti gaya spreadsheet Neraca. Halaman ini bersifat baca-saja.
+
+### Sumber dan aturan agregasi
+
+- Frontend meminta rekap melalui `api.getNeracaResults()` → `GET /api/neraca/results`.
+- Endpoint hanya menerima role Admin (`requireRole("admin")`).
+- Tugas yang disertakan berstatus `submitted` atau `completed`.
+- Data angka diambil dari dataset yang terhubung melalui `dataset_id`, bukan dari dataset aktif global.
+- Jika beberapa tugas memakai `dataset_id` yang sama, dataset itu dihitung satu kali agar nilai tidak terduplikasi.
+- Agregasi memakai sheet `Indonesia` per dataset untuk menghindari penjumlahan ganda dengan sheet regional.
+- Tabel per tahun menampilkan jumlah dataset, Persediaan Akhir Fisik, Perubahan Neto Fisik, dan Persediaan Akhir Moneter.
+- Daftar sumber menampilkan judul tugas, User Entry, dataset, status, dan waktu pengiriman. Admin dapat memfilter daftar berdasarkan status dan memuat ulang data.
+- Tugas dengan dataset yang sudah tidak tersedia dikecualikan dari agregat dan dihitung sebagai dataset tidak tersedia.
+
+Nilai yang ditampilkan mengikuti kondisi dataset saat laporan dimuat. Jika dataset diubah setelah tugas dikirim, rekap juga akan mengikuti nilai terbaru karena aplikasi belum menyimpan snapshot data khusus pada saat submit.
+
+## 7. Hak Akses
 - `canEdit`: boleh mengubah data.
 - `canManage`: boleh tambah tahun, import, reset, kelola dataset.
 - `user_entry`: hanya area yang diizinkan admin; dataset mengikuti tugas.
 - Admin: akses penuh.
 
-## 7. Catatan untuk Perubahan Besar
+## 8. Catatan untuk Perubahan Besar
 - Perubahan pada grid/form input harus mempertahankan alur `handleCellChange` → `recalculateLocal` → save.
 - Import harus tetap hanya mengisi sel input, bukan formula.
 - Task flow bergantung pada `selectedTask` dan `activeDatasetId`.

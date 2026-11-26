@@ -1576,6 +1576,67 @@ function createNeracaRouter({ onChange } = {}) {
     }
   });
 
+  router.get("/results", requireRole("admin"), async (_req, res) => {
+    try {
+      const [rows] = await pool.query(
+        `${taskSelect}
+         WHERE t.status IN ('submitted', 'completed')
+         ORDER BY t.submitted_at DESC, t.updated_at DESC`
+      );
+      const datasets = loadOrInit().datasets;
+      const existingDatasetIds = new Set(datasets.map((dataset) => String(dataset.id)));
+      const tasks = rows.map((task) => taskResponse(task, existingDatasetIds));
+      const tasksByDataset = new Map();
+      tasks.forEach((task) => {
+        const datasetId = String(task.dataset_id);
+        if (task.dataset_available && !tasksByDataset.has(datasetId)) {
+          tasksByDataset.set(datasetId, task);
+        }
+      });
+
+      const yearlyTotals = new Map();
+      tasksByDataset.forEach((task, datasetId) => {
+        const dataset = datasets.find((item) => String(item.id) === datasetId);
+        if (!dataset || !dataset.data) return;
+        const data = dataset.data;
+        const national = data.sheets && data.sheets.Indonesia;
+        const physical = national && national.physical;
+        const monetary = national && national.monetary;
+
+        (Array.isArray(data.years) ? data.years : []).forEach((rawYear) => {
+          const year = String(rawYear);
+          const totals = yearlyTotals.get(year) || {
+            year,
+            datasetCount: 0,
+            physicalStock: 0,
+            physicalChange: 0,
+            monetaryStock: 0,
+          };
+          totals.datasetCount += 1;
+          const addIfPresent = (target, values) => {
+            const value = values && values[year];
+            if (value === null || value === undefined || value === "") return;
+            const numeric = Number(value);
+            if (Number.isFinite(numeric)) totals[target] += numeric;
+          };
+          addIfPresent("physicalStock", physical && physical.persediaanAkhir);
+          addIfPresent("physicalChange", physical && physical.perubahanNeto);
+          addIfPresent("monetaryStock", monetary && monetary.persediaanAkhir);
+          yearlyTotals.set(year, totals);
+        });
+      });
+
+      res.json({
+        tasks,
+        datasetCount: tasksByDataset.size,
+        unavailableTaskCount: tasks.filter((task) => !task.dataset_available).length,
+        years: [...yearlyTotals.values()].sort((a, b) => Number(a.year) - Number(b.year)),
+      });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
   router.post("/tasks", requireRole("admin"), async (req, res) => {
     try {
       const assigneeId = Number(req.body && req.body.assigneeId);

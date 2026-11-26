@@ -1,0 +1,224 @@
+.hpn-root .hpn-header-actions {
+  align-items: center;
+  display: inline-flex;
+  gap: 0.6rem;
+  margin-left: auto;
+}
+
+.hpn-root .hpn-admin-badge {
+  align-items: center;
+  background: var(--ipn-primary-light);
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  color: var(--ipn-primary);
+  display: inline-flex;
+  font-size: 0.74rem;
+  font-weight: 800;
+  gap: 0.35rem;
+  padding: 0.45rem 0.7rem;
+  white-space: nowrap;
+}
+
+.hpn-root .hpn-info-banner,
+.hpn-root .hpn-warning,
+.hpn-root .hpn-error {
+  align-items: flex-start;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  display: flex;
+  gap: 0.55rem;
+  padding: 0.75rem 0.95rem;
+}
+
+.hpn-root .hpn-info-banner {
+  background: var(--ipn-primary-light);
+}
+
+.hpn-root .hpn-warning,
+.hpn-root .hpn-error {
+  background: #fff7ed;
+  border-color: #fed7aa;
+  color: #9a3412;
+}
+
+.hpn-root .hpn-error {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.hpn-root .hpn-summary {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.hpn-root .hpn-summary-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.95rem 1.1rem;
+}
+
+.hpn-root .hpn-summary-card span {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 650;
+}
+
+.hpn-root .hpn-summary-card strong {
+  color: var(--text-main);
+  font-size: 1.45rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.hpn-root .hpn-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 0.9rem;
+  overflow: hidden;
+}
+
+.hpn-root .hpn-panel-heading {
+  align-items: center;
+  border-bottom: 1px solid var(--border-light);
+  display: flex;
+  gap: 0.7rem;
+  padding: 0.9rem 1.1rem;
+}
+
+.hpn-root .hpn-panel-icon {
+  align-items: center;
+  background: var(--ipn-primary-light);
+  border-radius: 9px;
+  color: var(--ipn-primary);
+  display: inline-flex;
+  flex: 0 0 34px;
+  height: 34px;
+  justify-content: center;
+}
+
+.hpn-root .hpn-panel-heading h2 {
+  color: var(--text-main);
+  font-size: 0.98rem;
+  margin: 0;
+}
+
+.hpn-root .hpn-panel-heading p {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  margin: 0.2rem 0 0;
+}
+
+.hpn-root .hpn-table-wrap {
+  max-width: 100%;
+  overflow: auto;
+}
+
+.hpn-root .hpn-grid {
+  min-width: 760px;
+  width: 100%;
+}
+
+.hpn-root .hpn-grid th,
+.hpn-root .hpn-grid td {
+  font-variant-numeric: tabular-nums;
+  padding: 0.65rem 0.8rem;
+  white-space: nowrap;
+}
+
+.hpn-root .hpn-grid thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.hpn-root .hpn-grid tbody th {
+  background: var(--bg-table-header);
+  color: var(--text-main);
+  text-align: left;
+}
+
+.hpn-root .hpn-grid td.cell-formula {
+  padding-right: 1.8rem;
+  text-align: right;
+}
+
+.hpn-root .hpn-grid .formula-tag {
+  font-size: 0.62rem;
+}
+
+.hpn-root .hpn-task-heading {
+  flex-wrap: wrap;
+}
+
+.hpn-root .hpn-filter {
+  align-items: center;
+  display: inline-flex;
+  gap: 0.45rem;
+  margin-left: auto;
+}
+
+.hpn-root .hpn-filter span {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.hpn-root .hpn-filter select {
+  background: var(--bg-card);
+  border: 1px solid var(--border-table);
+  border-radius: var(--radius-sm);
+  color: var(--text-main);
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0.4rem 0.55rem;
+}
+
+.hpn-root .hpn-status {
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 0.7rem;
+  font-weight: 750;
+  padding: 0.25rem 0.55rem;
+}
+
+.hpn-root .hpn-status-submitted {
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.hpn-root .hpn-status-completed {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.hpn-root .hpn-empty {
+  color: var(--text-muted);
+  padding: 1.4rem 1rem;
+  text-align: center;
+}
+
+@media (max-width: 720px) {
+  .hpn-root .hpn-header-actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    margin-left: 0;
+  }
+
+  .hpn-root .hpn-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .hpn-root .hpn-filter {
+    margin-left: 0;
+    width: 100%;
+  }
+}
