@@ -129,6 +129,9 @@
 }
 
 .ipn-root .brand-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
   font-size: 0.68rem;
   font-weight: 700;
   background: var(--ipn-primary-light);

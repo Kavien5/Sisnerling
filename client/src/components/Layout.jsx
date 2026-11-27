@@ -23,6 +23,7 @@ import {
 } from "./Icons.jsx";
 import Modal from "./Modal.jsx";
 import Logo from "./Logo.jsx";
+import TimberLogo from "./TimberLogo.jsx";
 import ProfileModal from "./ProfileModal.jsx";
 import { useToast } from "./Toast.jsx";
 import { roleLabel, isAdmin } from "../auth.js";
@@ -1063,7 +1064,7 @@ export default function Layout({ page, setPage, children, importedFiles, user, o
                 title="Hasil Pengolahan Neraca - LK Timber"
                 aria-label="Hasil Pengolahan Neraca - LK Timber"
               >
-                <span className="icon"><IconFileText /></span>
+                <span className="icon"><TimberLogo size={16} /></span>
                 LK Timber
               </button>
             </div>

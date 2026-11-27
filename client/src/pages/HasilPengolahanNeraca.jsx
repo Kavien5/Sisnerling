@@ -2,6 +2,7 @@ import React from "react";
 import { api } from "../api.js";
 import { canEditData } from "../auth.js";
 import Logo from "../components/Logo.jsx";
+import TimberLogo from "../components/TimberLogo.jsx";
 import { useToast } from "../components/Toast.jsx";
 import {
   IconAlert,
@@ -712,7 +713,11 @@ export default function HasilPengolahanNeraca({ user }) {
             </div>
             <div className="brand-info">
               <h1>
-                SISNERLING <span className="brand-tag">LK Timber</span>
+                SISNERLING{" "}
+                <span className="brand-tag">
+                  <TimberLogo size={18} />
+                  LK Timber
+                </span>
               </h1>
               <p>1. LK Kayu atau Timber (1).xlsx — layout, input manual, dan rumus otomatis</p>
             </div>
