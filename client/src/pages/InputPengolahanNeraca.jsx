@@ -34,10 +34,12 @@ function formatNumber(val, decimals = 1) {
 }
 
 function round2(v) {
+  if (!Number.isFinite(v)) return 0;
   return Math.round(v * 100) / 100;
 }
 
 function round4(v) {
+  if (!Number.isFinite(v)) return 0;
   return Math.round(v * 10000) / 10000;
 }
 
@@ -64,6 +66,7 @@ function recalculateLocal(data) {
     const phys = sh.physical;
     const rent = sh.rent;
     const mon = sh.monetary;
+    phys.perkiraanCadangan = phys.perkiraanCadangan || {};
 
     for (let i = 0; i < years.length; i++) {
       const yr = years[i];
@@ -84,6 +87,7 @@ function recalculateLocal(data) {
 
       const akhirFisik = round2(awalFisik + netoFisik);
       phys.persediaanAkhir[yr] = akhirFisik;
+      phys.perkiraanCadangan[yr] = tebangFisik > 0 ? round2(akhirFisik / tebangFisik) : 0;
 
       if (i > 0 && prevYr && phys.persediaanAkhir[prevYr]) {
         const prevAkhirFisik = phys.persediaanAkhir[prevYr];
@@ -144,6 +148,7 @@ function recalculateLocal(data) {
   const ind = data.sheets["Indonesia"];
 
   if (jj && rj && rlj && ind) {
+    ind.physical.perkiraanCadangan = ind.physical.perkiraanCadangan || {};
     for (let i = 0; i < years.length; i++) {
       const yr = years[i];
       const prevYr = i > 0 ? years[i - 1] : null;
@@ -163,6 +168,7 @@ function recalculateLocal(data) {
       ind.physical.penebangan[yr] = tebang;
       ind.physical.perubahanNeto[yr] = neto;
       ind.physical.persediaanAkhir[yr] = akhir;
+      ind.physical.perkiraanCadangan[yr] = tebang > 0 ? round2(akhir / tebang) : 0;
 
       if (i > 0 && prevYr && ind.physical.persediaanAkhir[prevYr]) {
         const prevAkhir = ind.physical.persediaanAkhir[prevYr];

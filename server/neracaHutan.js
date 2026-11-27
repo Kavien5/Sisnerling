@@ -1,15 +1,9 @@
-const fs = require("fs");
-const path = require("path");
 const express = require("express");
 const { logAudit } = require("./auditLog");
 const { pool } = require("./db");
 const { requireRole } = require("./auth");
 const ExcelJS = require("exceljs");
 
-const DATA_DIR = path.join(__dirname, "data");
-const STATE_FILE = process.env.NERACA_STATE_FILE
-  ? path.resolve(process.env.NERACA_STATE_FILE)
-  : path.join(DATA_DIR, "neraca_hutan.json");
 const REGIONAL_SHEETS = ["Jati Jawa", "Rimba Jawa", "Rimba Luar Jawa"];
 const TIMBER_SHEETS = [
   "Jati Jawa",
@@ -196,12 +190,12 @@ function detectWideUnitRent(ws, includeHidden) {
 }
 
 function round2(val) {
-  if (isNaN(val)) return 0;
+  if (!Number.isFinite(val)) return 0;
   return Math.round(val * 100) / 100;
 }
 
 function round4(val) {
-  if (isNaN(val)) return 0;
+  if (!Number.isFinite(val)) return 0;
   return Math.round(val * 10000) / 10000;
 }
 
@@ -220,6 +214,7 @@ function calculateRegionalSheet(sheetData) {
   phys.penebangan = phys.penebangan || {};
   phys.perubahanNeto = {};
   phys.persediaanAkhir = {};
+  phys.perkiraanCadangan = {};
   phys.lajuPertumbuhanAkhir = {};
 
   rent.unitRent = rent.unitRent || {};
@@ -260,6 +255,7 @@ function calculateRegionalSheet(sheetData) {
 
     const akhirFisik = round2(awalFisik + netoFisik);
     phys.persediaanAkhir[yr] = akhirFisik;
+    phys.perkiraanCadangan[yr] = tebangFisik > 0 ? round2(akhirFisik / tebangFisik) : 0;
 
     if (i > 0 && prevYr && phys.persediaanAkhir[prevYr]) {
       const prevAkhirFisik = phys.persediaanAkhir[prevYr];
@@ -339,6 +335,7 @@ function calculateNationalSheet(allSheets, years) {
       penebangan: {},
       perubahanNeto: {},
       persediaanAkhir: {},
+      perkiraanCadangan: {},
       lajuPertumbuhanAkhir: {},
     },
     rent: {
@@ -377,6 +374,7 @@ function calculateNationalSheet(allSheets, years) {
     indonesia.physical.penebangan[yr] = tebang;
     indonesia.physical.perubahanNeto[yr] = neto;
     indonesia.physical.persediaanAkhir[yr] = akhir;
+    indonesia.physical.perkiraanCadangan[yr] = tebang > 0 ? round2(akhir / tebang) : 0;
 
     if (i > 0 && prevYr && indonesia.physical.persediaanAkhir[prevYr]) {
       const prevAkhir = indonesia.physical.persediaanAkhir[prevYr];
@@ -627,39 +625,25 @@ async function save() {
      ON DUPLICATE KEY UPDATE state_json = VALUES(state_json)`,
     [NERACA_STATE_KEY, JSON.stringify(state)]
   );
-  try {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), "utf8");
-  } catch (err) {
-    console.error("[neraca] gagal menulis cache neraca_hutan.json:", err.message);
-  }
 }
 
 async function initNeracaState() {
-  try {
-    const [[row]] = await pool.query(
-      "SELECT state_json FROM neraca_hutan_state WHERE state_key = ?",
-      [NERACA_STATE_KEY]
+  const [[row]] = await pool.query(
+    "SELECT state_json FROM neraca_hutan_state WHERE state_key = ?",
+    [NERACA_STATE_KEY]
+  );
+  if (row && row.state_json) {
+    const normalized = normalizeState(
+      typeof row.state_json === "string" ? JSON.parse(row.state_json) : row.state_json
     );
-    if (row && row.state_json) {
-      const normalized = normalizeState(
-        typeof row.state_json === "string" ? JSON.parse(row.state_json) : row.state_json
-      );
-      if (normalized) {
-        state = normalized;
-        return state;
-      }
+    if (normalized) {
+      state = normalized;
+      return state;
     }
-  } catch (err) {
-    console.error("[neraca] gagal memuat state dari database:", err.message);
   }
-  const loaded = loadOrInit();
-  try {
-    await save();
-  } catch (err) {
-    console.error("[neraca] gagal menyimpan state awal ke database:", err.message);
-  }
-  return loaded;
+  state = freshState();
+  await save();
+  return state;
 }
 
 function newDatasetId() {
@@ -703,21 +687,10 @@ function freshState() {
 }
 
 function loadOrInit() {
-  if (state) return state;
-  try {
-    if (fs.existsSync(STATE_FILE)) {
-      const raw = JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
-      const normalized = normalizeState(raw);
-      if (normalized) {
-        state = normalized;
-        return state;
-      }
-    }
-  } catch (err) {
-    console.error("Gagal memuat neraca_hutan.json, menginisialisasi ulang:", err.message);
+  if (!state) {
+    state = freshState();
+    save().catch((err) => console.error("[neraca] gagal menyimpan state awal:", err.message));
   }
-  state = freshState();
-  save().catch((err) => console.error("[neraca] gagal menyimpan state awal:", err.message));
   return state;
 }
 
