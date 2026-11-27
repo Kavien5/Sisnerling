@@ -616,13 +616,50 @@ function getInitialSpreadsheetData() {
 let state = null;
 
 const DEFAULT_DATASET_NAME = "Baseline (Acuan BPS)";
+const NERACA_STATE_KEY = "default";
 
-function save() {
+async function save() {
   if (!state) return;
   state.meta = state.meta || {};
   state.meta.updatedAt = new Date().toISOString();
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), "utf8");
+  await pool.query(
+    `INSERT INTO neraca_hutan_state (state_key, state_json) VALUES (?, ?)
+     ON DUPLICATE KEY UPDATE state_json = VALUES(state_json)`,
+    [NERACA_STATE_KEY, JSON.stringify(state)]
+  );
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), "utf8");
+  } catch (err) {
+    console.error("[neraca] gagal menulis cache neraca_hutan.json:", err.message);
+  }
+}
+
+async function initNeracaState() {
+  try {
+    const [[row]] = await pool.query(
+      "SELECT state_json FROM neraca_hutan_state WHERE state_key = ?",
+      [NERACA_STATE_KEY]
+    );
+    if (row && row.state_json) {
+      const normalized = normalizeState(
+        typeof row.state_json === "string" ? JSON.parse(row.state_json) : row.state_json
+      );
+      if (normalized) {
+        state = normalized;
+        return state;
+      }
+    }
+  } catch (err) {
+    console.error("[neraca] gagal memuat state dari database:", err.message);
+  }
+  const loaded = loadOrInit();
+  try {
+    await save();
+  } catch (err) {
+    console.error("[neraca] gagal menyimpan state awal ke database:", err.message);
+  }
+  return loaded;
 }
 
 function newDatasetId() {
@@ -680,7 +717,7 @@ function loadOrInit() {
     console.error("Gagal memuat neraca_hutan.json, menginisialisasi ulang:", err.message);
   }
   state = freshState();
-  save();
+  save().catch((err) => console.error("[neraca] gagal menyimpan state awal:", err.message));
   return state;
 }
 
@@ -773,7 +810,7 @@ function readNeracaCellValues(cells) {
   return cells.map((cell) => ({ ...cell, value: getNeracaCellValue(cell) }));
 }
 
-function applyNeracaCellValues(cells) {
+async function applyNeracaCellValues(cells) {
   const current = readNeracaCellValues(cells);
   if (cells.some((cell) => !Number.isFinite(Number(cell.value)))) {
     const err = new Error("Nilai pada snapshot neraca tidak valid.");
@@ -797,7 +834,7 @@ function applyNeracaCellValues(cells) {
     recalculateAll(ds.data);
     ds.updatedAt = new Date().toISOString();
   });
-  save();
+  await save();
   return current;
 }
 
@@ -811,7 +848,7 @@ function neracaResponse(datasetId = null) {
   };
 }
 
-function selectDataset(id) {
+async function selectDataset(id) {
   const s = loadOrInit();
   if (!s.datasets.some((d) => d.id === id)) {
     const err = new Error("Dataset tidak ditemukan!");
@@ -819,11 +856,11 @@ function selectDataset(id) {
     throw err;
   }
   s.activeDatasetId = id;
-  save();
+  await save();
   return s;
 }
 
-function renameDataset(id, name) {
+async function renameDataset(id, name) {
   const s = loadOrInit();
   const ds = s.datasets.find((d) => d.id === id);
   if (!ds) {
@@ -839,11 +876,11 @@ function renameDataset(id, name) {
   }
   ds.name = clean.slice(0, 120);
   ds.updatedAt = new Date().toISOString();
-  save();
+  await save();
   return s;
 }
 
-function deleteDataset(id) {
+async function deleteDataset(id) {
   const s = loadOrInit();
   if (s.datasets.length <= 1) {
     const err = new Error("Minimal harus ada satu dataset. Dataset terakhir tidak dapat dihapus.");
@@ -858,11 +895,11 @@ function deleteDataset(id) {
   }
   s.datasets.splice(idx, 1);
   if (s.activeDatasetId === id) s.activeDatasetId = s.datasets[0].id;
-  save();
+  await save();
   return s;
 }
 
-function addYear(year) {
+async function addYear(year) {
   const ds = activeDataset();
   const data = ds.data;
   let target = year === undefined || year === null ? "" : String(year).trim();
@@ -902,11 +939,11 @@ function addYear(year) {
 
   recalculateAll(data);
   ds.updatedAt = new Date().toISOString();
-  save();
+  await save();
   return data;
 }
 
-function updateCell({ datasetId, sheet, section, row, year, value }) {
+async function updateCell({ datasetId, sheet, section, row, year, value }) {
   const ds = getDataset(datasetId);
   const data = ds.data;
   const sheetObj = data.sheets[sheet];
@@ -930,15 +967,15 @@ function updateCell({ datasetId, sheet, section, row, year, value }) {
 
   recalculateAll(data);
   ds.updatedAt = new Date().toISOString();
-  save();
+  await save();
   return data;
 }
 
-function resetData() {
+async function resetData() {
   const ds = activeDataset();
   ds.data = getInitialSpreadsheetData();
   ds.updatedAt = new Date().toISOString();
-  save();
+  await save();
   return ds.data;
 }
 
@@ -1451,7 +1488,7 @@ async function createDatasetFromImport(buffer, name, options = {}) {
   if (!skipSave) {
     s.datasets.push(ds);
     s.activeDatasetId = ds.id;
-    save();
+    await save();
   }
 
   console.log(
@@ -1489,7 +1526,7 @@ async function reimportActiveDataset(includeHidden) {
   ds.sourceFilename = newDs.sourceFilename;
   ds.updatedAt = new Date().toISOString();
   s.activeDatasetId = ds.id;
-  save();
+  await save();
   console.log(
     `[neraca-reimport] OK "${ds.name}": ${stats.cells} sel, hidden=${includeHidden ? "disertakan" : "dilewati"}`
   );
@@ -1981,7 +2018,7 @@ function createNeracaRouter({ onChange } = {}) {
           recalculateAll(data);
           ds.updatedAt = new Date().toISOString();
         });
-        save();
+        await save();
         notifyChange("cell");
         await logAudit({
           userId: req.user.id,
@@ -2013,7 +2050,7 @@ function createNeracaRouter({ onChange } = {}) {
       };
       await ensureTaskWriteAccess(req, taskId, cell.datasetId);
       const oldValue = getNeracaCellValue(cell);
-      updateCell({ datasetId, sheet, section, row, year, value });
+      await updateCell({ datasetId, sheet, section, row, year, value });
       notifyChange("cell");
       await logAudit({
         userId: req.user.id,
@@ -2032,7 +2069,7 @@ function createNeracaRouter({ onChange } = {}) {
 
   router.post("/tahun", requireRole("admin"), async (req, res) => {
     try {
-      const data = addYear(req.body ? req.body.year : undefined);
+      const data = await addYear(req.body ? req.body.year : undefined);
       notifyChange("year");
       await logActivity(req, "update", `Menambahkan tahun ${data.years[data.years.length - 1]} pada Input & Pengolahan Neraca Hutan`);
       res.json({
@@ -2045,7 +2082,7 @@ function createNeracaRouter({ onChange } = {}) {
   });
 
   router.post("/reset", requireRole("admin"), async (req, res) => {
-    resetData();
+    await resetData();
     notifyChange("reset");
     await logActivity(req, "clean", "Mengembalikan angka dataset aktif Neraca Hutan ke baseline BPS");
     res.json({
@@ -2062,7 +2099,7 @@ function createNeracaRouter({ onChange } = {}) {
 
   router.post("/datasets/select", requireRole("user_entry", "admin"), async (req, res) => {
     try {
-      selectDataset((req.body || {}).id);
+      await selectDataset((req.body || {}).id);
       notifyChange("dataset-selected");
       await logActivity(req, "update", "Mengganti dataset aktif Input & Pengolahan Neraca Hutan");
       res.json({ message: "Dataset aktif diganti.", ...neracaResponse() });
@@ -2073,7 +2110,7 @@ function createNeracaRouter({ onChange } = {}) {
 
   router.post("/datasets/rename", requireRole("admin"), async (req, res) => {
     try {
-      renameDataset((req.body || {}).id, (req.body || {}).name);
+      await renameDataset((req.body || {}).id, (req.body || {}).name);
       notifyChange("dataset-renamed");
       await logActivity(req, "update", "Mengubah nama dataset Input & Pengolahan Neraca Hutan");
       res.json({ message: "Nama dataset diperbarui.", ...neracaResponse() });
@@ -2095,7 +2132,7 @@ function createNeracaRouter({ onChange } = {}) {
           error: "Dataset tidak dapat dihapus karena masih memiliki tugas yang belum selesai atau menunggu verifikasi.",
         });
       }
-      deleteDataset(req.params.id);
+      await deleteDataset(req.params.id);
       notifyChange("dataset-deleted");
       await logActivity(req, "delete", "Menghapus dataset Input & Pengolahan Neraca Hutan");
       res.json({ message: "Dataset dihapus.", ...neracaResponse() });
@@ -2178,6 +2215,7 @@ function createNeracaRouter({ onChange } = {}) {
 
 module.exports = {
   createNeracaRouter,
+  initNeracaState,
   recalculateAll,
   getInitialSpreadsheetData,
   buildTemplateWorkbook,

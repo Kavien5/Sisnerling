@@ -452,6 +452,13 @@ CREATE TABLE IF NOT EXISTS hasil_pengolahan_timber (
   FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS neraca_hutan_state (
+  state_key VARCHAR(64) NOT NULL PRIMARY KEY,
+  state_json LONGTEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 INSERT IGNORE INTO kategori (id, nama_kategori, deskripsi) VALUES
   (1, 'Neraca Terintegrasi', 'Data neraca terintegrasi'),
   (2, 'Neraca Fisik & Moneter Hutan', 'Data neraca fisik & moneter hutan'),

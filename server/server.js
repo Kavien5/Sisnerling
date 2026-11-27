@@ -151,7 +151,7 @@ app.use("/api/statistical", (req, res, next) => {
 });
 
 // ===== Input & Pengolahan Neraca Hutan & Timber (spreadsheet formulasi) =====
-const { createNeracaRouter } = require("./neracaHutan");
+const { createNeracaRouter, initNeracaState } = require("./neracaHutan");
 const { emitNeracaUpdate } = require("./realtime");
 app.use("/api/neraca", createNeracaRouter({ onChange: emitNeracaUpdate }));
 
@@ -3791,6 +3791,7 @@ const { attachRealtime } = require("./realtime");
 
 initDatabase()
   .then(async () => {
+    await initNeracaState();
     await initializeStatisticalWorkbooks();
     const cleanExpiredAuditLogs = async () => {
       try {

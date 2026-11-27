@@ -5,6 +5,32 @@
   margin-left: auto;
 }
 
+.hpn-root .hpn-save-status {
+  align-items: center;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-radius: 999px;
+  color: #047857;
+  display: inline-flex;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.35rem 0.65rem;
+  white-space: nowrap;
+}
+
+.hpn-root .hpn-save-status.saving,
+.hpn-root .hpn-save-status.pending {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #b45309;
+}
+
+.hpn-root .hpn-save-status.error {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
 .hpn-root .hpn-admin-badge {
   align-items: center;
   background: var(--ipn-primary-light);

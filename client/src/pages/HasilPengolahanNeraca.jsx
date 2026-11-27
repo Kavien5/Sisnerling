@@ -324,12 +324,92 @@ export default function HasilPengolahanNeraca({ user }) {
   const toast = useToast();
   const canEdit = canEditData(user);
   const [allRecords, setAllRecords] = React.useState([]);
+  const recordsRef = React.useRef(allRecords);
   const [activeSheet, setActiveSheet] = React.useState(SHEETS[0].name);
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState("");
+  const [saveError, setSaveError] = React.useState("");
+  const [lastSavedAt, setLastSavedAt] = React.useState(null);
   const [refreshKey, setRefreshKey] = React.useState(0);
   const [dirty, setDirty] = React.useState(() => new Set());
+  const pendingSaves = React.useRef(new Map());
+  const autosaveTimer = React.useRef(null);
+  const savingRef = React.useRef(false);
+
+  const setRecords = React.useCallback((updater) => {
+    const next = typeof updater === "function" ? updater(recordsRef.current) : updater;
+    recordsRef.current = next;
+    setAllRecords(next);
+    return next;
+  }, []);
+
+  const flushPending = React.useCallback(async () => {
+    if (autosaveTimer.current) {
+      clearTimeout(autosaveTimer.current);
+      autosaveTimer.current = null;
+    }
+    if (savingRef.current) return;
+    const entries = [...pendingSaves.current.values()];
+    if (!entries.length) return;
+
+    savingRef.current = true;
+    setSaving(true);
+    setSaveError("");
+    let failed = 0;
+    let savedCount = 0;
+    let latestUpdatedAt = null;
+
+    for (const entry of entries) {
+      if (!pendingSaves.current.has(entry.key)) continue;
+      try {
+        const saved = await api.saveTimberHasil(entry.sheet, entry.year, entry.values);
+        setRecords((prev) =>
+          prev.map((item) =>
+            item.sheet === entry.sheet && Number(item.year) === entry.year
+              ? { ...item, values: saved.values, updatedAt: saved.updatedAt }
+              : item
+          )
+        );
+        setDirty((prev) => {
+          const next = new Set(prev);
+          next.delete(entry.key);
+          return next;
+        });
+        pendingSaves.current.delete(entry.key);
+        latestUpdatedAt = saved.updatedAt || latestUpdatedAt;
+        savedCount += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+
+    if (latestUpdatedAt) setLastSavedAt(latestUpdatedAt);
+    setSaving(false);
+    savingRef.current = false;
+    if (failed) {
+      const message = `${failed} perubahan belum tersimpan. Periksa MySQL lalu klik "Simpan Perubahan".`;
+      setSaveError(message);
+      toast(message, "error");
+    } else if (savedCount) {
+      toast(`${savedCount} perubahan tersimpan di database.`, "success");
+    }
+  }, [setRecords, toast]);
+
+  const scheduleAutosave = React.useCallback(() => {
+    if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+    autosaveTimer.current = setTimeout(() => {
+      autosaveTimer.current = null;
+      flushPending();
+    }, 400);
+  }, [flushPending]);
+
+  React.useEffect(() => {
+    return () => {
+      if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+      if (pendingSaves.current.size) flushPending();
+    };
+  }, [flushPending]);
 
   React.useEffect(() => {
     let active = true;
@@ -342,7 +422,7 @@ export default function HasilPengolahanNeraca({ user }) {
         if (!Array.isArray(response.rows)) {
           throw new Error("Format data hasil Timber dari server tidak valid.");
         }
-        setAllRecords(response.rows);
+        setRecords(response.rows);
       })
       .catch((loadError) => {
         if (active) setError(loadError.message || "Gagal memuat hasil pengolahan Timber.");
@@ -353,7 +433,7 @@ export default function HasilPengolahanNeraca({ user }) {
     return () => {
       active = false;
     };
-  }, [refreshKey]);
+  }, [refreshKey, setRecords]);
 
   const valuesBySheet = React.useMemo(() => {
     const result = new Map();
@@ -388,79 +468,36 @@ export default function HasilPengolahanNeraca({ user }) {
         : nationalRows;
   const activeVisibleRows = activeRows.filter((row) => DISPLAY_YEARS.includes(row.year));
   const latest = activeVisibleRows[activeVisibleRows.length - 1];
-  const dirtyCount = React.useMemo(
-    () =>
-      [...dirty].filter(
-        (key) =>
-          key.startsWith(`${activeSheet}:`) &&
-          DISPLAY_YEARS.includes(Number(key.split(":")[1]))
-      ).length,
-    [dirty, activeSheet]
-  );
+  const dirtyCount = dirty.size;
 
   const handleCellChange = (sheet, year, field, rawValue) => {
     const value = Number(rawValue);
     if (!Number.isFinite(value)) return;
-    setAllRecords((prev) => {
-      const index = prev.findIndex(
-        (record) => record.sheet === sheet && Number(record.year) === Number(year)
-      );
-      const current =
-        index >= 0
-          ? prev[index]
-          : { sheet, year: Number(year), values: { ...EMPTY_VALUES }, updatedAt: null };
-      const next = {
-        ...current,
-        values: { ...current.values, [field]: value },
-      };
-      if (index >= 0) {
-        const copy = [...prev];
-        copy[index] = next;
-        return copy;
-      }
-      return [...prev, next];
-    });
-    setDirty((prev) => new Set(prev).add(`${sheet}:${year}`));
-  };
 
-  const saveChanges = async () => {
-    const keys = [...dirty].filter((key) => key.startsWith(`${activeSheet}:`));
-    if (!keys.length) {
-      toast("Tidak ada perubahan yang perlu disimpan.", "info");
-      return;
-    }
-    setSaving(true);
-    let failed = 0;
-    for (const key of keys) {
-      const year = Number(key.split(":")[1]);
-      const record = allRecords.find(
-        (item) => item.sheet === activeSheet && Number(item.year) === year
-      );
-      if (!record) continue;
-      try {
-        const saved = await api.saveTimberHasil(activeSheet, year, record.values);
-        setAllRecords((prev) =>
-          prev.map((item) =>
-            item.sheet === activeSheet && Number(item.year) === year
-              ? { ...item, values: saved.values, updatedAt: saved.updatedAt }
-              : item
-          )
-        );
-        setDirty((prev) => {
-          const next = new Set(prev);
-          next.delete(key);
-          return next;
-        });
-      } catch {
-        failed += 1;
-      }
-    }
-    setSaving(false);
-    if (failed) {
-      toast(`${failed} data gagal disimpan. Periksa koneksi lalu coba lagi.`, "error");
-    } else {
-      toast(`${keys.length} data ${activeSheet} berhasil disimpan.`, "success");
-    }
+    const yearValue = Number(year);
+    const key = `${sheet}:${yearValue}`;
+    const prev = recordsRef.current;
+    const index = prev.findIndex(
+      (record) => record.sheet === sheet && Number(record.year) === yearValue
+    );
+    const current =
+      index >= 0
+        ? prev[index]
+        : { sheet, year: yearValue, values: { ...EMPTY_VALUES }, updatedAt: null };
+    const next = {
+      ...current,
+      values: { ...current.values, [field]: value },
+    };
+    const nextRecords =
+      index >= 0
+        ? [...prev.slice(0, index), next, ...prev.slice(index + 1)]
+        : [...prev, next];
+
+    setRecords(nextRecords);
+    pendingSaves.current.set(key, { key, sheet, year: yearValue, values: next.values });
+    setDirty((previous) => new Set(previous).add(key));
+    setSaveError("");
+    scheduleAutosave();
   };
 
   const renderRegional = () => (
@@ -723,10 +760,28 @@ export default function HasilPengolahanNeraca({ user }) {
             </div>
           </div>
           <div className="hpn-header-actions">
+            <span
+              className={`hpn-save-status${saveError ? " error" : saving ? " saving" : dirtyCount ? " pending" : ""}`}
+              title={lastSavedAt ? `Tersimpan terakhir: ${lastSavedAt}` : "Perubahan disimpan otomatis ke MySQL"}
+            >
+              {saveError
+                ? "Gagal menyimpan ke database"
+                : saving
+                  ? "Menyimpan ke database..."
+                  : dirtyCount
+                    ? "Menunggu simpan otomatis"
+                    : "Tersimpan di database"}
+            </span>
             <button
               type="button"
               className="btn btn-secondary"
-              onClick={() => setRefreshKey((key) => key + 1)}
+              onClick={() => {
+                if (dirtyCount) {
+                  flushPending().finally(() => setRefreshKey((key) => key + 1));
+                } else {
+                  setRefreshKey((key) => key + 1);
+                }
+              }}
               disabled={loading || saving}
             >
               <IconRotate size={14} />
@@ -736,7 +791,7 @@ export default function HasilPengolahanNeraca({ user }) {
               <button
                 type="button"
                 className="btn btn-primary"
-                onClick={saveChanges}
+                onClick={flushPending}
                 disabled={saving || !dirtyCount}
               >
                 <IconCheck size={14} />
@@ -758,6 +813,13 @@ export default function HasilPengolahanNeraca({ user }) {
         <div className="hpn-error" role="alert">
           <b>Data belum berhasil dimuat.</b>
           <span>{error}</span>
+        </div>
+      )}
+
+      {saveError && (
+        <div className="hpn-error" role="alert">
+          <b>Data belum tersimpan.</b>
+          <span>{saveError}</span>
         </div>
       )}
 

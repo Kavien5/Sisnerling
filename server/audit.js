@@ -805,7 +805,7 @@ router.post("/logs/:id/restore", requireRole("admin"), async (req, res, next) =>
       if (!cellsToRestore.length || (selectedFields && selectedFields.size !== cellsToRestore.length)) {
         throw badRestoreSelection("Pilihan sel neraca tidak valid atau tidak berisi perubahan yang dapat dipulihkan.");
       }
-      preRestoreState = { cells: applyNeracaCellValues(cellsToRestore) };
+      preRestoreState = { cells: await applyNeracaCellValues(cellsToRestore) };
       postRestoreState = { cells: cellsToRestore };
       restoredDescription = `Memulihkan ${cellsToRestore.length} dari ${oldData.cells.length} nilai neraca ke kondisi sebelum aktivitas #${log.id}`;
     }
